@@ -2011,11 +2011,20 @@ module.exports = {
 
     shutdown: async () => {
         return new Promise((resolve) => {
+            // Close Socket.IO connections first
+            if (io) {
+                io.close();
+            }
             if (server) {
                 server.close(() => {
                     logger?.info('app', 'Server closed');
                     resolve();
                 });
+                // Force resolve after 2 seconds if server doesn't close
+                setTimeout(() => {
+                    logger?.warn('app', 'Server close timeout, forcing shutdown');
+                    resolve();
+                }, 2000);
             } else {
                 resolve();
             }
