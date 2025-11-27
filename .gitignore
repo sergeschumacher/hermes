@@ -1,0 +1,13 @@
+node_modules/
+data/
+*.db
+*.log
+.env
+.env.*
+.DS_Store
+Thumbs.db
+web/static/css/output.css
+__DEPLOY/
+__DEPLOYNPM/
+*.zip
+CONVERSATION_SUMMARY.md

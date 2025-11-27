@@ -1,0 +1,233 @@
+<%- include('partials/header', { title: 'Requests', page: 'requests' }) %>
+
+<div class="p-8">
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Requests</h1>
+                <p class="text-dark-400 mt-1">Manage incoming requests from Overseerr</p>
+            </div>
+            <div class="flex gap-2">
+                <select id="filter-status" class="input w-auto">
+                    <option value="">All Status</option>
+                    <option value="pending">Pending</option>
+                    <option value="approved">Approved</option>
+                    <option value="rejected">Rejected</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Connection Info -->
+        <div class="card p-4 mb-6 bg-dark-800">
+            <h3 class="text-sm font-medium text-dark-400 mb-2">Overseerr Configuration</h3>
+            <p class="text-sm text-dark-300">
+                Configure Hermes as both a <strong>Radarr</strong> (for movies) and <strong>Sonarr</strong> (for TV series) server in Overseerr using the same settings:
+            </p>
+            <div class="mt-2 p-3 bg-dark-900 rounded-lg font-mono text-sm">
+                <div class="flex items-center gap-2">
+                    <span class="text-dark-400">Hostname:</span>
+                    <span class="text-primary-400" id="api-host">192.168.x.x</span>
+                    <span class="text-dark-500 text-xs">(your Hermes server IP)</span>
+                </div>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="text-dark-400">Port:</span>
+                    <span class="text-primary-400">3000</span>
+                </div>
+                <div class="flex items-center gap-2 mt-1">
+                    <span class="text-dark-400">API Key:</span>
+                    <span class="text-primary-400">hermes-api-key</span>
+                    <span class="text-dark-500 text-xs">(any value works)</span>
+                </div>
+            </div>
+            <p class="text-xs text-dark-500 mt-2">
+                Add Hermes twice in Overseerr: once as Radarr server (for movie requests) and once as Sonarr server (for TV series requests).
+            </p>
+        </div>
+    </div>
+
+    <!-- Stats -->
+    <div class="grid grid-cols-4 gap-4 mb-6">
+        <div class="card p-4">
+            <div class="text-2xl font-bold text-white" id="stat-pending">0</div>
+            <div class="text-sm text-dark-400">Pending</div>
+        </div>
+        <div class="card p-4">
+            <div class="text-2xl font-bold text-green-500" id="stat-approved">0</div>
+            <div class="text-sm text-dark-400">Approved</div>
+        </div>
+        <div class="card p-4">
+            <div class="text-2xl font-bold text-red-500" id="stat-rejected">0</div>
+            <div class="text-sm text-dark-400">Rejected</div>
+        </div>
+        <div class="card p-4">
+            <div class="text-2xl font-bold text-yellow-500" id="stat-unmatched">0</div>
+            <div class="text-sm text-dark-400">Unmatched</div>
+        </div>
+    </div>
+
+    <!-- Requests List -->
+    <div class="space-y-3" id="requests-list">
+        <div class="text-center text-dark-400 py-8">Loading requests...</div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let requests = [];
+
+    function copyToClipboard(text) {
+        navigator.clipboard.writeText(text);
+    }
+
+    async function loadRequests() {
+        try {
+            const response = await fetch('/api/requests');
+            requests = await response.json();
+            renderRequests();
+            updateStats();
+        } catch (err) {
+            console.error('Failed to load requests:', err);
+            document.getElementById('requests-list').innerHTML =
+                '<div class="text-center text-red-400 py-8">Failed to load requests</div>';
+        }
+    }
+
+    function updateStats() {
+        const pending = requests.filter(r => r.status === 'pending').length;
+        const approved = requests.filter(r => r.status === 'approved').length;
+        const rejected = requests.filter(r => r.status === 'rejected').length;
+        const unmatched = requests.filter(r => r.status === 'pending' && !r.matched_media_id).length;
+
+        document.getElementById('stat-pending').textContent = pending;
+        document.getElementById('stat-approved').textContent = approved;
+        document.getElementById('stat-rejected').textContent = rejected;
+        document.getElementById('stat-unmatched').textContent = unmatched;
+
+        // Update badge in sidebar
+        const badge = document.getElementById('request-badge');
+        if (badge) {
+            if (pending > 0) {
+                badge.textContent = pending;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+    }
+
+    function renderRequests() {
+        const filter = document.getElementById('filter-status').value;
+        const filtered = filter ? requests.filter(r => r.status === filter) : requests;
+
+        if (filtered.length === 0) {
+            document.getElementById('requests-list').innerHTML =
+                '<div class="text-center text-dark-400 py-8">No requests found</div>';
+            return;
+        }
+
+        document.getElementById('requests-list').innerHTML = filtered.map(req => {
+            const poster = req.poster
+                ? (req.poster.startsWith('http') ? req.poster : `https://image.tmdb.org/t/p/w92${req.poster}`)
+                : '/static/img/no-poster.png';
+
+            const statusColor = {
+                pending: 'bg-yellow-500/20 text-yellow-400',
+                approved: 'bg-green-500/20 text-green-400',
+                rejected: 'bg-red-500/20 text-red-400'
+            }[req.status] || 'bg-dark-600 text-dark-300';
+
+            const matchStatus = req.matched_media_id
+                ? '<span class="text-green-400 text-sm">Matched</span>'
+                : '<span class="text-yellow-400 text-sm">Not in library</span>';
+
+            return `
+                <div class="card p-4 flex items-center gap-4">
+                    <img src="${poster}" alt="${req.title}" class="w-16 h-24 rounded object-cover" onerror="this.src='/static/img/no-poster.png'" />
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-3">
+                            <h3 class="font-medium text-white truncate">${req.title}</h3>
+                            <span class="px-2 py-0.5 rounded text-xs font-medium ${statusColor}">${req.status}</span>
+                        </div>
+                        <div class="flex items-center gap-4 mt-1 text-sm text-dark-400">
+                            ${req.year ? `<span>${req.year}</span>` : ''}
+                            <span>${req.media_type}</span>
+                            ${matchStatus}
+                            <span>TMDB: ${req.tmdb_id || 'N/A'}</span>
+                        </div>
+                        <div class="text-xs text-dark-500 mt-1">
+                            Requested ${new Date(req.created_at).toLocaleString()}
+                            ${req.source ? `via ${req.source}` : ''}
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        ${req.status === 'pending' ? `
+                            <button onclick="approveRequest(${req.id})" class="btn btn-primary btn-sm" ${!req.matched_media_id ? 'disabled title="No match in library"' : ''}>
+                                Approve
+                            </button>
+                            <button onclick="rejectRequest(${req.id})" class="btn btn-secondary btn-sm">
+                                Reject
+                            </button>
+                        ` : `
+                            <button onclick="deleteRequest(${req.id})" class="btn btn-secondary btn-sm text-red-400">
+                                Delete
+                            </button>
+                        `}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function approveRequest(id) {
+        try {
+            const response = await fetch(`/api/requests/${id}/approve`, { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                loadRequests();
+            } else {
+                alert(result.error || 'Failed to approve request');
+            }
+        } catch (err) {
+            console.error('Failed to approve:', err);
+            alert('Failed to approve request');
+        }
+    }
+
+    async function rejectRequest(id) {
+        try {
+            await fetch(`/api/requests/${id}/reject`, { method: 'POST' });
+            loadRequests();
+        } catch (err) {
+            console.error('Failed to reject:', err);
+        }
+    }
+
+    async function deleteRequest(id) {
+        if (!confirm('Delete this request?')) return;
+
+        try {
+            await fetch(`/api/requests/${id}`, { method: 'DELETE' });
+            loadRequests();
+        } catch (err) {
+            console.error('Failed to delete:', err);
+        }
+    }
+
+    // Real-time updates
+    socket.on('request:new', (data) => {
+        loadRequests();
+    });
+
+    socket.on('request:approved', (data) => {
+        loadRequests();
+    });
+
+    // Filter change
+    document.getElementById('filter-status').addEventListener('change', renderRequests);
+
+    // Initial load
+    loadRequests();
+</script>
+
+<%- include('partials/footer') %>

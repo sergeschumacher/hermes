@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  hermes:
+    build: .
+    container_name: hermes
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persistent data (database, config, cache)
+      - ./data:/data
+      # Download directories - adjust paths as needed
+      - /path/to/your/downloads:/downloads
+      - /path/to/your/temp:/temp
+      # Optional: Mount Plex media directories for direct access
+      # - /path/to/plex/movies:/media/movies
+      # - /path/to/plex/tv:/media/tv
+    environment:
+      - NODE_ENV=production
+      - DATA_PATH=/data
+      # Optional: Set these in .env file instead
+      # - TMDB_API_KEY=your_tmdb_api_key
+      # - PLEX_URL=http://192.168.1.100:32400
+      # - PLEX_TOKEN=your_plex_token
+    networks:
+      - media
+
+networks:
+  media:
+    driver: bridge
+
+# Example with external network to connect to existing Plex/Overseerr:
+# networks:
+#   media:
+#     external: true
+#     name: your_existing_network

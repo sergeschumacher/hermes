@@ -1,0 +1,67 @@
+<%- include('partials/header', { title: 'Person', page: 'person' }) %>
+
+<div id="person-container">
+    <div class="p-8 text-center" id="loading">
+        <p class="text-dark-400">Loading...</p>
+    </div>
+</div>
+
+<script>
+    const personId = '<%= personId %>';
+
+    async function loadPerson() {
+        try {
+            const response = await fetch('/api/people/' + personId);
+            const person = await response.json();
+            renderPerson(person);
+        } catch (err) {
+            document.getElementById('person-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load person</div>';
+        }
+    }
+
+    function renderPerson(person) {
+        const container = document.getElementById('person-container');
+        container.innerHTML = `
+            <div class="p-8">
+                <div class="flex flex-col md:flex-row gap-8 mb-8">
+                    <img src="${person.profile_path || '/static/img/no-avatar.png'}"
+                         alt="${person.name}"
+                         class="w-48 h-48 rounded-xl object-cover" />
+                    <div>
+                        <h1 class="text-3xl font-bold text-white mb-2">${person.name}</h1>
+                        <p class="text-dark-400 mb-2">${person.known_for || ''}</p>
+                        ${person.birthday ? `<p class="text-dark-400">Born: ${person.birthday}</p>` : ''}
+                        ${person.place_of_birth ? `<p class="text-dark-400">${person.place_of_birth}</p>` : ''}
+                        ${person.biography ? `<p class="text-dark-300 mt-4 max-w-2xl">${person.biography}</p>` : ''}
+                        ${person.tmdb_id ? `
+                            <a href="https://www.themoviedb.org/person/${person.tmdb_id}" target="_blank" class="btn btn-secondary mt-4">View on TMDB</a>
+                        ` : ''}
+                    </div>
+                </div>
+
+                ${person.credits && person.credits.length > 0 ? `
+                    <h2 class="text-2xl font-semibold text-white mb-4">Filmography</h2>
+                    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+                        ${person.credits.map(credit => `
+                            <a href="/media/${credit.id}" class="media-card">
+                                <img src="${credit.poster || '/static/img/no-poster.png'}"
+                                     alt="${credit.title}"
+                                     class="media-poster"
+                                     loading="lazy" />
+                                <div class="p-3">
+                                    <h3 class="font-medium text-white text-sm truncate">${credit.title}</h3>
+                                    <p class="text-dark-400 text-xs">${credit.year || ''}</p>
+                                    ${credit.character ? `<p class="text-dark-500 text-xs truncate">${credit.character}</p>` : ''}
+                                </div>
+                            </a>
+                        `).join('')}
+                    </div>
+                ` : '<p class="text-dark-400">No filmography in your library</p>'}
+            </div>
+        `;
+    }
+
+    loadPerson();
+</script>
+
+<%- include('partials/footer') %>

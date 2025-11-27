@@ -1,0 +1,199 @@
+<%- include('partials/header', { title: 'Logs', page: 'logs' }) %>
+
+<div class="p-8 flex flex-col h-[calc(100vh-2rem)]">
+    <div class="mb-4">
+        <div class="flex items-center justify-between">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Logs</h1>
+                <p class="text-dark-400 mt-1">Real-time application logs</p>
+            </div>
+            <div class="flex gap-2">
+                <select id="filter-level" class="input w-auto">
+                    <option value="">All Levels</option>
+                    <option value="debug">Debug</option>
+                    <option value="info">Info</option>
+                    <option value="warn">Warning</option>
+                    <option value="error">Error</option>
+                </select>
+                <select id="filter-module" class="input w-auto">
+                    <option value="">All Modules</option>
+                </select>
+                <button onclick="clearLogs()" class="btn btn-secondary">Clear</button>
+                <button onclick="toggleAutoScroll()" class="btn btn-secondary" id="auto-scroll-btn">
+                    Auto-scroll: ON
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Log Window -->
+    <div class="card flex-1 overflow-hidden flex flex-col">
+        <div class="flex-1 overflow-y-auto p-4 font-mono text-sm" id="log-container">
+            <div class="text-dark-500 text-center py-8">
+                Waiting for logs...
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let logs = [];
+    let autoScroll = true;
+    let modules = new Set();
+    const MAX_LOGS = 1000;
+
+    function toggleAutoScroll() {
+        autoScroll = !autoScroll;
+        document.getElementById('auto-scroll-btn').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+    }
+
+    function clearLogs() {
+        logs = [];
+        renderLogs();
+    }
+
+    function addLog(log) {
+        logs.push(log);
+
+        // Track modules for filter
+        if (log.module && !modules.has(log.module)) {
+            modules.add(log.module);
+            updateModuleFilter();
+        }
+
+        // Keep only last N logs
+        if (logs.length > MAX_LOGS) {
+            logs = logs.slice(-MAX_LOGS);
+        }
+
+        renderLogs();
+    }
+
+    function updateModuleFilter() {
+        const select = document.getElementById('filter-module');
+        const currentValue = select.value;
+        select.innerHTML = '<option value="">All Modules</option>' +
+            Array.from(modules).sort().map(m => `<option value="${m}">${m}</option>`).join('');
+        select.value = currentValue;
+    }
+
+    function getLevelColor(level) {
+        switch (level) {
+            case 'error': return 'text-red-400';
+            case 'warn': return 'text-yellow-400';
+            case 'info': return 'text-blue-400';
+            case 'debug': return 'text-dark-400';
+            default: return 'text-dark-300';
+        }
+    }
+
+    function getLevelBg(level) {
+        switch (level) {
+            case 'error': return 'bg-red-500/10';
+            case 'warn': return 'bg-yellow-500/10';
+            default: return '';
+        }
+    }
+
+    function formatTime(timestamp) {
+        return new Date(timestamp).toLocaleTimeString();
+    }
+
+    function renderLogs() {
+        const container = document.getElementById('log-container');
+        const levelFilter = document.getElementById('filter-level').value;
+        const moduleFilter = document.getElementById('filter-module').value;
+
+        const filtered = logs.filter(log => {
+            if (levelFilter && log.level !== levelFilter) return false;
+            if (moduleFilter && log.module !== moduleFilter) return false;
+            return true;
+        });
+
+        if (filtered.length === 0) {
+            container.innerHTML = '<div class="text-dark-500 text-center py-8">No logs to display</div>';
+            return;
+        }
+
+        container.innerHTML = filtered.map(log => {
+            const levelClass = getLevelColor(log.level);
+            const bgClass = getLevelBg(log.level);
+            const time = formatTime(log.timestamp);
+
+            return `
+                <div class="py-1 px-2 hover:bg-dark-700 rounded ${bgClass} flex items-start gap-2">
+                    <span class="text-dark-500 flex-shrink-0">${time}</span>
+                    <span class="${levelClass} w-12 flex-shrink-0 uppercase text-xs font-medium">${log.level}</span>
+                    <span class="text-primary-400 w-24 flex-shrink-0 truncate">[${log.module}]</span>
+                    <span class="text-dark-200 flex-1">${escapeHtml(log.message)}</span>
+                    ${log.data ? `<span class="text-dark-500 text-xs">${escapeHtml(JSON.stringify(log.data))}</span>` : ''}
+                </div>
+            `;
+        }).join('');
+
+        if (autoScroll) {
+            container.scrollTop = container.scrollHeight;
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    // Socket events
+    socket.on('log', (log) => {
+        addLog(log);
+    });
+
+    socket.on('connect', () => {
+        addLog({
+            level: 'info',
+            module: 'socket',
+            message: 'Connected to server',
+            timestamp: Date.now()
+        });
+    });
+
+    socket.on('disconnect', () => {
+        addLog({
+            level: 'warn',
+            module: 'socket',
+            message: 'Disconnected from server',
+            timestamp: Date.now()
+        });
+    });
+
+    // Filter changes
+    document.getElementById('filter-level').addEventListener('change', renderLogs);
+    document.getElementById('filter-module').addEventListener('change', renderLogs);
+
+    // Initial message
+    addLog({
+        level: 'info',
+        module: 'logs',
+        message: 'Log viewer initialized. Logs will appear here in real-time.',
+        timestamp: Date.now()
+    });
+</script>
+
+<style>
+    #log-container::-webkit-scrollbar {
+        width: 8px;
+    }
+    #log-container::-webkit-scrollbar-track {
+        background: rgba(0, 0, 0, 0.2);
+    }
+    #log-container::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+    }
+    #log-container::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+</style>
+
+<%- include('partials/footer') %>

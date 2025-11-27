@@ -1,0 +1,574 @@
+<%- include('layouts/main', { title: 'Downloads', body: `
+<div class="p-6 lg:p-8">
+    <!-- Header -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Downloads</h1>
+            <p class="text-gray-400 mt-1">Manage your download queue and priorities</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button id="clear-completed-btn" class="btn btn-secondary" onclick="clearCompleted()">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear Completed
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Cards -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Active</p>
+                    <p class="text-2xl font-bold text-white" id="stat-active">0</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-primary-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Queued</p>
+                    <p class="text-2xl font-bold text-white" id="stat-queued">0</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-warning-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-warning-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Completed</p>
+                    <p class="text-2xl font-bold text-white" id="stat-completed">0</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-success-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+            </div>
+        </div>
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Failed</p>
+                    <p class="text-2xl font-bold text-white" id="stat-failed">0</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-danger-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Downloads -->
+    <div class="card mb-6">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Active Downloads</h2>
+            </div>
+        </div>
+        <div id="active-downloads" class="divide-y divide-gray-800/50">
+            <div class="empty-state py-12">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No active downloads</p>
+                <p class="empty-state-text">Downloads will appear here when they start</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Download Queue -->
+    <div class="card mb-6">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-warning-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-warning-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Queue</h2>
+                <span class="badge badge-warning" id="queue-count">0</span>
+            </div>
+            <p class="text-sm text-gray-400">Drag to reorder or use priority controls</p>
+        </div>
+        <div id="queued-downloads" class="divide-y divide-gray-800/50">
+            <div class="empty-state py-12">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">Queue is empty</p>
+                <p class="empty-state-text">Add movies or series to your download queue</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed Downloads -->
+    <div class="card mb-6">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-success-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Completed</h2>
+                <span class="badge badge-success" id="completed-count">0</span>
+            </div>
+        </div>
+        <div id="completed-downloads" class="divide-y divide-gray-800/50 max-h-96 overflow-y-auto">
+            <div class="empty-state py-12">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No completed downloads</p>
+                <p class="empty-state-text">Completed downloads will appear here</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Failed Downloads -->
+    <div class="card" id="failed-section">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-danger-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Failed</h2>
+                <span class="badge badge-danger" id="failed-count">0</span>
+            </div>
+        </div>
+        <div id="failed-downloads" class="divide-y divide-gray-800/50">
+            <div class="empty-state py-12">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No failed downloads</p>
+                <p class="empty-state-text">Failed downloads will appear here</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let downloads = [];
+
+    function formatBytes(bytes, decimals = 1) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+    }
+
+    function formatSpeed(bytesPerSecond) {
+        return formatBytes(bytesPerSecond) + '/s';
+    }
+
+    function getDisplayTitle(d) {
+        if (d.episode_title) {
+            return \`\${d.title} - S\${String(d.ep_season).padStart(2, '0')}E\${String(d.ep_episode).padStart(2, '0')}\`;
+        }
+        return d.title || 'Unknown';
+    }
+
+    function getPriorityLabel(priority) {
+        if (priority >= 90) return { text: 'Highest', class: 'text-danger-400' };
+        if (priority >= 70) return { text: 'High', class: 'text-warning-400' };
+        if (priority >= 30) return { text: 'Normal', class: 'text-gray-400' };
+        return { text: 'Low', class: 'text-gray-500' };
+    }
+
+    async function loadDownloads() {
+        try {
+            const response = await fetch('/api/downloads');
+            downloads = await response.json();
+            renderDownloads();
+        } catch (err) {
+            console.error('Failed to load downloads:', err);
+        }
+    }
+
+    function renderDownloads() {
+        const active = downloads.filter(d => d.status === 'downloading');
+        const queued = downloads.filter(d => d.status === 'queued');
+        const completed = downloads.filter(d => d.status === 'completed');
+        const failed = downloads.filter(d => d.status === 'failed' || d.status === 'cancelled');
+
+        // Update stats
+        document.getElementById('stat-active').textContent = active.length;
+        document.getElementById('stat-queued').textContent = queued.length;
+        document.getElementById('stat-completed').textContent = completed.length;
+        document.getElementById('stat-failed').textContent = failed.length;
+        document.getElementById('queue-count').textContent = queued.length;
+        document.getElementById('completed-count').textContent = completed.length;
+        document.getElementById('failed-count').textContent = failed.length;
+
+        // Render sections
+        renderActiveDownloads(active);
+        renderQueuedDownloads(queued);
+        renderCompletedDownloads(completed);
+        renderFailedDownloads(failed);
+
+        // Show/hide failed section
+        document.getElementById('failed-section').classList.toggle('hidden', failed.length === 0);
+    }
+
+    function renderActiveDownloads(items) {
+        const container = document.getElementById('active-downloads');
+        if (items.length === 0) {
+            container.innerHTML = \`
+                <div class="empty-state py-12">
+                    <div class="empty-state-icon">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">No active downloads</p>
+                    <p class="empty-state-text">Downloads will appear here when they start</p>
+                </div>
+            \`;
+            return;
+        }
+
+        container.innerHTML = items.map(d => \`
+            <div class="p-5 hover:bg-gray-800/30 transition-colors" data-id="\${d.id}">
+                <div class="flex items-start gap-4">
+                    <img src="\${d.poster ? proxyImage(d.poster) : '/static/img/no-poster.png'}"
+                         alt="\${d.title}"
+                         class="w-16 h-24 object-cover rounded-lg shadow-lg flex-shrink-0" />
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-start justify-between gap-4">
+                            <div>
+                                <h3 class="font-semibold text-white truncate">\${getDisplayTitle(d)}</h3>
+                                <p class="text-sm text-gray-400 mt-0.5">\${d.media_type || 'Media'}</p>
+                            </div>
+                            <button onclick="cancelDownload(\${d.id})" class="btn btn-danger btn-sm flex-shrink-0">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                </svg>
+                                Cancel
+                            </button>
+                        </div>
+                        <div class="mt-4">
+                            <div class="flex items-center justify-between text-sm mb-2">
+                                <span class="text-gray-400">
+                                    \${formatBytes(d.downloaded_size || 0)} / \${formatBytes(d.file_size || 0)}
+                                </span>
+                                <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
+                            </div>
+                            <div class="progress-bar">
+                                <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        \`).join('');
+    }
+
+    function renderQueuedDownloads(items) {
+        const container = document.getElementById('queued-downloads');
+        if (items.length === 0) {
+            container.innerHTML = \`
+                <div class="empty-state py-12">
+                    <div class="empty-state-icon">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">Queue is empty</p>
+                    <p class="empty-state-text">Add movies or series to your download queue</p>
+                </div>
+            \`;
+            return;
+        }
+
+        container.innerHTML = items.map((d, index) => {
+            const priorityInfo = getPriorityLabel(d.priority || 50);
+            return \`
+                <div class="p-5 hover:bg-gray-800/30 transition-colors group" data-id="\${d.id}">
+                    <div class="flex items-center gap-4">
+                        <!-- Queue Position -->
+                        <div class="w-8 h-8 rounded-lg bg-gray-800 flex items-center justify-center text-gray-400 font-medium flex-shrink-0">
+                            \${index + 1}
+                        </div>
+
+                        <!-- Poster -->
+                        <img src="\${d.poster ? proxyImage(d.poster) : '/static/img/no-poster.png'}"
+                             alt="\${d.title}"
+                             class="w-12 h-16 object-cover rounded-lg shadow flex-shrink-0" />
+
+                        <!-- Info -->
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-semibold text-white truncate">\${getDisplayTitle(d)}</h3>
+                            <div class="flex items-center gap-3 mt-1">
+                                <span class="text-sm text-gray-400">\${d.media_type || 'Media'}</span>
+                                <span class="text-sm \${priorityInfo.class}">Priority: \${priorityInfo.text}</span>
+                            </div>
+                        </div>
+
+                        <!-- Priority Controls -->
+                        <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button onclick="moveToTop(\${d.id})" class="p-2 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Move to top">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7 7 7" />
+                                </svg>
+                            </button>
+                            <button onclick="moveUp(\${d.id})" class="p-2 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Move up">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7" />
+                                </svg>
+                            </button>
+                            <button onclick="moveDown(\${d.id})" class="p-2 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Move down">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            <button onclick="moveToBottom(\${d.id})" class="p-2 rounded-lg hover:bg-gray-700 text-gray-400 hover:text-white transition-colors" title="Move to bottom">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7-7-7" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                        </div>
+
+                        <!-- Remove Button -->
+                        <button onclick="removeDownload(\${d.id})" class="p-2 rounded-lg hover:bg-danger-500/20 text-gray-400 hover:text-danger-400 transition-colors" title="Remove from queue">
+                            <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            \`;
+        }).join('');
+    }
+
+    function renderCompletedDownloads(items) {
+        const container = document.getElementById('completed-downloads');
+        if (items.length === 0) {
+            container.innerHTML = \`
+                <div class="empty-state py-12">
+                    <div class="empty-state-icon">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">No completed downloads</p>
+                    <p class="empty-state-text">Completed downloads will appear here</p>
+                </div>
+            \`;
+            return;
+        }
+
+        container.innerHTML = items.map(d => \`
+            <div class="p-4 hover:bg-gray-800/30 transition-colors" data-id="\${d.id}">
+                <div class="flex items-center gap-4">
+                    <div class="w-8 h-8 rounded-lg bg-success-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <img src="\${d.poster ? proxyImage(d.poster) : '/static/img/no-poster.png'}"
+                         alt="\${d.title}"
+                         class="w-10 h-14 object-cover rounded flex-shrink-0" />
+                    <div class="flex-1 min-w-0">
+                        <h3 class="font-medium text-white truncate">\${getDisplayTitle(d)}</h3>
+                        <p class="text-sm text-gray-400">\${formatBytes(d.file_size || 0)} • Completed</p>
+                    </div>
+                    <button onclick="removeDownload(\${d.id})" class="p-2 rounded-lg hover:bg-danger-500/20 text-gray-400 hover:text-danger-400 transition-colors">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+        \`).join('');
+    }
+
+    function renderFailedDownloads(items) {
+        const container = document.getElementById('failed-downloads');
+        if (items.length === 0) {
+            container.innerHTML = \`
+                <div class="empty-state py-12">
+                    <div class="empty-state-icon">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 13l4 4L19 7" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">No failed downloads</p>
+                    <p class="empty-state-text">Failed downloads will appear here</p>
+                </div>
+            \`;
+            return;
+        }
+
+        container.innerHTML = items.map(d => \`
+            <div class="p-4 hover:bg-gray-800/30 transition-colors" data-id="\${d.id}">
+                <div class="flex items-center gap-4">
+                    <div class="w-8 h-8 rounded-lg bg-danger-500/20 flex items-center justify-center flex-shrink-0">
+                        <svg class="w-4 h-4 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                    </div>
+                    <img src="\${d.poster ? proxyImage(d.poster) : '/static/img/no-poster.png'}"
+                         alt="\${d.title}"
+                         class="w-10 h-14 object-cover rounded flex-shrink-0" />
+                    <div class="flex-1 min-w-0">
+                        <h3 class="font-medium text-white truncate">\${getDisplayTitle(d)}</h3>
+                        <p class="text-sm text-danger-400 truncate">\${d.error_message || d.status}</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <button onclick="retryDownload(\${d.id})" class="btn btn-secondary btn-sm">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Retry
+                        </button>
+                        <button onclick="removeDownload(\${d.id})" class="p-2 rounded-lg hover:bg-danger-500/20 text-gray-400 hover:text-danger-400 transition-colors">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        \`).join('');
+    }
+
+    // Actions
+    async function moveToTop(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}/move-top\`, { method: 'POST' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to move download:', err);
+        }
+    }
+
+    async function moveUp(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}/move-up\`, { method: 'POST' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to move download:', err);
+        }
+    }
+
+    async function moveDown(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}/move-down\`, { method: 'POST' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to move download:', err);
+        }
+    }
+
+    async function moveToBottom(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}/move-bottom\`, { method: 'POST' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to move download:', err);
+        }
+    }
+
+    async function retryDownload(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}/retry\`, { method: 'POST' });
+            loadDownloads();
+            if (window.showToast) showToast('Download queued for retry', 'success');
+        } catch (err) {
+            console.error('Failed to retry download:', err);
+        }
+    }
+
+    async function cancelDownload(id) {
+        if (!confirm('Cancel this download?')) return;
+        try {
+            await fetch(\`/api/downloads/\${id}/cancel\`, { method: 'POST' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to cancel download:', err);
+        }
+    }
+
+    async function removeDownload(id) {
+        try {
+            await fetch(\`/api/downloads/\${id}\`, { method: 'DELETE' });
+            loadDownloads();
+        } catch (err) {
+            console.error('Failed to remove download:', err);
+        }
+    }
+
+    async function clearCompleted() {
+        if (!confirm('Remove all completed downloads from the list?')) return;
+        try {
+            const completed = downloads.filter(d => d.status === 'completed');
+            await Promise.all(completed.map(d =>
+                fetch(\`/api/downloads/\${d.id}\`, { method: 'DELETE' })
+            ));
+            loadDownloads();
+            if (window.showToast) showToast('Completed downloads cleared', 'success');
+        } catch (err) {
+            console.error('Failed to clear completed:', err);
+        }
+    }
+
+    // Initialize when DOM is ready (ensures app.js has loaded and socket is available)
+    document.addEventListener('DOMContentLoaded', () => {
+        // Real-time updates
+        socket.on('download:progress', (data) => {
+            const download = downloads.find(d => d.id === data.id);
+            if (download) {
+                download.progress = parseFloat(data.progress);
+                download.downloaded_size = data.downloaded;
+                download.file_size = data.total;
+                renderDownloads();
+            }
+        });
+
+        socket.on('download:start', () => loadDownloads());
+        socket.on('download:complete', () => loadDownloads());
+        socket.on('download:failed', () => loadDownloads());
+        socket.on('download:queued', () => loadDownloads());
+        socket.on('download:cancelled', () => loadDownloads());
+        socket.on('download:removed', () => loadDownloads());
+        socket.on('download:priority', () => loadDownloads());
+
+        // Initial load
+        loadDownloads();
+        setInterval(loadDownloads, 10000);
+    });
+</script>
+` }) %>

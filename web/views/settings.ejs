@@ -1,0 +1,625 @@
+<%- include('layouts/main', { title: 'Settings', body: `
+<div class="p-8">
+    <div class="mb-8">
+        <h1 class="text-3xl font-bold text-white">Settings</h1>
+        <p class="text-dark-400 mt-1">Configure Hermes</p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <!-- IPTV Sources -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700 flex items-center justify-between">
+                <h2 class="text-lg font-semibold text-white">IPTV Sources</h2>
+                <button onclick="showAddSource()" class="btn btn-primary btn-sm">Add Source</button>
+            </div>
+            <div id="sources-list" class="divide-y divide-dark-700">
+                <p class="text-dark-400 text-center py-8">No sources configured</p>
+            </div>
+        </div>
+
+        <!-- Folder Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Folders</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Temp Download Folder</label>
+                    <input type="text" id="setting-tempPath" class="input" placeholder="/path/to/temp" />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Final Download Folder</label>
+                    <input type="text" id="setting-downloadPath" class="input" placeholder="/path/to/downloads" />
+                </div>
+            </div>
+        </div>
+
+        <!-- TMDB Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">TMDB</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">API Key</label>
+                    <input type="password" id="setting-tmdbApiKey" class="input" placeholder="Your TMDB API key" />
+                    <p class="text-xs text-dark-500 mt-1">Get your key at <a href="https://www.themoviedb.org/settings/api" target="_blank" class="text-primary-400 hover:underline">themoviedb.org</a></p>
+                </div>
+                <div class="pt-2 border-t border-dark-700">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <p class="text-sm text-white">Enrich Posters from TMDB</p>
+                            <p class="text-xs text-dark-400" id="enrich-stats">Loading stats...</p>
+                        </div>
+                        <button id="enrich-btn" onclick="startEnrichment()" class="btn btn-secondary btn-sm">Fetch Posters</button>
+                    </div>
+                    <!-- Enrichment Progress -->
+                    <div id="enrich-progress" class="hidden">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                            <span class="text-sm text-dark-300" id="enrich-status">Starting...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-2">
+                            <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="enrich-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Plex Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Plex</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Server URL</label>
+                    <input type="text" id="setting-plexUrl" class="input" placeholder="http://192.168.1.100:32400" />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Token</label>
+                    <input type="password" id="setting-plexToken" class="input" placeholder="Your Plex token" />
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Movie Library ID</label>
+                        <input type="text" id="setting-plexMovieLibraryId" class="input" placeholder="1" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">TV Library ID</label>
+                        <input type="text" id="setting-plexTvLibraryId" class="input" placeholder="2" />
+                    </div>
+                </div>
+                <button onclick="testPlex()" class="btn btn-secondary w-full">Test Connection</button>
+            </div>
+        </div>
+
+        <!-- Overseerr Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Overseerr</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">URL</label>
+                    <input type="text" id="setting-overseerrUrl" class="input" placeholder="http://192.168.1.100:5055" />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">API Key</label>
+                    <input type="password" id="setting-overseerrApiKey" class="input" placeholder="Your Overseerr API key" />
+                </div>
+                <div class="bg-dark-700 rounded-lg p-3">
+                    <p class="text-sm text-dark-400 mb-1">Webhook URL:</p>
+                    <code class="text-xs text-primary-400" id="webhook-url">Loading...</code>
+                </div>
+                <div class="pt-2 border-t border-dark-700">
+                    <div class="flex items-center justify-between mb-3">
+                        <div>
+                            <p class="text-sm text-white">Enrich via Overseerr</p>
+                            <p class="text-xs text-dark-400">Fetch posters & metadata using Overseerr API</p>
+                        </div>
+                        <button id="overseerr-enrich-btn" onclick="startOverseerrEnrichment()" class="btn btn-secondary btn-sm">Fetch Metadata</button>
+                    </div>
+                    <!-- Overseerr Enrichment Progress -->
+                    <div id="overseerr-enrich-progress" class="hidden">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                            <span class="text-sm text-dark-300" id="overseerr-enrich-status">Starting...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-2">
+                            <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="overseerr-enrich-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Download Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Download Settings</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Max Concurrent Downloads</label>
+                    <input type="number" id="setting-maxConcurrentDownloads" class="input" min="1" max="5" value="2" />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Retry Attempts</label>
+                    <input type="number" id="setting-downloadRetries" class="input" min="0" max="10" value="3" />
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Min Delay (ms)</label>
+                        <input type="number" id="setting-downloadDelayMin" class="input" min="0" value="1000" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Max Delay (ms)</label>
+                        <input type="number" id="setting-downloadDelayMax" class="input" min="0" value="5000" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- IPTV Connection Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">IPTV Connection</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Spoofed MAC Address</label>
+                    <input type="text" id="setting-spoofedMac" class="input" placeholder="77:f4:8b:a4:ed:10" />
+                    <p class="text-xs text-dark-500 mt-1">MAC address sent to IPTV providers (e.g. from IBU Player Pro)</p>
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Device Key</label>
+                    <input type="text" id="setting-spoofedDeviceKey" class="input" placeholder="006453" />
+                    <p class="text-xs text-dark-500 mt-1">Device key sent to IPTV providers</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Save Button -->
+    <div class="mt-8 flex justify-end">
+        <button onclick="saveSettings()" class="btn btn-primary px-8">Save Settings</button>
+    </div>
+</div>
+
+<!-- Add Source Modal -->
+<div id="source-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
+    <div class="card w-full max-w-md mx-4">
+        <div class="p-4 border-b border-dark-700">
+            <h3 class="text-lg font-semibold text-white" id="modal-title">Add IPTV Source</h3>
+        </div>
+        <div class="p-4 space-y-4">
+            <input type="hidden" id="source-id" />
+            <div>
+                <label class="block text-sm text-dark-400 mb-1">Name</label>
+                <input type="text" id="source-name" class="input" placeholder="My IPTV" />
+            </div>
+            <div>
+                <label class="block text-sm text-dark-400 mb-1">Type</label>
+                <select id="source-type" class="input">
+                    <option value="xtream">Xtream Codes</option>
+                    <option value="m3u">M3U URL</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm text-dark-400 mb-1">URL</label>
+                <input type="text" id="source-url" class="input" placeholder="http://server.com" />
+            </div>
+            <div id="xtream-fields">
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Username</label>
+                        <input type="text" id="source-username" class="input" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Password</label>
+                        <input type="password" id="source-password" class="input" />
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm text-dark-400 mb-1">User Agent</label>
+                <input type="text" id="source-useragent" class="input" placeholder="IBOPlayer" value="IBOPlayer" />
+            </div>
+            <div class="border-t border-dark-700 pt-4 mt-2">
+                <p class="text-sm font-medium text-white mb-3">Device Spoofing (Optional)</p>
+                <p class="text-xs text-dark-500 mb-3">Override global spoofing settings for this source</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">MAC Address</label>
+                        <input type="text" id="source-mac" class="input" placeholder="Leave empty for global" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Device Key</label>
+                        <input type="text" id="source-devicekey" class="input" placeholder="Leave empty for global" />
+                    </div>
+                </div>
+            </div>
+            <div class="border-t border-dark-700 pt-4 mt-2">
+                <p class="text-sm font-medium text-white mb-3">Player Simulation</p>
+                <p class="text-xs text-dark-500 mb-3">Throttle downloads to simulate video playback (avoids bans)</p>
+                <div class="flex items-center gap-3 mb-3">
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="source-simulate-playback" class="sr-only peer" checked />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                    <span class="text-sm text-dark-300">Enable player simulation</span>
+                </div>
+                <div id="playback-speed-container">
+                    <label class="block text-sm text-dark-400 mb-1">Speed Multiplier</label>
+                    <select id="source-playback-speed" class="input">
+                        <option value="1.0">1.0x (Real-time playback)</option>
+                        <option value="1.25">1.25x (Slightly faster)</option>
+                        <option value="1.5" selected>1.5x (Recommended)</option>
+                        <option value="2.0">2.0x (Double speed)</option>
+                        <option value="3.0">3.0x (Triple speed)</option>
+                        <option value="0">Disabled (Full speed)</option>
+                    </select>
+                    <p class="text-xs text-dark-500 mt-1">Higher = faster download but more detectable</p>
+                </div>
+            </div>
+        </div>
+        <div class="p-4 border-t border-dark-700 flex justify-end gap-2">
+            <button onclick="hideModal()" class="btn btn-secondary">Cancel</button>
+            <button onclick="testSource()" class="btn btn-secondary">Test</button>
+            <button onclick="saveSource()" class="btn btn-primary">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const settingKeys = ['tempPath', 'downloadPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey'];
+
+    // Track which enrichment is running
+    let activeEnrichment = null;
+
+    // Initialize socket listeners when DOM is ready (socket from app.js)
+    document.addEventListener('DOMContentLoaded', () => {
+        socket.on('enrich:start', (data) => {
+            activeEnrichment = data.source || 'tmdb';
+            const prefix = activeEnrichment === 'overseerr' ? 'overseerr-' : '';
+            const progressDiv = document.getElementById(prefix + 'enrich-progress');
+            const statusEl = document.getElementById(prefix + 'enrich-status');
+            const barEl = document.getElementById(prefix + 'enrich-bar');
+            if (progressDiv) progressDiv.classList.remove('hidden');
+            if (statusEl) statusEl.textContent = 'Starting... (0/' + data.total + ')';
+            if (barEl) barEl.style.width = '0%';
+        });
+
+        socket.on('enrich:progress', (data) => {
+            const prefix = data.source === 'overseerr' ? 'overseerr-' : '';
+            const statusEl = document.getElementById(prefix + 'enrich-status');
+            const barEl = document.getElementById(prefix + 'enrich-bar');
+            if (statusEl) statusEl.textContent = data.message || (data.current + '/' + data.total + ' (' + data.success + ' success, ' + data.failed + ' failed)');
+            if (barEl) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+        });
+
+        socket.on('enrich:complete', (data) => {
+            const prefix = data.source === 'overseerr' ? 'overseerr-' : '';
+            const progressDiv = document.getElementById(prefix + 'enrich-progress');
+            const statusEl = document.getElementById(prefix + 'enrich-status');
+            const btn = document.getElementById(prefix + 'enrich-btn');
+            if (statusEl) statusEl.textContent = 'Complete: ' + data.success + ' success, ' + data.failed + ' failed';
+            if (btn) btn.disabled = false;
+            setTimeout(() => {
+                if (progressDiv) progressDiv.classList.add('hidden');
+                loadEnrichStats();
+            }, 3000);
+            activeEnrichment = null;
+        });
+
+        // Initialize settings
+        loadSettings();
+        loadSources();
+        loadEnrichStats();
+    });
+
+    async function loadSettings() {
+        try {
+            const response = await fetch('/api/settings');
+            const settings = await response.json();
+            settingKeys.forEach(key => {
+                const el = document.getElementById('setting-' + key);
+                if (el && settings[key] !== undefined) el.value = settings[key];
+            });
+            document.getElementById('webhook-url').textContent = window.location.origin + '/api/webhooks/overseerr';
+        } catch (err) {
+            console.error('Failed to load settings:', err);
+        }
+    }
+
+    async function saveSettings() {
+        const settings = {};
+        settingKeys.forEach(key => {
+            const el = document.getElementById('setting-' + key);
+            if (el) {
+                settings[key] = el.type === 'number' ? parseInt(el.value) : el.value;
+            }
+        });
+        try {
+            await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(settings)
+            });
+            alert('Settings saved!');
+        } catch (err) {
+            console.error('Failed to save settings:', err);
+            alert('Failed to save settings');
+        }
+    }
+
+    async function loadSources() {
+        try {
+            const response = await fetch('/api/sources');
+            const sources = await response.json();
+            const container = document.getElementById('sources-list');
+            if (sources.length === 0) {
+                container.innerHTML = '<p class="text-dark-400 text-center py-8">No sources configured</p>';
+                return;
+            }
+            container.innerHTML = sources.map(s => \`
+                <div class="p-4" id="source-row-\${s.id}">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-medium text-white">\${s.name}</h3>
+                            <p class="text-sm text-dark-400">\${s.type} • \${s.active ? 'Active' : 'Disabled'}</p>
+                            <p class="text-xs text-dark-500">\${s.last_sync ? 'Last sync: ' + new Date(s.last_sync).toLocaleString() : 'Never synced'}</p>
+                        </div>
+                        <div class="flex gap-2" id="source-buttons-\${s.id}">
+                            <button onclick="syncSource(\${s.id})" class="btn btn-secondary btn-sm" id="sync-btn-\${s.id}">Sync</button>
+                            <button onclick="editSource(\${s.id})" class="btn btn-secondary btn-sm">Edit</button>
+                            <button onclick="deleteSource(\${s.id})" class="btn btn-danger btn-sm">Delete</button>
+                        </div>
+                    </div>
+                    <div id="sync-progress-\${s.id}" class="hidden mt-3">
+                        <div class="flex items-center gap-2 mb-2">
+                            <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                            <span class="text-sm text-dark-300" id="sync-status-\${s.id}">Starting sync...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-2">
+                            <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="sync-bar-\${s.id}" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            \`).join('');
+        } catch (err) {
+            console.error('Failed to load sources:', err);
+        }
+    }
+
+    function showAddSource() {
+        document.getElementById('modal-title').textContent = 'Add IPTV Source';
+        document.getElementById('source-id').value = '';
+        document.getElementById('source-name').value = '';
+        document.getElementById('source-type').value = 'xtream';
+        document.getElementById('source-url').value = '';
+        document.getElementById('source-username').value = '';
+        document.getElementById('source-password').value = '';
+        document.getElementById('source-useragent').value = 'IBOPlayer';
+        document.getElementById('source-mac').value = '';
+        document.getElementById('source-devicekey').value = '';
+        // Player simulation defaults
+        document.getElementById('source-simulate-playback').checked = true;
+        document.getElementById('source-playback-speed').value = '1.5';
+        document.getElementById('playback-speed-container').style.display = 'block';
+        document.getElementById('source-modal').classList.remove('hidden');
+        document.getElementById('source-modal').classList.add('flex');
+    }
+
+    function hideModal() {
+        document.getElementById('source-modal').classList.add('hidden');
+        document.getElementById('source-modal').classList.remove('flex');
+    }
+
+    async function saveSource() {
+        const id = document.getElementById('source-id').value;
+        const data = {
+            name: document.getElementById('source-name').value,
+            type: document.getElementById('source-type').value,
+            url: document.getElementById('source-url').value,
+            username: document.getElementById('source-username').value,
+            password: document.getElementById('source-password').value,
+            user_agent: document.getElementById('source-useragent').value,
+            spoofed_mac: document.getElementById('source-mac').value || null,
+            spoofed_device_key: document.getElementById('source-devicekey').value || null,
+            simulate_playback: document.getElementById('source-simulate-playback').checked ? 1 : 0,
+            playback_speed_multiplier: parseFloat(document.getElementById('source-playback-speed').value)
+        };
+        try {
+            const response = await fetch(id ? '/api/sources/' + id : '/api/sources', {
+                method: id ? 'PUT' : 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => ({}));
+                throw new Error(errorData.error || 'Server returned ' + response.status);
+            }
+            hideModal();
+            loadSources();
+        } catch (err) {
+            console.error('Failed to save source:', err);
+            alert('Failed to save source: ' + err.message);
+        }
+    }
+
+    async function editSource(id) {
+        try {
+            const response = await fetch('/api/sources');
+            const sources = await response.json();
+            const source = sources.find(s => s.id === id);
+            if (!source) return alert('Source not found');
+
+            document.getElementById('modal-title').textContent = 'Edit IPTV Source';
+            document.getElementById('source-id').value = source.id;
+            document.getElementById('source-name').value = source.name;
+            document.getElementById('source-type').value = source.type;
+            document.getElementById('source-url').value = source.url;
+            document.getElementById('source-username').value = source.username || '';
+            document.getElementById('source-password').value = source.password || '';
+            document.getElementById('source-useragent').value = source.user_agent || 'IBOPlayer';
+            document.getElementById('source-mac').value = source.spoofed_mac || '';
+            document.getElementById('source-devicekey').value = source.spoofed_device_key || '';
+            // Player simulation settings (defaults if not set)
+            const simulatePlayback = source.simulate_playback !== undefined ? source.simulate_playback : 1;
+            const speedMultiplier = source.playback_speed_multiplier !== undefined ? source.playback_speed_multiplier : 1.5;
+            document.getElementById('source-simulate-playback').checked = simulatePlayback === 1;
+            document.getElementById('source-playback-speed').value = speedMultiplier.toString();
+            document.getElementById('playback-speed-container').style.display = simulatePlayback === 1 ? 'block' : 'none';
+            document.getElementById('xtream-fields').style.display = source.type === 'xtream' ? 'block' : 'none';
+            document.getElementById('source-modal').classList.remove('hidden');
+            document.getElementById('source-modal').classList.add('flex');
+        } catch (err) {
+            console.error('Failed to load source:', err);
+            alert('Failed to load source');
+        }
+    }
+
+    async function testSource() {
+        const id = document.getElementById('source-id').value;
+        const source = {
+            type: document.getElementById('source-type').value,
+            url: document.getElementById('source-url').value,
+            username: document.getElementById('source-username').value,
+            password: document.getElementById('source-password').value,
+            user_agent: document.getElementById('source-useragent').value
+        };
+
+        try {
+            let result;
+            if (id) {
+                // Test existing source via API
+                const response = await fetch('/api/sources/' + id + '/test', { method: 'POST' });
+                result = await response.json();
+            } else {
+                // For new sources, we need to save first or test inline
+                alert('Please save the source first, then test it.');
+                return;
+            }
+
+            if (result.success) {
+                alert('Success: ' + result.message);
+            } else {
+                alert('Failed: ' + result.message);
+            }
+        } catch (err) {
+            console.error('Failed to test source:', err);
+            alert('Failed to test source: ' + err.message);
+        }
+    }
+
+    async function syncSource(id) {
+        try {
+            // Show progress UI
+            const progressEl = document.getElementById('sync-progress-' + id);
+            const btnEl = document.getElementById('sync-btn-' + id);
+            if (progressEl) progressEl.classList.remove('hidden');
+            if (btnEl) btnEl.disabled = true;
+
+            await fetch('/api/sources/' + id + '/sync', { method: 'POST' });
+        } catch (err) {
+            console.error('Failed to sync source:', err);
+            alert('Failed to start sync');
+            // Hide progress on error
+            const progressEl = document.getElementById('sync-progress-' + id);
+            const btnEl = document.getElementById('sync-btn-' + id);
+            if (progressEl) progressEl.classList.add('hidden');
+            if (btnEl) btnEl.disabled = false;
+        }
+    }
+
+    // Socket listeners are now handled globally in app.js
+
+    async function deleteSource(id) {
+        if (!confirm('Delete this source and all its content?')) return;
+        try {
+            await fetch('/api/sources/' + id, { method: 'DELETE' });
+            loadSources();
+        } catch (err) {
+            console.error('Failed to delete source:', err);
+        }
+    }
+
+    async function testPlex() {
+        try {
+            const response = await fetch('/api/plex/libraries');
+            const libraries = await response.json();
+            if (libraries.length > 0) {
+                alert('Plex connection successful! Found ' + libraries.length + ' libraries.');
+            } else {
+                alert('Connected but no libraries found.');
+            }
+        } catch (err) {
+            alert('Failed to connect to Plex: ' + err.message);
+        }
+    }
+
+    document.getElementById('source-type').addEventListener('change', (e) => {
+        document.getElementById('xtream-fields').style.display = e.target.value === 'xtream' ? 'block' : 'none';
+    });
+
+    // Toggle speed multiplier visibility based on player simulation checkbox
+    document.getElementById('source-simulate-playback').addEventListener('change', (e) => {
+        document.getElementById('playback-speed-container').style.display = e.target.checked ? 'block' : 'none';
+    });
+
+    // TMDB Enrichment functions
+    async function loadEnrichStats() {
+        try {
+            const response = await fetch('/api/enrich/stats');
+            const stats = await response.json();
+            const el = document.getElementById('enrich-stats');
+            if (el) {
+                el.textContent = stats.needsEnrichment + ' items need posters, ' + stats.enriched + ' enriched';
+            }
+        } catch (err) {
+            console.error('Failed to load enrich stats:', err);
+        }
+    }
+
+    async function startEnrichment() {
+        try {
+            const btn = document.getElementById('enrich-btn');
+            if (btn) btn.disabled = true;
+            await fetch('/api/enrich', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ limit: 500 })
+            });
+        } catch (err) {
+            console.error('Failed to start enrichment:', err);
+            alert('Failed to start enrichment: ' + err.message);
+            const btn = document.getElementById('enrich-btn');
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    async function startOverseerrEnrichment() {
+        try {
+            const btn = document.getElementById('overseerr-enrich-btn');
+            if (btn) btn.disabled = true;
+            const response = await fetch('/api/enrich/overseerr', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ limit: 500 })
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Unknown error');
+            }
+        } catch (err) {
+            console.error('Failed to start Overseerr enrichment:', err);
+            alert('Failed to start Overseerr enrichment: ' + err.message);
+            const btn = document.getElementById('overseerr-enrich-btn');
+            if (btn) btn.disabled = false;
+        }
+    }
+</script>
+` }) %>

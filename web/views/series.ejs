@@ -1,0 +1,436 @@
+<%- include('layouts/main', { title: 'Series', body: `
+<div class="p-6 lg:p-8">
+    <!-- Header -->
+    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-white">TV Series</h1>
+            <p class="text-gray-400 mt-1" id="parse-status">Browse and discover TV shows from your library</p>
+        </div>
+        <div class="flex items-center gap-3">
+            <button id="parse-btn" class="btn btn-secondary hidden">Parse Series</button>
+            <span class="text-gray-400 text-sm"><span id="results-count" class="text-white font-semibold">0</span> shows</span>
+        </div>
+    </div>
+
+    <!-- Search & Filter Bar -->
+    <div class="card p-4 mb-6">
+        <div class="flex flex-col lg:flex-row gap-4">
+            <!-- Search -->
+            <div class="flex-1 relative">
+                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <input type="text" id="search-input" placeholder="Search series..." class="input input-search" />
+            </div>
+
+            <!-- Filters -->
+            <div class="flex flex-wrap gap-3">
+                <select id="filter-quality" class="select w-auto min-w-[120px]">
+                    <option value="">All Qualities</option>
+                    <option value="4K">4K</option>
+                    <option value="1080p">1080p</option>
+                    <option value="720p">720p</option>
+                    <option value="SD">SD</option>
+                </select>
+
+                <select id="filter-year" class="select w-auto min-w-[120px]">
+                    <option value="">All Years</option>
+                </select>
+
+                <select id="filter-language" class="select w-auto min-w-[140px]">
+                    <option value="">All Languages</option>
+                </select>
+
+                <select id="sort-by" class="select w-auto min-w-[150px]">
+                    <option value="show_name">Sort by Title</option>
+                    <option value="year">Sort by Year</option>
+                    <option value="rating">Sort by Rating</option>
+                    <option value="episode_count">Episode Count</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Series Grid -->
+    <div class="media-grid" id="series-grid">
+        <!-- Loading skeleton -->
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+        <div class="skeleton-card"></div>
+    </div>
+
+    <!-- Loading More Spinner -->
+    <div class="mt-8 flex justify-center hidden" id="loading-more">
+        <div class="flex items-center gap-3 text-gray-400">
+            <div class="spinner"></div>
+            <span>Loading more series...</span>
+        </div>
+    </div>
+
+    <!-- Empty State -->
+    <div class="empty-state hidden" id="empty-state">
+        <div class="empty-state-icon">
+            <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+            </svg>
+        </div>
+        <p class="empty-state-title">No series found</p>
+        <p class="empty-state-text">Try adjusting your search or filters to find what you're looking for</p>
+    </div>
+</div>
+
+<script>
+    let currentOffset = 0;
+    const limit = 50;
+    let loading = false;
+    let hasMore = true;
+    const STORAGE_KEY = 'hermes_series_filters';
+
+    // Cache for TMDB enrichments to avoid repeated requests
+    const tmdbCache = new Map();
+    const enrichmentQueue = [];
+    let isEnriching = false;
+
+    // Helper to clean show name for TMDB search
+    function cleanShowName(name) {
+        if (!name) return { title: '', year: null };
+
+        // Remove country/language prefix (DE -, EN -, etc.)
+        let cleanTitle = name.replace(/^[A-Z]{2}\s*-\s*/, '');
+
+        // Extract year if present in parentheses
+        const yearMatch = cleanTitle.match(/\((\d{4})\)/);
+        let year = null;
+        if (yearMatch) {
+            year = parseInt(yearMatch[1]);
+            cleanTitle = cleanTitle.replace(/\s*\(\d{4}\)/, '').trim();
+        }
+
+        // Remove country codes
+        cleanTitle = cleanTitle.replace(/\s*\([A-Z]{2}\)/, '').trim();
+
+        return { title: cleanTitle, year };
+    }
+
+    // Enrich a single series card with TMDB data
+    async function enrichSeriesCard(card, show) {
+        const cacheKey = show.show_name;
+
+        // Skip if already has TMDB poster or already enriched
+        if (show.poster?.includes('image.tmdb.org') || tmdbCache.has(cacheKey)) {
+            return;
+        }
+
+        const cleaned = cleanShowName(show.show_name);
+        if (!cleaned.title || cleaned.title.length < 2) return;
+
+        try {
+            // Search TMDB for TV shows
+            const searchUrl = \`/api/tmdb/search/tv?query=\${encodeURIComponent(cleaned.title)}\${cleaned.year ? \`&year=\${cleaned.year}\` : ''}\`;
+            const searchResults = await fetch(searchUrl).then(r => r.json());
+
+            if (searchResults.length > 0) {
+                const match = searchResults[0];
+                const tmdbData = {
+                    poster: match.poster_path ? \`https://image.tmdb.org/t/p/w500\${match.poster_path}\` : null,
+                    rating: match.vote_average,
+                    year: match.first_air_date ? parseInt(match.first_air_date.substring(0, 4)) : cleaned.year,
+                    title: match.name
+                };
+                tmdbCache.set(cacheKey, tmdbData);
+
+                // Update the card UI
+                if (tmdbData.poster) {
+                    const img = card.querySelector('img');
+                    if (img) {
+                        img.src = proxyImage(tmdbData.poster);
+                        img.dataset.src = proxyImage(tmdbData.poster);
+                    }
+                }
+
+                // Update rating if we got one
+                if (tmdbData.rating) {
+                    const metaDiv = card.querySelector('.media-card-meta');
+                    if (metaDiv && !metaDiv.querySelector('.media-card-rating')) {
+                        const yearSpan = metaDiv.querySelector('span');
+                        const ratingHtml = \`
+                            <span class="media-card-rating">
+                                <svg fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                </svg>
+                                \${tmdbData.rating.toFixed(1)}
+                            </span>
+                        \`;
+                        if (yearSpan) {
+                            yearSpan.insertAdjacentHTML('afterend', ratingHtml);
+                        } else {
+                            metaDiv.insertAdjacentHTML('beforeend', ratingHtml);
+                        }
+                    }
+                }
+            } else {
+                // Mark as checked to avoid re-searching
+                tmdbCache.set(cacheKey, null);
+            }
+        } catch (err) {
+            console.error('TMDB enrichment failed:', err);
+        }
+    }
+
+    // Process enrichment queue with rate limiting
+    async function processEnrichmentQueue() {
+        if (isEnriching || enrichmentQueue.length === 0) return;
+        isEnriching = true;
+
+        while (enrichmentQueue.length > 0) {
+            const { card, show } = enrichmentQueue.shift();
+            await enrichSeriesCard(card, show);
+            // Small delay to avoid hitting rate limits
+            await new Promise(r => setTimeout(r, 100));
+        }
+
+        isEnriching = false;
+    }
+
+    // Queue a card for enrichment
+    function queueEnrichment(card, show) {
+        // Skip if show already has good data
+        if (show.poster?.includes('image.tmdb.org')) return;
+
+        enrichmentQueue.push({ card, show });
+        processEnrichmentQueue();
+    }
+
+    function saveFilters() {
+        const filters = {
+            quality: document.getElementById('filter-quality').value,
+            year: document.getElementById('filter-year').value,
+            language: document.getElementById('filter-language').value,
+            sort: document.getElementById('sort-by').value
+        };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
+    }
+
+    function restoreFilters() {
+        try {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) {
+                const filters = JSON.parse(saved);
+                if (filters.quality) document.getElementById('filter-quality').value = filters.quality;
+                if (filters.year) document.getElementById('filter-year').value = filters.year;
+                if (filters.language) document.getElementById('filter-language').value = filters.language;
+                if (filters.sort) document.getElementById('sort-by').value = filters.sort;
+            }
+        } catch (err) {
+            console.error('Failed to restore filters:', err);
+        }
+    }
+
+    async function checkParseStatus() {
+        try {
+            const response = await fetch('/api/series/parse/stats');
+            const stats = await response.json();
+
+            const parseBtn = document.getElementById('parse-btn');
+            const parseStatus = document.getElementById('parse-status');
+
+            if (stats.unparsed > 0) {
+                parseBtn.classList.remove('hidden');
+                parseBtn.textContent = \`Parse \${stats.unparsed.toLocaleString()} Series\`;
+                parseStatus.textContent = \`\${stats.uniqueShows.toLocaleString()} unique shows from \${stats.parsed.toLocaleString()} parsed episodes\`;
+            } else {
+                parseStatus.textContent = \`\${stats.uniqueShows.toLocaleString()} unique shows available\`;
+            }
+        } catch (err) {
+            console.error('Failed to check parse status:', err);
+        }
+    }
+
+    async function parseSeries() {
+        const parseBtn = document.getElementById('parse-btn');
+        parseBtn.disabled = true;
+        parseBtn.innerHTML = '<div class="spinner mr-2"></div> Parsing...';
+
+        try {
+            const response = await fetch('/api/series/parse', { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                parseBtn.innerHTML = 'Done!';
+                if (window.showToast) showToast(\`Parsed \${result.updated.toLocaleString()} series\`, 'success');
+                setTimeout(() => {
+                    parseBtn.classList.add('hidden');
+                    loadShows(true);
+                    checkParseStatus();
+                }, 2000);
+            } else {
+                parseBtn.textContent = 'Error';
+                if (window.showToast) showToast(result.error, 'error');
+            }
+        } catch (err) {
+            parseBtn.textContent = 'Error';
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function loadShows(reset = false) {
+        if (loading) return;
+        loading = true;
+
+        if (reset) {
+            currentOffset = 0;
+            hasMore = true;
+            document.getElementById('series-grid').innerHTML = '';
+        }
+
+        const params = new URLSearchParams({
+            search: document.getElementById('search-input').value,
+            quality: document.getElementById('filter-quality').value,
+            year: document.getElementById('filter-year').value,
+            language: document.getElementById('filter-language').value,
+            sort: document.getElementById('sort-by').value,
+            order: document.getElementById('sort-by').value === 'show_name' ? 'asc' : 'desc',
+            limit,
+            offset: currentOffset
+        });
+
+        try {
+            const response = await fetch('/api/shows?' + params);
+            const shows = await response.json();
+
+            const grid = document.getElementById('series-grid');
+            const emptyState = document.getElementById('empty-state');
+
+            if (reset) grid.innerHTML = '';
+
+            if (shows.length === 0 && currentOffset === 0) {
+                emptyState.classList.remove('hidden');
+                grid.classList.add('hidden');
+            } else {
+                emptyState.classList.add('hidden');
+                grid.classList.remove('hidden');
+            }
+
+            shows.forEach((show, index) => {
+                const card = document.createElement('a');
+                card.href = '/show/' + encodeURIComponent(show.show_name);
+                card.className = 'media-card';
+                card.dataset.showName = show.show_name;
+
+                // Clean the show name for display
+                const cleaned = cleanShowName(show.show_name);
+                const displayTitle = cleaned.title || show.show_name;
+                const displayYear = show.year || cleaned.year;
+
+                const imgSrc = show.poster ? proxyImage(show.poster) : '/static/img/no-poster.png';
+                const isEager = currentOffset === 0 && index < 12;
+                const needsEnrichment = !show.poster?.includes('image.tmdb.org');
+
+                card.innerHTML = \`
+                    <img src="\${isEager ? imgSrc : '/static/img/placeholder.svg'}"
+                         data-src="\${imgSrc}"
+                         alt="\${displayTitle}"
+                         class="media-card-poster \${isEager ? '' : 'lazy-image'}"
+                         \${isEager ? '' : 'loading="lazy"'}
+                         onerror="this.src='/static/img/no-poster.png'" />
+
+                    <!-- Hover Overlay -->
+                    <div class="media-card-overlay">
+                        <button class="btn btn-primary btn-sm w-full">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            </svg>
+                            View Episodes
+                        </button>
+                    </div>
+
+                    <!-- Episode Count Badge -->
+                    <span class="media-card-badge">\${show.episode_count} ep\${show.episode_count > 1 ? 's' : ''}</span>
+
+                    <!-- Info Bar -->
+                    <div class="media-card-info">
+                        <h3 class="media-card-title">\${displayTitle}</h3>
+                        <div class="media-card-meta">
+                            \${displayYear ? \`<span>\${displayYear}</span>\` : ''}
+                            \${show.rating ? \`
+                                <span class="media-card-rating">
+                                    <svg fill="currentColor" viewBox="0 0 20 20">
+                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                                    </svg>
+                                    \${show.rating.toFixed(1)}
+                                </span>
+                            \` : ''}
+                            \${show.season_count ? \`<span>\${show.season_count} S</span>\` : ''}
+                        </div>
+                    </div>
+                \`;
+                grid.appendChild(card);
+
+                // Queue for TMDB enrichment if needed (only for first 20 visible items)
+                if (needsEnrichment && index < 20) {
+                    queueEnrichment(card, show);
+                }
+            });
+            initLazyLoad();
+
+            document.getElementById('results-count').textContent = (currentOffset + shows.length).toLocaleString();
+            hasMore = shows.length === limit;
+            if (hasMore) currentOffset += limit;
+            document.getElementById('loading-more').classList.add('hidden');
+        } catch (err) {
+            console.error('Failed to load shows:', err);
+        }
+        loading = false;
+    }
+
+    async function loadFilters() {
+        try {
+            const response = await fetch('/api/filters');
+            const filters = await response.json();
+
+            const yearSelect = document.getElementById('filter-year');
+            filters.years.forEach(year => {
+                yearSelect.innerHTML += \`<option value="\${year}">\${year}</option>\`;
+            });
+
+            const langSelect = document.getElementById('filter-language');
+            filters.languages.forEach(lang => {
+                if (lang) langSelect.innerHTML += \`<option value="\${lang}">\${lang}</option>\`;
+            });
+        } catch (err) {
+            console.error('Failed to load filters:', err);
+        }
+    }
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => loadShows(true), 300));
+    document.getElementById('filter-quality').addEventListener('change', () => { saveFilters(); loadShows(true); });
+    document.getElementById('filter-year').addEventListener('change', () => { saveFilters(); loadShows(true); });
+    document.getElementById('filter-language').addEventListener('change', () => { saveFilters(); loadShows(true); });
+    document.getElementById('sort-by').addEventListener('change', () => { saveFilters(); loadShows(true); });
+    document.getElementById('parse-btn').addEventListener('click', parseSeries);
+
+    // Infinite scroll
+    window.addEventListener('scroll', () => {
+        if (loading || !hasMore) return;
+        if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 500) {
+            document.getElementById('loading-more').classList.remove('hidden');
+            loadShows(false);
+        }
+    });
+
+    checkParseStatus();
+    loadFilters().then(() => {
+        restoreFilters();
+        loadShows(true);
+    });
+
+    function debounce(func, wait) {
+        let timeout;
+        return (...args) => { clearTimeout(timeout); timeout = setTimeout(() => func(...args), wait); };
+    }
+</script>
+` }) %>

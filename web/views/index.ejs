@@ -1,0 +1,199 @@
+<%- include('layouts/main', { title: 'Dashboard', body: `
+<div class="p-6 lg:p-8">
+    <!-- Header with Search -->
+    <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <div>
+            <h1 class="text-3xl font-bold text-white">Welcome back</h1>
+            <p class="text-gray-400 mt-1">Here's what's happening with your media library</p>
+        </div>
+        <div class="relative">
+            <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input type="text" id="quick-search" placeholder="Search movies, series..."
+                   class="input input-search w-full md:w-80" />
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6 mb-8">
+        <div class="stat-card group">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Movies</p>
+                    <p class="text-3xl font-bold text-white mt-2" id="stat-movies">-</p>
+                </div>
+                <div class="stat-card-icon bg-primary-500/10 group-hover:bg-primary-500/20 transition-colors">
+                    <svg class="w-6 h-6 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375m-3.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-1.5A1.125 1.125 0 0118 18.375M20.625 4.5H3.375m17.25 0c.621 0 1.125.504 1.125 1.125M20.625 4.5h-1.5C18.504 4.5 18 5.004 18 5.625m3.75 0v1.5c0 .621-.504 1.125-1.125 1.125M3.375 4.5c-.621 0-1.125.504-1.125 1.125M3.375 4.5h1.5C5.496 4.5 6 5.004 6 5.625m-3.75 0v1.5c0 .621.504 1.125 1.125 1.125" />
+                    </svg>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center gap-2">
+                <span class="text-success-400 text-sm font-medium">Available</span>
+            </div>
+        </div>
+
+        <div class="stat-card group">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Series</p>
+                    <p class="text-3xl font-bold text-white mt-2" id="stat-series">-</p>
+                </div>
+                <div class="stat-card-icon bg-success-500/10 group-hover:bg-success-500/20 transition-colors">
+                    <svg class="w-6 h-6 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+                    </svg>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center gap-2">
+                <span class="text-success-400 text-sm font-medium">Available</span>
+            </div>
+        </div>
+
+        <div class="stat-card group">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Live TV</p>
+                    <p class="text-3xl font-bold text-white mt-2" id="stat-livetv">-</p>
+                </div>
+                <div class="stat-card-icon bg-purple-500/10 group-hover:bg-purple-500/20 transition-colors">
+                    <svg class="w-6 h-6 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M9.348 14.651a3.75 3.75 0 010-5.303m5.304 0a3.75 3.75 0 010 5.303m-7.425 2.122a6.75 6.75 0 010-9.546m9.546 0a6.75 6.75 0 010 9.546" />
+                    </svg>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center gap-2">
+                <span class="text-gray-500 text-sm font-medium">Channels</span>
+            </div>
+        </div>
+
+        <div class="stat-card group">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Downloads</p>
+                    <p class="text-3xl font-bold text-white mt-2" id="stat-downloads">-</p>
+                </div>
+                <div class="stat-card-icon bg-warning-500/10 group-hover:bg-warning-500/20 transition-colors">
+                    <svg class="w-6 h-6 text-warning-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                </div>
+            </div>
+            <div class="mt-4 flex items-center gap-2">
+                <span class="text-warning-400 text-sm font-medium">Completed</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Downloads -->
+    <div class="card mb-8">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <h2 class="text-lg font-semibold text-white">Active Downloads</h2>
+            <a href="/downloads" class="section-link">
+                View all
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+            </a>
+        </div>
+        <div class="p-5" id="active-downloads">
+            <div class="empty-state py-8">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No active downloads</p>
+                <p class="empty-state-text">Downloads will appear here when you request content</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Quick Actions Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <!-- Browse Content -->
+        <div class="card p-6 card-hover">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white">Browse Movies</h3>
+            </div>
+            <p class="text-gray-400 text-sm mb-4">Explore the movie library and find new content to watch</p>
+            <a href="/movies" class="btn btn-secondary w-full">
+                Browse Movies
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
+                </svg>
+            </a>
+        </div>
+
+        <!-- IPTV Sources -->
+        <div class="card p-6 card-hover">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-10 h-10 rounded-xl bg-success-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white">IPTV Sources</h3>
+            </div>
+            <p class="text-gray-400 text-sm mb-4"><span id="stat-sources">0</span> sources configured and ready to use</p>
+            <a href="/settings" class="btn btn-secondary w-full">
+                Manage Sources
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+            </a>
+        </div>
+
+        <!-- Recent Activity -->
+        <div class="card p-6 card-hover">
+            <div class="flex items-center gap-4 mb-4">
+                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-white">Recent Activity</h3>
+            </div>
+            <div class="space-y-3" id="recent-activity">
+                <p class="text-gray-500 text-sm">No recent activity</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Load stats on page load
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch('/api/stats');
+            const stats = await response.json();
+
+            document.getElementById('stat-movies').textContent = stats.totalMovies?.toLocaleString() || '0';
+            document.getElementById('stat-series').textContent = stats.totalSeries?.toLocaleString() || '0';
+            document.getElementById('stat-livetv').textContent = stats.totalLiveTV?.toLocaleString() || '0';
+            document.getElementById('stat-downloads').textContent = stats.totalDownloads?.toLocaleString() || '0';
+            document.getElementById('stat-sources').textContent = stats.totalSources || '0';
+
+            if (stats.activeDownloads > 0) {
+                document.getElementById('download-badge').textContent = stats.activeDownloads;
+                document.getElementById('download-badge').classList.remove('hidden');
+            }
+        } catch (err) {
+            console.error('Failed to load stats:', err);
+        }
+    });
+
+    // Quick search
+    document.getElementById('quick-search').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+            window.location.href = '/movies?search=' + encodeURIComponent(e.target.value);
+        }
+    });
+</script>
+` }) %>

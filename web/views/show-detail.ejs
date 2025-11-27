@@ -1,0 +1,810 @@
+<%- include('partials/header', { title: 'Show Details', page: 'series' }) %>
+
+<style>
+    /* Override main container padding for full-width backdrop */
+    #show-container {
+        margin: -2rem -2rem 0 -2rem;
+    }
+    .media-page {
+        position: relative;
+        min-height: 493px;
+        background-size: cover;
+        background-position: center top;
+    }
+    .media-page-bg {
+        position: absolute;
+        inset: 0;
+        z-index: -10;
+    }
+    .media-page-bg img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .media-page-bg::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 100%);
+    }
+    .media-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 2rem;
+    }
+    @media (min-width: 1280px) {
+        .media-header {
+            flex-direction: row;
+            align-items: flex-end;
+            padding: 0 2rem;
+            position: absolute;
+            bottom: 2rem;
+            left: 0;
+            right: 0;
+        }
+    }
+    .media-poster {
+        width: 10rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    @media (min-width: 768px) {
+        .media-poster { width: 11rem; }
+    }
+    @media (min-width: 1280px) {
+        .media-poster { width: 13rem; margin-right: 1.5rem; }
+    }
+    .media-title {
+        margin-top: 1rem;
+        flex: 1;
+        text-align: center;
+        color: white;
+    }
+    @media (min-width: 1280px) {
+        .media-title {
+            margin-top: 0;
+            text-align: left;
+            margin-right: 1rem;
+        }
+    }
+    .media-title h1 {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin: 0;
+    }
+    @media (min-width: 1280px) {
+        .media-title h1 { font-size: 2.5rem; }
+    }
+    .media-title .year {
+        color: rgba(156, 163, 175, 0.8);
+        font-weight: normal;
+    }
+    .media-attributes {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        color: rgba(156, 163, 175, 1);
+    }
+    @media (min-width: 1280px) {
+        .media-attributes { justify-content: flex-start; }
+    }
+    .media-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        flex-shrink: 0;
+    }
+    @media (min-width: 1280px) {
+        .media-actions { margin-top: 0; }
+    }
+    .btn-request {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: white;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.4);
+    }
+    .btn-request:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px 0 rgba(79, 70, 229, 0.5);
+    }
+    .btn-icon {
+        padding: 0.625rem;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 9999px;
+        border: none;
+        color: white;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .btn-icon:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+    .media-overview {
+        display: flex;
+        flex-direction: column;
+        padding: 2rem;
+        color: white;
+    }
+    @media (min-width: 1024px) {
+        .media-overview { flex-direction: row; gap: 2rem; }
+    }
+    .media-overview-left {
+        flex: 1;
+        min-width: 0;
+    }
+    .media-overview-right {
+        width: 100%;
+        margin-top: 2rem;
+    }
+    @media (min-width: 1024px) {
+        .media-overview-right {
+            width: 20rem;
+            margin-top: 0;
+            flex-shrink: 0;
+        }
+    }
+    .media-facts {
+        background: rgba(17, 24, 39, 0.8);
+        border: 1px solid rgba(55, 65, 81, 0.5);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+    .media-fact {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+        font-size: 0.875rem;
+    }
+    .media-fact:last-child {
+        border-bottom: none;
+    }
+    .media-fact-label {
+        color: rgba(156, 163, 175, 1);
+    }
+    .media-fact-value {
+        color: white;
+        text-align: right;
+    }
+    .rating-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 0.375rem;
+        font-weight: 600;
+    }
+    .season-item {
+        background: rgba(17, 24, 39, 0.6);
+        border: 1px solid rgba(55, 65, 81, 0.3);
+        border-radius: 0.5rem;
+        overflow: hidden;
+        margin-bottom: 0.5rem;
+    }
+    .season-header {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.875rem 1rem;
+        background: transparent;
+        border: none;
+        color: white;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .season-header:hover {
+        background: rgba(55, 65, 81, 0.3);
+    }
+    .episode-item {
+        display: flex;
+        gap: 1rem;
+        padding: 1rem;
+        border-top: 1px solid rgba(55, 65, 81, 0.3);
+        transition: background 0.2s;
+    }
+    .episode-item:hover {
+        background: rgba(55, 65, 81, 0.2);
+    }
+    .episode-still {
+        width: 10rem;
+        height: 5.625rem;
+        object-fit: cover;
+        border-radius: 0.375rem;
+        flex-shrink: 0;
+        background: rgba(17, 24, 39, 0.5);
+    }
+    .line-clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .content-rating {
+        padding: 0.125rem 0.375rem;
+        border: 1px solid rgba(107, 114, 128, 0.5);
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+        color: rgba(156, 163, 175, 1);
+    }
+</style>
+
+<div id="show-container">
+    <div class="p-8 text-center" id="loading">
+        <p class="text-dark-400">Loading...</p>
+    </div>
+</div>
+
+<script>
+    const showName = '<%= showName %>';
+    let showData = null;
+    let tmdbData = null;
+    let expandedSeasons = new Set();
+    let seasonEpisodeCache = {};
+
+    async function loadShow() {
+        try {
+            const [showResponse, tmdbResponse] = await Promise.all([
+                fetch('/api/shows/' + encodeURIComponent(showName)),
+                fetch('/api/shows/' + encodeURIComponent(showName) + '/tmdb').catch(() => null)
+            ]);
+
+            showData = await showResponse.json();
+
+            if (tmdbResponse && tmdbResponse.ok) {
+                tmdbData = await tmdbResponse.json();
+            }
+
+            renderShow();
+        } catch (err) {
+            document.getElementById('show-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load show</div>';
+        }
+    }
+
+    async function toggleSeason(seasonNum) {
+        if (expandedSeasons.has(seasonNum)) {
+            expandedSeasons.delete(seasonNum);
+        } else {
+            expandedSeasons.add(seasonNum);
+            // Fetch TMDB episode data if we have TMDB ID and haven't cached it
+            if (tmdbData?.id && !seasonEpisodeCache[seasonNum]) {
+                try {
+                    const response = await fetch(`/api/tmdb/tv/${tmdbData.id}/season/${seasonNum}`);
+                    if (response.ok) {
+                        seasonEpisodeCache[seasonNum] = await response.json();
+                    }
+                } catch (e) {
+                    console.error('Failed to fetch season data:', e);
+                }
+            }
+        }
+        renderSeasonsList();
+    }
+
+    function renderShow() {
+        const container = document.getElementById('show-container');
+
+        const title = tmdbData?.name || showData.showName;
+        const year = tmdbData?.first_air_date?.substring(0, 4) || showData.year;
+        const rating = tmdbData?.vote_average || showData.rating;
+        const plot = tmdbData?.overview || showData.plot;
+        const genres = Array.isArray(tmdbData?.genres)
+            ? tmdbData.genres.map(g => g.name).join(', ')
+            : (tmdbData?.genres || showData.genres);
+        const poster = tmdbData?.poster_path
+            ? (tmdbData.poster_path.startsWith('http') ? tmdbData.poster_path : `https://image.tmdb.org/t/p/w300${tmdbData.poster_path}`)
+            : showData.poster || '/static/img/no-poster.png';
+        const backdrop = tmdbData?.backdrop_path
+            ? (tmdbData.backdrop_path.startsWith('http') ? tmdbData.backdrop_path : `https://image.tmdb.org/t/p/w1920_and_h800_multi_faces${tmdbData.backdrop_path}`)
+            : showData.backdrop;
+        const status = tmdbData?.status || 'Unknown';
+        const firstAirDate = tmdbData?.first_air_date;
+        const episodeRuntime = tmdbData?.episode_run_time?.[0];
+        const network = tmdbData?.networks?.[0]?.name;
+        const originalLanguage = tmdbData?.original_language?.toUpperCase() || '';
+        const productionCountry = tmdbData?.production_countries?.[0];
+        const totalSeasons = tmdbData?.number_of_seasons || Object.keys(generateSeasonsFromShowData()).length;
+        const creators = tmdbData?.created_by || [];
+        const contentRating = tmdbData?.content_ratings?.results?.find(r => r.iso_3166_1 === 'US')?.rating ||
+                             tmdbData?.content_ratings?.results?.find(r => r.iso_3166_1 === 'DE')?.rating || '';
+        const externalIds = tmdbData?.external_ids || {};
+
+        container.innerHTML = `
+            <!-- Media Page with Backdrop -->
+            <div class="media-page">
+                <!-- Backdrop Image -->
+                <div class="media-page-bg">
+                    ${backdrop ? `<img src="${backdrop}" alt="" />` : ''}
+                </div>
+
+                <!-- Header Content -->
+                <div class="media-header">
+                    <!-- Poster -->
+                    <div class="media-poster">
+                        <img src="${poster}" alt="${title}" style="width: 100%; height: auto;"
+                             onerror="this.src='/static/img/no-poster.png'" />
+                    </div>
+
+                    <!-- Title Area -->
+                    <div class="media-title">
+                        <h1>${title} <span class="year">(${year || ''})</span></h1>
+                        <div class="media-attributes">
+                            ${contentRating ? `<span class="content-rating">${contentRating}</span>` : ''}
+                            <span>${totalSeasons} Season${totalSeasons !== 1 ? 's' : ''}</span>
+                            ${genres ? `<span style="color: rgba(107, 114, 128, 1);">|</span><span>${genres}</span>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="media-actions">
+                        <button class="btn-icon" title="External links">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="media-overview">
+                <!-- Left Content -->
+                <div class="media-overview-left">
+                    <!-- Overview -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
+                        <p style="color: rgba(209, 213, 219, 1); line-height: 1.625;">${plot || 'No overview available.'}</p>
+                    </div>
+
+                    <!-- Creators -->
+                    ${creators.length > 0 ? `
+                        <div style="display: flex; gap: 3rem; margin-bottom: 1rem;">
+                            ${creators.slice(0, 3).map(creator => `
+                                <div>
+                                    <p style="color: rgba(156, 163, 175, 1); font-size: 0.875rem;">Creator</p>
+                                    <p style="font-weight: 500;">${creator.name}</p>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <!-- View Full Crew -->
+                    ${tmdbData?.id ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <a href="https://www.themoviedb.org/tv/${tmdbData.id}/cast" target="_blank"
+                               style="color: rgba(156, 163, 175, 1); font-size: 0.875rem; display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none;">
+                                View Full Crew
+                                <svg style="width: 1rem; height: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </a>
+                        </div>
+                    ` : ''}
+
+                    <!-- Seasons -->
+                    <div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
+                            <h2 style="font-size: 1.125rem; font-weight: 600;">Seasons</h2>
+                            <p style="font-size: 0.875rem; color: rgba(156, 163, 175, 1);">Select episodes to add to download queue</p>
+                        </div>
+                        <div id="seasons-list"></div>
+                    </div>
+
+                    <!-- Floating Download Bar -->
+                    <div id="download-bar" style="display: none; position: fixed; bottom: 2rem; left: 50%; transform: translateX(-50%); background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%); padding: 1rem 1.5rem; border-radius: 9999px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5); z-index: 100; display: flex; align-items: center; gap: 1rem;">
+                        <span style="color: white; font-weight: 600;"><span id="selected-count">0</span> selected</span>
+                        <button onclick="downloadSelected()" style="display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: white; color: #4f46e5; border-radius: 9999px; font-weight: 600; border: none; cursor: pointer;">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Add to Queue
+                        </button>
+                        <button onclick="clearSelection()" style="padding: 0.5rem; background: rgba(255, 255, 255, 0.2); border-radius: 9999px; border: none; color: white; cursor: pointer;">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Right Sidebar -->
+                <div class="media-overview-right">
+                    <div class="media-facts">
+                        <!-- Ratings -->
+                        ${rating ? `
+                            <div class="media-fact" style="justify-content: flex-end; gap: 1rem;">
+                                <div class="rating-badge">
+                                    <span>🍅</span>
+                                    <span>${Math.round(rating * 10)}%</span>
+                                </div>
+                                <div class="rating-badge">
+                                    <span>🍿</span>
+                                    <span>${Math.round((rating - 0.5) * 10)}%</span>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <div class="media-fact">
+                            <span class="media-fact-label">Status</span>
+                            <span class="media-fact-value">${status}</span>
+                        </div>
+
+                        ${firstAirDate ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">First Air Date</span>
+                                <span class="media-fact-value">${new Date(firstAirDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                            </div>
+                        ` : ''}
+
+                        ${episodeRuntime ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Episode Runtime</span>
+                                <span class="media-fact-value">${episodeRuntime} minutes</span>
+                            </div>
+                        ` : ''}
+
+                        ${originalLanguage ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Original Language</span>
+                                <span class="media-fact-value">${getLanguageName(originalLanguage)}</span>
+                            </div>
+                        ` : ''}
+
+                        ${productionCountry ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Production Country</span>
+                                <span class="media-fact-value" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <img src="https://flagcdn.com/16x12/${productionCountry.iso_3166_1.toLowerCase()}.png" alt="${productionCountry.iso_3166_1}" />
+                                    ${productionCountry.name}
+                                </span>
+                            </div>
+                        ` : ''}
+
+                        ${network ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Network</span>
+                                <span class="media-fact-value">${network}</span>
+                            </div>
+                        ` : ''}
+
+                        <div class="media-fact">
+                            <span class="media-fact-label">Available in</span>
+                            <span class="media-fact-value">${showData.languages.join(', ')}</span>
+                        </div>
+
+                        <!-- External Links -->
+                        <div class="media-fact" style="justify-content: center; gap: 0.5rem;">
+                            ${tmdbData?.id ? `
+                                <a href="https://www.themoviedb.org/tv/${tmdbData.id}" target="_blank"
+                                   style="padding: 0.5rem; background: rgba(55, 65, 81, 0.5); border-radius: 0.375rem;" title="TMDB">
+                                    <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg" style="width: 1.25rem; height: 1.25rem;" alt="TMDB" />
+                                </a>
+                            ` : ''}
+                            ${externalIds?.imdb_id ? `
+                                <a href="https://www.imdb.com/title/${externalIds.imdb_id}" target="_blank"
+                                   style="padding: 0.5rem; background: rgba(55, 65, 81, 0.5); border-radius: 0.375rem;" title="IMDb">
+                                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/IMDB_Logo_2016.svg" style="width: 1.25rem; height: 1.25rem;" alt="IMDb" />
+                                </a>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        renderSeasonsList();
+    }
+
+    function getLanguageName(code) {
+        const languages = {
+            'EN': 'English', 'DE': 'German', 'FR': 'French', 'ES': 'Spanish',
+            'IT': 'Italian', 'PT': 'Portuguese', 'NL': 'Dutch', 'PL': 'Polish',
+            'RU': 'Russian', 'JA': 'Japanese', 'KO': 'Korean', 'ZH': 'Chinese'
+        };
+        return languages[code.toUpperCase()] || code;
+    }
+
+    function generateSeasonsFromShowData() {
+        const seasons = new Set();
+        for (const lang of showData.languages) {
+            const group = showData.languageGroups[lang];
+            if (group?.seasons) {
+                Object.keys(group.seasons).forEach(s => seasons.add(parseInt(s)));
+            }
+        }
+
+        return Array.from(seasons).sort((a, b) => b - a).map(seasonNum => {
+            let episodeCount = 0;
+            for (const lang of showData.languages) {
+                const eps = showData.languageGroups[lang]?.seasons?.[seasonNum];
+                if (eps) episodeCount = Math.max(episodeCount, eps.length);
+            }
+
+            return {
+                season_number: seasonNum,
+                name: seasonNum === 0 ? 'Specials' : `Season ${seasonNum}`,
+                episode_count: episodeCount
+            };
+        });
+    }
+
+    function getEpisodesForSeason(seasonNum) {
+        for (const lang of showData.languages) {
+            const eps = showData.languageGroups[lang]?.seasons?.[seasonNum];
+            if (eps && eps.length > 0) {
+                return eps;
+            }
+        }
+        return [];
+    }
+
+    function cleanEpisodeTitle(rawTitle, episodeNum) {
+        if (!rawTitle) return `Episode ${episodeNum}`;
+        let cleaned = rawTitle.replace(/^[A-Z]{2,3}\s*-\s*/i, '');
+        const seMatch = cleaned.match(/^.+?\s+S\d{1,2}\s*E\d{1,3}(?:\s*-\s*(.+))?$/i);
+        if (seMatch) {
+            if (seMatch[1]) return seMatch[1].trim();
+            return `Episode ${episodeNum}`;
+        }
+        return cleaned || `Episode ${episodeNum}`;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    // Selection management
+    let selectedEpisodes = new Set();
+
+    function toggleEpisodeSelection(mediaId, seasonNum, epNum) {
+        const key = `${mediaId}`;
+        if (selectedEpisodes.has(key)) {
+            selectedEpisodes.delete(key);
+        } else {
+            selectedEpisodes.add(key);
+        }
+        updateSelectionUI();
+        renderSeasonsList();
+    }
+
+    function toggleSeasonSelection(seasonNum, episodes) {
+        const seasonEpIds = episodes.filter(e => e.id).map(e => `${e.id}`);
+        const allSelected = seasonEpIds.every(id => selectedEpisodes.has(id));
+
+        if (allSelected) {
+            seasonEpIds.forEach(id => selectedEpisodes.delete(id));
+        } else {
+            seasonEpIds.forEach(id => selectedEpisodes.add(id));
+        }
+        updateSelectionUI();
+        renderSeasonsList();
+    }
+
+    function updateSelectionUI() {
+        const bar = document.getElementById('download-bar');
+        const count = document.getElementById('selected-count');
+        if (selectedEpisodes.size > 0) {
+            bar.style.display = 'flex';
+            count.textContent = selectedEpisodes.size;
+        } else {
+            bar.style.display = 'none';
+        }
+    }
+
+    function clearSelection() {
+        selectedEpisodes.clear();
+        updateSelectionUI();
+        renderSeasonsList();
+    }
+
+    async function downloadSelected() {
+        if (selectedEpisodes.size === 0) return;
+
+        const ids = Array.from(selectedEpisodes);
+        let success = 0;
+        let failed = 0;
+
+        for (const mediaId of ids) {
+            try {
+                const response = await fetch('/api/downloads', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ media_id: parseInt(mediaId) })
+                });
+                const result = await response.json();
+                if (result.success || result.id) {
+                    success++;
+                } else {
+                    failed++;
+                }
+            } catch (err) {
+                failed++;
+            }
+        }
+
+        clearSelection();
+        if (window.showToast) {
+            if (success > 0) showToast(`Added ${success} episode${success > 1 ? 's' : ''} to download queue`, 'success');
+            if (failed > 0) showToast(`${failed} episode${failed > 1 ? 's' : ''} already in queue or failed`, 'error');
+        } else {
+            alert(`Added ${success} episode${success > 1 ? 's' : ''} to queue${failed > 0 ? `. ${failed} already in queue.` : ''}`);
+        }
+    }
+
+    function renderSeasonsList() {
+        const container = document.getElementById('seasons-list');
+        if (!container) return;
+
+        const tmdbSeasons = tmdbData?.seasons?.filter(s => s.season_number > 0) || [];
+        const seasonsToShow = tmdbSeasons.length > 0
+            ? tmdbSeasons.sort((a, b) => b.season_number - a.season_number)
+            : generateSeasonsFromShowData();
+
+        container.innerHTML = seasonsToShow.map(season => {
+            const isExpanded = expandedSeasons.has(season.season_number);
+            const localEpisodes = getEpisodesForSeason(season.season_number);
+            const tmdbEpisodes = seasonEpisodeCache[season.season_number]?.episodes || [];
+            const hasEpisodes = localEpisodes.length > 0 || tmdbEpisodes.length > 0;
+
+            // Merge local and TMDB episode data
+            const episodes = tmdbEpisodes.length > 0 ? tmdbEpisodes.map((tmdbEp, idx) => {
+                const localEp = localEpisodes.find(e => e.episode_number === tmdbEp.episode_number) || localEpisodes[idx];
+                return {
+                    ...tmdbEp,
+                    id: localEp?.id,
+                    stream_url: localEp?.stream_url,
+                    hasLocal: !!localEp
+                };
+            }) : localEpisodes.map((ep, idx) => ({
+                episode_number: ep.episode_number || idx + 1,
+                name: cleanEpisodeTitle(ep.title, ep.episode_number || idx + 1),
+                overview: ep.plot || '',
+                air_date: ep.air_date,
+                still_path: ep.backdrop,
+                id: ep.id,
+                hasLocal: true
+            }));
+
+            // Check if all episodes in season are selected
+            const availableEps = episodes.filter(e => e.id);
+            const allSeasonSelected = availableEps.length > 0 && availableEps.every(e => selectedEpisodes.has(`${e.id}`));
+            const someSeasonSelected = availableEps.some(e => selectedEpisodes.has(`${e.id}`));
+
+            return `
+                <div class="season-item">
+                    <div class="season-header" style="display: flex; align-items: center;">
+                        <!-- Season Checkbox -->
+                        ${availableEps.length > 0 ? `
+                            <label onclick="event.stopPropagation();" style="display: flex; align-items: center; padding: 0.5rem; margin-right: 0.5rem; cursor: pointer;">
+                                <input type="checkbox"
+                                       ${allSeasonSelected ? 'checked' : ''}
+                                       ${someSeasonSelected && !allSeasonSelected ? 'style="opacity: 0.5;"' : ''}
+                                       onchange="toggleSeasonSelection(${season.season_number}, ${JSON.stringify(episodes.filter(e => e.id).map(e => ({id: e.id}))).replace(/"/g, '&quot;')})"
+                                       style="width: 1.25rem; height: 1.25rem; accent-color: #6366f1; cursor: pointer;" />
+                            </label>
+                        ` : ''}
+
+                        <button onclick="toggleSeason(${season.season_number})" style="flex: 1; display: flex; align-items: center; justify-content: space-between; padding: 0.875rem 1rem 0.875rem 0; background: transparent; border: none; color: white; cursor: pointer;">
+                            <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                <span style="font-weight: 600;">Season ${season.season_number}</span>
+                                <span style="padding: 0.125rem 0.5rem; background: rgba(55, 65, 81, 0.5); border-radius: 9999px; font-size: 0.75rem; color: rgba(156, 163, 175, 1);">${season.episode_count} Episodes</span>
+                                ${availableEps.length > 0 ? `
+                                    <span style="padding: 0.125rem 0.5rem; background: rgba(34, 197, 94, 0.2); border-radius: 9999px; font-size: 0.75rem; color: rgba(74, 222, 128, 1);">${availableEps.length} Available</span>
+                                ` : `
+                                    <span style="padding: 0.125rem 0.5rem; background: rgba(239, 68, 68, 0.2); border-radius: 9999px; font-size: 0.75rem; color: rgba(248, 113, 113, 1);">Not Available</span>
+                                `}
+                            </div>
+                            <svg style="width: 1.25rem; height: 1.25rem; color: rgba(156, 163, 175, 1); transition: transform 0.2s; ${isExpanded ? 'transform: rotate(180deg);' : ''}"
+                                 fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                    </div>
+
+                    ${isExpanded ? `
+                        <div>
+                            ${hasEpisodes ? episodes.map(ep => {
+                                const stillUrl = ep.still_path
+                                    ? (ep.still_path.startsWith('http') ? ep.still_path : `https://image.tmdb.org/t/p/w300${ep.still_path}`)
+                                    : null;
+                                const isSelected = ep.id && selectedEpisodes.has(`${ep.id}`);
+                                const isAvailable = !!ep.id;
+                                return `
+                                    <div class="episode-item" style="${isSelected ? 'background: rgba(99, 102, 241, 0.1);' : ''} ${!isAvailable ? 'opacity: 0.5;' : ''}">
+                                        <!-- Episode Checkbox -->
+                                        ${isAvailable ? `
+                                            <label style="display: flex; align-items: center; padding: 0.5rem; cursor: pointer; align-self: flex-start;">
+                                                <input type="checkbox"
+                                                       ${isSelected ? 'checked' : ''}
+                                                       onchange="toggleEpisodeSelection(${ep.id}, ${season.season_number}, ${ep.episode_number})"
+                                                       style="width: 1.25rem; height: 1.25rem; accent-color: #6366f1; cursor: pointer;" />
+                                            </label>
+                                        ` : `
+                                            <div style="width: 2.25rem; flex-shrink: 0;"></div>
+                                        `}
+
+                                        <!-- Episode Still -->
+                                        ${stillUrl ? `
+                                            <img src="${stillUrl}" alt="Episode ${ep.episode_number}" class="episode-still"
+                                                 onerror="this.style.display='none'" />
+                                        ` : `
+                                            <div class="episode-still" style="display: flex; align-items: center; justify-content: center;">
+                                                <svg style="width: 2rem; height: 2rem; color: rgba(75, 85, 99, 1);" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                                </svg>
+                                            </div>
+                                        `}
+                                        <!-- Episode Info -->
+                                        <div style="flex: 1; min-width: 0;">
+                                            <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.25rem; flex-wrap: wrap;">
+                                                <span style="font-weight: 600;">${ep.episode_number}</span>
+                                                <span style="color: rgba(209, 213, 219, 1);">${ep.name || 'Episode ' + ep.episode_number}</span>
+                                                ${ep.air_date ? `
+                                                    <span style="padding: 0.125rem 0.375rem; background: rgba(55, 65, 81, 0.5); border-radius: 0.25rem; font-size: 0.75rem; color: rgba(156, 163, 175, 1);">${formatDate(ep.air_date)}</span>
+                                                ` : ''}
+                                                ${!isAvailable ? `
+                                                    <span style="padding: 0.125rem 0.375rem; background: rgba(239, 68, 68, 0.2); border-radius: 0.25rem; font-size: 0.75rem; color: rgba(248, 113, 113, 1);">Not in library</span>
+                                                ` : ''}
+                                            </div>
+                                            <p class="line-clamp-2" style="font-size: 0.875rem; color: rgba(156, 163, 175, 1); line-height: 1.5;">${ep.overview || 'No description available.'}</p>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('') : `
+                                <div style="padding: 1.5rem; text-align: center; color: rgba(156, 163, 175, 1); font-size: 0.875rem;">
+                                    No episode information available
+                                </div>
+                            `}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }).join('');
+    }
+
+    async function downloadEpisode(mediaId) {
+        try {
+            await fetch('/api/downloads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_id: mediaId })
+            });
+            alert('Added to download queue!');
+        } catch (err) {
+            alert('Failed to add to queue');
+        }
+    }
+
+    loadShow();
+</script>
+
+<style>
+    .line-clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+</style>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,627 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    html {
+        @apply scroll-smooth;
+    }
+    body {
+        @apply bg-gray-950 text-gray-100 font-sans antialiased;
+        background: linear-gradient(180deg, #030712 0%, #0a0f1a 100%);
+        min-height: 100vh;
+    }
+
+    /* Selection styling */
+    ::selection {
+        @apply bg-primary-500/30 text-white;
+    }
+}
+
+@layer components {
+    /* ===============================
+       BUTTONS
+       =============================== */
+    .btn {
+        @apply inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl font-semibold text-sm
+               transition-all duration-200 ease-out cursor-pointer
+               disabled:opacity-50 disabled:cursor-not-allowed;
+    }
+
+    .btn-primary {
+        @apply bg-gradient-to-r from-primary-500 to-primary-600 text-white
+               hover:from-primary-400 hover:to-primary-500 hover:shadow-glow
+               active:scale-[0.98];
+    }
+
+    .btn-secondary {
+        @apply bg-gray-800 text-gray-100 border border-gray-700
+               hover:bg-gray-700 hover:border-gray-600
+               active:scale-[0.98];
+    }
+
+    .btn-ghost {
+        @apply bg-white/5 text-white backdrop-blur-sm
+               hover:bg-white/10
+               active:scale-[0.98];
+    }
+
+    .btn-danger {
+        @apply bg-danger-500 text-white
+               hover:bg-danger-400 hover:shadow-lg hover:shadow-danger-500/25
+               active:scale-[0.98];
+    }
+
+    .btn-success {
+        @apply bg-success-500 text-white
+               hover:bg-success-400 hover:shadow-lg hover:shadow-success-500/25
+               active:scale-[0.98];
+    }
+
+    .btn-sm {
+        @apply px-3 py-1.5 text-xs rounded-lg;
+    }
+
+    .btn-lg {
+        @apply px-7 py-3.5 text-base rounded-2xl;
+    }
+
+    .btn-icon {
+        @apply p-2.5 rounded-full bg-white/10 text-white backdrop-blur-sm
+               hover:bg-white/20 transition-colors;
+    }
+
+    /* ===============================
+       CARDS
+       =============================== */
+    .card {
+        @apply bg-gray-900/80 backdrop-blur-sm rounded-2xl border border-gray-800/50
+               shadow-card transition-all duration-300;
+    }
+
+    .card-hover {
+        @apply hover:border-gray-700 hover:shadow-card-hover hover:bg-gray-900;
+    }
+
+    .card-glass {
+        @apply bg-gray-900/40 backdrop-blur-xl border border-white/10 rounded-2xl;
+    }
+
+    /* ===============================
+       MEDIA CARDS - Overseerr Style
+       =============================== */
+    .media-card {
+        @apply relative rounded-xl overflow-hidden cursor-pointer
+               transition-all duration-300 ease-out;
+        width: 100%;
+        aspect-ratio: 2/3;
+    }
+
+    .media-card:hover {
+        @apply scale-[1.03] shadow-2xl;
+        z-index: 10;
+    }
+
+    .media-card-poster {
+        @apply w-full h-full object-cover bg-gray-800;
+    }
+
+    .media-card-overlay {
+        @apply absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent
+               opacity-0 transition-opacity duration-300
+               flex flex-col justify-end p-4;
+    }
+
+    .media-card:hover .media-card-overlay {
+        @apply opacity-100;
+    }
+
+    .media-card-info {
+        @apply absolute bottom-0 left-0 right-0 p-3
+               bg-gradient-to-t from-gray-950 via-gray-950/95 to-transparent;
+    }
+
+    .media-card-title {
+        @apply text-sm font-semibold text-white truncate;
+    }
+
+    .media-card-meta {
+        @apply flex items-center gap-2 mt-1 text-xs text-gray-400;
+    }
+
+    .media-card-rating {
+        @apply flex items-center gap-1;
+    }
+
+    .media-card-rating svg {
+        @apply w-3.5 h-3.5 text-yellow-400;
+    }
+
+    /* Quality badge on cards */
+    .media-card-badge {
+        @apply absolute top-2 right-2 px-2 py-0.5 rounded-md text-xs font-bold
+               bg-primary-500/90 text-white backdrop-blur-sm;
+    }
+
+    /* Status indicators */
+    .media-card-status {
+        @apply absolute top-2 left-2 w-3 h-3 rounded-full ring-2 ring-gray-950;
+    }
+
+    .media-card-status.available {
+        @apply bg-success-500;
+    }
+
+    .media-card-status.requested {
+        @apply bg-warning-500;
+    }
+
+    .media-card-status.unavailable {
+        @apply bg-gray-500;
+    }
+
+    /* ===============================
+       MEDIA GRID
+       =============================== */
+    .media-grid {
+        @apply grid gap-4;
+        grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    }
+
+    @media (min-width: 640px) {
+        .media-grid {
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        }
+    }
+
+    @media (min-width: 1024px) {
+        .media-grid {
+            @apply gap-5;
+            grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        }
+    }
+
+    /* ===============================
+       INPUTS
+       =============================== */
+    .input {
+        @apply w-full px-4 py-3 bg-gray-800/80 border border-gray-700 rounded-xl
+               text-white placeholder-gray-500
+               focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500
+               transition-all duration-200;
+    }
+
+    .input-search {
+        @apply pl-11 pr-4;
+    }
+
+    .select {
+        @apply input appearance-none cursor-pointer
+               bg-no-repeat bg-right;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+        background-size: 1.25rem;
+        background-position: right 0.75rem center;
+        padding-right: 2.5rem;
+    }
+
+    /* ===============================
+       SIDEBAR NAVIGATION
+       =============================== */
+    .sidebar {
+        @apply fixed left-0 top-0 bottom-0 w-64 bg-gray-950/95 backdrop-blur-xl
+               border-r border-gray-800/50 z-50 flex flex-col;
+    }
+
+    .sidebar-logo {
+        @apply flex items-center gap-3 px-6 py-5 border-b border-gray-800/50;
+    }
+
+    .sidebar-logo-icon {
+        @apply w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600
+               flex items-center justify-center text-white shadow-glow;
+    }
+
+    .sidebar-logo-text {
+        @apply text-xl font-bold text-white tracking-tight;
+    }
+
+    .sidebar-nav {
+        @apply flex-1 py-4 px-3 space-y-1 overflow-y-auto;
+    }
+
+    .sidebar-link {
+        @apply flex items-center gap-3 px-4 py-3 rounded-xl
+               text-gray-400 font-medium
+               hover:text-white hover:bg-gray-800/50
+               transition-all duration-200;
+    }
+
+    .sidebar-link.active {
+        @apply bg-primary-500/10 text-primary-400 shadow-sm;
+    }
+
+    .sidebar-link.active svg {
+        @apply text-primary-400;
+    }
+
+    .sidebar-link svg {
+        @apply w-5 h-5 flex-shrink-0;
+    }
+
+    .sidebar-footer {
+        @apply px-3 py-4 border-t border-gray-800/50;
+    }
+
+    /* ===============================
+       BADGES
+       =============================== */
+    .badge {
+        @apply inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold;
+    }
+
+    .badge-primary {
+        @apply bg-primary-500/20 text-primary-400 ring-1 ring-primary-500/30;
+    }
+
+    .badge-success {
+        @apply bg-success-500/20 text-success-400 ring-1 ring-success-500/30;
+    }
+
+    .badge-warning {
+        @apply bg-warning-500/20 text-warning-400 ring-1 ring-warning-500/30;
+    }
+
+    .badge-danger {
+        @apply bg-danger-500/20 text-danger-400 ring-1 ring-danger-500/30;
+    }
+
+    .badge-gray {
+        @apply bg-gray-700/50 text-gray-300 ring-1 ring-gray-600/30;
+    }
+
+    .badge-quality {
+        @apply bg-primary-500/20 text-primary-300 font-bold;
+    }
+
+    /* ===============================
+       STAT CARDS
+       =============================== */
+    .stat-card {
+        @apply card p-6 hover:border-gray-700 transition-all duration-300;
+    }
+
+    .stat-card-icon {
+        @apply w-12 h-12 rounded-xl flex items-center justify-center;
+    }
+
+    .stat-card-value {
+        @apply text-3xl font-bold text-white mt-3;
+    }
+
+    .stat-card-label {
+        @apply text-sm text-gray-400 mt-1;
+    }
+
+    /* ===============================
+       HERO SECTION
+       =============================== */
+    .hero {
+        @apply relative min-h-[500px] bg-cover bg-center bg-no-repeat;
+    }
+
+    .hero-overlay {
+        @apply absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-950/60 to-gray-950/40;
+    }
+
+    .hero-content {
+        @apply relative z-10 flex flex-col justify-end h-full pb-12 px-8;
+    }
+
+    /* ===============================
+       FILTER CHIPS
+       =============================== */
+    .filter-chip {
+        @apply px-4 py-2 rounded-full text-sm font-medium
+               bg-gray-800 text-gray-300 border border-gray-700
+               hover:bg-gray-700 hover:text-white
+               cursor-pointer transition-all duration-200;
+    }
+
+    .filter-chip.active {
+        @apply bg-primary-500 text-white border-primary-500;
+    }
+
+    /* ===============================
+       PROGRESS BAR
+       =============================== */
+    .progress-bar {
+        @apply h-1.5 bg-gray-800 rounded-full overflow-hidden;
+    }
+
+    .progress-bar-fill {
+        @apply h-full bg-gradient-to-r from-primary-400 to-primary-500 rounded-full
+               transition-all duration-500 ease-out;
+    }
+
+    /* ===============================
+       TABLES
+       =============================== */
+    .table {
+        @apply w-full;
+    }
+
+    .table th {
+        @apply px-4 py-3 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider
+               bg-gray-800/50 first:rounded-tl-xl last:rounded-tr-xl;
+    }
+
+    .table td {
+        @apply px-4 py-4 text-sm text-gray-300 border-t border-gray-800/50;
+    }
+
+    .table tr:hover td {
+        @apply bg-gray-800/30;
+    }
+
+    /* ===============================
+       TABS
+       =============================== */
+    .tabs {
+        @apply flex gap-1 bg-gray-800/50 p-1 rounded-xl;
+    }
+
+    .tab {
+        @apply px-4 py-2 rounded-lg text-sm font-medium text-gray-400
+               hover:text-white transition-colors cursor-pointer;
+    }
+
+    .tab.active {
+        @apply bg-gray-700 text-white;
+    }
+
+    /* ===============================
+       SLIDER CONTROLS
+       =============================== */
+    .slider-container {
+        @apply relative;
+    }
+
+    .slider-btn {
+        @apply absolute top-1/2 -translate-y-1/2 z-20
+               w-10 h-10 rounded-full
+               bg-gray-900/90 border border-gray-700
+               text-white flex items-center justify-center
+               hover:bg-gray-800 hover:border-gray-600
+               transition-all duration-200
+               disabled:opacity-30 disabled:cursor-not-allowed;
+    }
+
+    .slider-btn.prev {
+        @apply -left-5;
+    }
+
+    .slider-btn.next {
+        @apply -right-5;
+    }
+
+    .slider-track {
+        @apply flex gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory;
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+
+    .slider-track::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* ===============================
+       CAST CARDS
+       =============================== */
+    .cast-card {
+        @apply flex-shrink-0 w-32 snap-start;
+    }
+
+    .cast-card-image {
+        @apply w-full aspect-[2/3] rounded-xl object-cover bg-gray-800;
+    }
+
+    .cast-card-name {
+        @apply mt-2 text-sm font-medium text-white truncate;
+    }
+
+    .cast-card-role {
+        @apply text-xs text-gray-400 truncate;
+    }
+
+    /* ===============================
+       RATING DISPLAY
+       =============================== */
+    .rating-circle {
+        @apply inline-flex items-center gap-1 px-3 py-1.5 rounded-lg
+               font-bold text-lg;
+    }
+
+    .rating-circle.high {
+        @apply bg-success-500/20 text-success-400;
+    }
+
+    .rating-circle.medium {
+        @apply bg-warning-500/20 text-warning-400;
+    }
+
+    .rating-circle.low {
+        @apply bg-danger-500/20 text-danger-400;
+    }
+
+    /* ===============================
+       SECTION HEADERS
+       =============================== */
+    .section-header {
+        @apply flex items-center justify-between mb-6;
+    }
+
+    .section-title {
+        @apply text-xl font-bold text-white;
+    }
+
+    .section-link {
+        @apply text-sm text-gray-400 hover:text-primary-400
+               flex items-center gap-1 transition-colors;
+    }
+
+    /* ===============================
+       EMPTY STATE
+       =============================== */
+    .empty-state {
+        @apply flex flex-col items-center justify-center py-16 text-center;
+    }
+
+    .empty-state-icon {
+        @apply w-16 h-16 rounded-full bg-gray-800 flex items-center justify-center mb-4;
+    }
+
+    .empty-state-title {
+        @apply text-lg font-semibold text-white mb-2;
+    }
+
+    .empty-state-text {
+        @apply text-gray-400 max-w-sm;
+    }
+
+    /* ===============================
+       LOADING STATES
+       =============================== */
+    .skeleton {
+        @apply animate-pulse bg-gray-800 rounded-xl;
+    }
+
+    .skeleton-card {
+        @apply aspect-[2/3] rounded-xl bg-gray-800 animate-pulse;
+    }
+
+    .spinner {
+        @apply animate-spin w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full;
+    }
+
+    /* ===============================
+       TOOLTIPS
+       =============================== */
+    .tooltip {
+        @apply relative;
+    }
+
+    .tooltip::after {
+        @apply absolute bottom-full left-1/2 -translate-x-1/2 mb-2
+               px-2 py-1 rounded-lg text-xs font-medium
+               bg-gray-700 text-white whitespace-nowrap
+               opacity-0 invisible transition-all duration-200
+               content-[attr(data-tooltip)];
+    }
+
+    .tooltip:hover::after {
+        @apply opacity-100 visible;
+    }
+
+    /* ===============================
+       NOTIFICATIONS
+       =============================== */
+    .notification {
+        @apply fixed bottom-4 right-4 z-50
+               px-4 py-3 rounded-xl shadow-2xl
+               flex items-center gap-3
+               animate-slide-up;
+    }
+
+    .notification-success {
+        @apply bg-success-500 text-white;
+    }
+
+    .notification-error {
+        @apply bg-danger-500 text-white;
+    }
+
+    .notification-info {
+        @apply bg-primary-500 text-white;
+    }
+}
+
+/* ===============================
+   CUSTOM SCROLLBAR
+   =============================== */
+::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+::-webkit-scrollbar-track {
+    @apply bg-transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    @apply bg-gray-700 rounded-full;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-600;
+}
+
+/* ===============================
+   LAZY LOADING
+   =============================== */
+.lazy-image {
+    opacity: 0;
+    transition: opacity 0.4s ease-out;
+}
+
+.lazy-loaded {
+    opacity: 1;
+}
+
+img[data-src]:not(.lazy-loaded) {
+    background: linear-gradient(90deg, #1f2937 25%, #374151 50%, #1f2937 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* ===============================
+   PAGE TRANSITIONS
+   =============================== */
+.page-enter {
+    animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* ===============================
+   RESPONSIVE UTILITIES
+   =============================== */
+@media (max-width: 1024px) {
+    .sidebar {
+        @apply -translate-x-full;
+        transition: transform 0.3s ease-out;
+    }
+
+    .sidebar.open {
+        @apply translate-x-0;
+    }
+
+    .sidebar-overlay {
+        @apply fixed inset-0 bg-black/60 backdrop-blur-sm z-40;
+    }
+}

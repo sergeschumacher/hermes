@@ -1,0 +1,292 @@
+<%- include('partials/header', { title: 'Season Episodes', page: 'series' }) %>
+
+<div id="season-container">
+    <div class="p-8 text-center" id="loading">
+        <p class="text-dark-400">Loading episodes...</p>
+    </div>
+</div>
+
+<script>
+    const showName = '<%= showName %>';
+    const seasonNumber = <%= seasonNumber %>;
+    let showData = null;
+    let tmdbData = null;
+    let tmdbSeasonData = null;
+    let selectedLanguage = null;
+    let expandedEpisodes = new Set();
+
+    async function loadSeason() {
+        try {
+            // Load show data and TMDB data in parallel
+            const [showResponse, tmdbResponse] = await Promise.all([
+                fetch('/api/shows/' + encodeURIComponent(showName)),
+                fetch('/api/shows/' + encodeURIComponent(showName) + '/tmdb').catch(() => null)
+            ]);
+
+            showData = await showResponse.json();
+
+            if (tmdbResponse && tmdbResponse.ok) {
+                tmdbData = await tmdbResponse.json();
+
+                // Fetch TMDB season data
+                if (tmdbData?.id) {
+                    try {
+                        const seasonResponse = await fetch(`/api/tmdb/tv/${tmdbData.id}/season/${seasonNumber}`);
+                        if (seasonResponse.ok) {
+                            tmdbSeasonData = await seasonResponse.json();
+                        }
+                    } catch (err) {
+                        console.error('Failed to fetch TMDB season data:', err);
+                    }
+                }
+            }
+
+            // Find first language that has this season
+            selectedLanguage = showData.languages.find(lang =>
+                showData.languageGroups[lang]?.seasons?.[seasonNumber]
+            ) || showData.languages[0];
+
+            renderSeason();
+        } catch (err) {
+            document.getElementById('season-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load episodes</div>';
+        }
+    }
+
+    function selectLanguage(lang) {
+        selectedLanguage = lang;
+        document.querySelectorAll('.lang-btn').forEach(btn => {
+            btn.classList.toggle('bg-primary-600', btn.dataset.lang === lang);
+            btn.classList.toggle('text-white', btn.dataset.lang === lang);
+            btn.classList.toggle('bg-dark-700', btn.dataset.lang !== lang);
+            btn.classList.toggle('text-dark-300', btn.dataset.lang !== lang);
+        });
+        document.getElementById('episodes-grid').innerHTML = renderEpisodesGrid();
+    }
+
+    function toggleEpisodeDescription(episodeId) {
+        if (expandedEpisodes.has(episodeId)) {
+            expandedEpisodes.delete(episodeId);
+        } else {
+            expandedEpisodes.add(episodeId);
+        }
+        document.getElementById('episodes-grid').innerHTML = renderEpisodesGrid();
+    }
+
+    function formatAirDate(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('en-US', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
+
+    function renderSeason() {
+        const container = document.getElementById('season-container');
+
+        const showTitle = tmdbData?.title || showData.showName;
+        const seasonInfo = tmdbData?.seasons?.find(s => s.season_number == seasonNumber);
+        const seasonName = seasonInfo?.name || (seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`);
+        const seasonPoster = seasonInfo?.poster_path || tmdbData?.poster_path || '/static/img/no-poster.png';
+        const seasonOverview = tmdbSeasonData?.overview || seasonInfo?.overview || '';
+        const episodeCount = tmdbSeasonData?.episodes?.length || seasonInfo?.episode_count || 0;
+
+        // Get languages that have this season
+        const availableLanguages = showData.languages.filter(lang =>
+            showData.languageGroups[lang]?.seasons?.[seasonNumber]?.length > 0
+        );
+
+        container.innerHTML = `
+            <!-- Header -->
+            <div class="bg-dark-800 border-b border-dark-700">
+                <div class="px-8 py-6">
+                    <div class="flex items-start gap-6">
+                        <!-- Season Poster -->
+                        <img src="${seasonPoster}"
+                             alt="${seasonName}"
+                             class="w-32 h-48 rounded-lg object-cover shadow-xl flex-shrink-0"
+                             onerror="this.src='/static/img/no-poster.png'" />
+
+                        <div class="flex-1 min-w-0">
+                            <!-- Breadcrumb -->
+                            <a href="/series/${encodeURIComponent(showName)}" class="text-dark-400 hover:text-white text-sm mb-2 inline-flex items-center gap-1">
+                                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                                </svg>
+                                Back to ${showTitle}
+                            </a>
+
+                            <!-- Title -->
+                            <h1 class="text-3xl font-bold text-white">${seasonName}</h1>
+                            <p class="text-dark-400 mt-1">${showTitle}</p>
+
+                            <!-- Stats -->
+                            <div class="flex items-center gap-4 mt-3 text-sm">
+                                ${seasonInfo?.year ? `<span class="text-dark-300">${seasonInfo.year}</span>` : ''}
+                                <span class="text-dark-300">${episodeCount} Episodes</span>
+                                ${seasonInfo?.vote_average ? `
+                                    <span class="inline-flex items-center gap-1 text-yellow-400">
+                                        <span>★</span>
+                                        <span>${Math.round(seasonInfo.vote_average * 10)}%</span>
+                                    </span>
+                                ` : ''}
+                            </div>
+
+                            <!-- Overview -->
+                            ${seasonOverview ? `
+                                <p class="text-dark-300 mt-4 max-w-3xl line-clamp-3">${seasonOverview}</p>
+                            ` : ''}
+
+                            <!-- Language Selector -->
+                            ${availableLanguages.length > 1 ? `
+                                <div class="mt-4">
+                                    <span class="text-dark-500 text-sm mr-2">Language:</span>
+                                    ${availableLanguages.map(lang => `
+                                        <button onclick="selectLanguage('${lang}')"
+                                                data-lang="${lang}"
+                                                class="lang-btn px-3 py-1 rounded text-sm font-medium transition-colors ${lang === selectedLanguage ? 'bg-primary-600 text-white' : 'bg-dark-700 text-dark-300 hover:bg-dark-600'}">
+                                            ${lang}
+                                        </button>
+                                    `).join(' ')}
+                                </div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Episodes Grid -->
+            <div class="p-8">
+                <h2 class="text-xl font-semibold text-white mb-4">Episodes</h2>
+                <div id="episodes-grid">
+                    ${renderEpisodesGrid()}
+                </div>
+            </div>
+        `;
+    }
+
+    function renderEpisodesGrid() {
+        if (!selectedLanguage || !showData.languageGroups[selectedLanguage]) {
+            return '<p class="text-dark-400">No episodes available</p>';
+        }
+
+        const episodes = showData.languageGroups[selectedLanguage].seasons[seasonNumber] || [];
+        const tmdbEpisodes = tmdbSeasonData?.episodes || [];
+
+        if (episodes.length === 0) {
+            return '<p class="text-dark-400">No episodes available for this language</p>';
+        }
+
+        // Create a map of TMDB episode data by episode number
+        const tmdbEpMap = {};
+        tmdbEpisodes.forEach(ep => {
+            tmdbEpMap[ep.episode_number] = ep;
+        });
+
+        return `
+            <div class="space-y-4">
+                ${episodes.map(ep => {
+                    const tmdbEp = tmdbEpMap[ep.episode_number];
+                    const stillPath = tmdbEp?.still_path || null;
+                    const epName = tmdbEp?.name || (ep.title && !ep.title.includes('S0') ? ep.title.split(' - ').slice(-1)[0].replace(/S\d+\s*E\d+.*/i, '').trim() : '');
+                    const rating = tmdbEp?.vote_average;
+                    const airDate = tmdbEp?.air_date;
+                    const runtime = tmdbEp?.runtime;
+                    const overview = tmdbEp?.overview;
+                    const isExpanded = expandedEpisodes.has(ep.id);
+
+                    return `
+                        <div class="card hover:bg-dark-700/50 transition-colors group">
+                            <div class="flex gap-4 p-4">
+                                <!-- Episode Thumbnail -->
+                                <div class="flex-shrink-0 w-44 h-24 bg-dark-700 rounded-lg overflow-hidden relative">
+                                    ${stillPath
+                                        ? `<img src="${stillPath}" alt="Episode ${ep.episode_number}" class="w-full h-full object-cover" onerror="this.parentElement.innerHTML='<div class=\\'w-full h-full flex items-center justify-center text-2xl font-bold text-dark-500\\'>${ep.episode_number}</div>'" />`
+                                        : `<div class="w-full h-full flex items-center justify-center text-2xl font-bold text-dark-500">${ep.episode_number}</div>`
+                                    }
+                                </div>
+
+                                <!-- Episode Info -->
+                                <div class="flex-1 min-w-0">
+                                    <div class="flex items-start justify-between gap-4">
+                                        <div class="flex-1 min-w-0">
+                                            <!-- Episode Number & Title -->
+                                            <h4 class="font-semibold text-white">
+                                                <span class="text-dark-400 mr-2">${ep.episode_number}</span>
+                                                ${epName || 'Episode ' + ep.episode_number}
+                                            </h4>
+
+                                            <!-- Metadata Row -->
+                                            <div class="flex items-center gap-3 mt-1 text-sm">
+                                                ${rating ? `
+                                                    <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-dark-600 rounded text-yellow-400">
+                                                        <span class="text-xs">★</span>
+                                                        <span>${Math.round(rating * 10)}%</span>
+                                                    </span>
+                                                ` : ''}
+                                                ${airDate ? `<span class="text-dark-400">${formatAirDate(airDate)}</span>` : ''}
+                                                ${runtime ? `<span class="text-dark-400">${runtime}m</span>` : ''}
+                                                ${ep.quality ? `<span class="text-dark-500">${ep.quality}</span>` : ''}
+                                            </div>
+
+                                            <!-- Overview -->
+                                            ${overview ? `
+                                                <p class="text-dark-300 text-sm mt-2 ${isExpanded ? '' : 'line-clamp-2'}">
+                                                    ${overview}
+                                                </p>
+                                                ${overview.length > 150 ? `
+                                                    <button onclick="toggleEpisodeDescription(${ep.id})" class="text-primary-400 hover:text-primary-300 text-sm mt-1">
+                                                        ${isExpanded ? 'Show less' : 'Expand'}
+                                                    </button>
+                                                ` : ''}
+                                            ` : ''}
+                                        </div>
+
+                                        <!-- Download Button -->
+                                        <button onclick="downloadEpisode(${ep.id})"
+                                                class="flex-shrink-0 btn btn-primary btn-sm"
+                                                title="Add to download queue">
+                                            <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                                            </svg>
+                                            Download
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+            </div>
+        `;
+    }
+
+    async function downloadEpisode(mediaId) {
+        try {
+            await fetch('/api/downloads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_id: mediaId })
+            });
+            alert('Added to download queue!');
+        } catch (err) {
+            alert('Failed to add to queue');
+        }
+    }
+
+    loadSeason();
+</script>
+
+<style>
+    .line-clamp-2 {
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .line-clamp-3 {
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+</style>
+
+<%- include('partials/footer') %>

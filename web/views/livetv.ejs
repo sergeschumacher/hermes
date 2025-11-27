@@ -1,0 +1,122 @@
+<%- include('layouts/main', { title: 'Live TV', body: `
+<div class="p-8">
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-white">Live TV</h1>
+                <p class="text-dark-400 mt-1">Browse live TV channels</p>
+            </div>
+        </div>
+
+        <div class="card p-4">
+            <div class="flex flex-wrap gap-4">
+                <div class="flex-1 min-w-[200px]">
+                    <input type="text" id="search-input" placeholder="Search channels..." class="input" />
+                </div>
+                <select id="filter-category" class="input w-auto">
+                    <option value="">All Categories</option>
+                </select>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-4 text-dark-400">
+        <span id="results-count">0</span> channels found
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4" id="channels-grid">
+    </div>
+
+    <div class="mt-8 text-center">
+        <button id="load-more" class="btn btn-secondary hidden">Load More</button>
+    </div>
+</div>
+
+<script>
+    let currentOffset = 0;
+    const limit = 100;
+    let loading = false;
+
+    async function loadChannels(reset = false) {
+        if (loading) return;
+        loading = true;
+
+        if (reset) {
+            currentOffset = 0;
+            document.getElementById('channels-grid').innerHTML = '';
+        }
+
+        const params = new URLSearchParams({
+            type: 'live',
+            search: document.getElementById('search-input').value,
+            category: document.getElementById('filter-category').value,
+            limit,
+            offset: currentOffset
+        });
+
+        try {
+            const response = await fetch('/api/media?' + params);
+            const channels = await response.json();
+            const grid = document.getElementById('channels-grid');
+
+            if (reset) grid.innerHTML = '';
+
+            channels.forEach((channel, index) => {
+                const card = document.createElement('div');
+                card.className = 'card p-4 text-center hover:bg-dark-700 transition-colors cursor-pointer';
+                // Use proxy for external images, eager load first 16 items
+                const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.png';
+                const isEager = currentOffset === 0 && index < 16;
+                card.innerHTML = \`
+                    <img src="\${isEager ? imgSrc : '/static/img/no-logo.png'}"
+                         data-src="\${imgSrc}"
+                         alt="\${channel.title}"
+                         class="w-16 h-16 mx-auto rounded-lg object-contain bg-dark-700 mb-3 \${isEager ? '' : 'lazy-image'}"
+                         onerror="this.src='/static/img/no-logo.png'" />
+                    <h3 class="font-medium text-white text-sm truncate" title="\${channel.title}">\${channel.title}</h3>
+                    <p class="text-dark-400 text-xs mt-1 truncate">\${channel.category || ''}</p>
+                \`;
+                card.onclick = () => {
+                    navigator.clipboard.writeText(channel.stream_url);
+                    alert('Stream URL copied to clipboard!');
+                };
+                grid.appendChild(card);
+            });
+            // Initialize lazy loading for new images
+            initLazyLoad();
+
+            document.getElementById('results-count').textContent = currentOffset + channels.length;
+            document.getElementById('load-more').classList.toggle('hidden', channels.length < limit);
+            if (channels.length === limit) currentOffset += limit;
+        } catch (err) {
+            console.error('Failed to load channels:', err);
+        }
+        loading = false;
+    }
+
+    async function loadCategories() {
+        try {
+            const response = await fetch('/api/filters');
+            const filters = await response.json();
+            const select = document.getElementById('filter-category');
+            filters.categories.forEach(cat => {
+                if (cat) select.innerHTML += \`<option value="\${cat}">\${cat}</option>\`;
+            });
+        } catch (err) {
+            console.error('Failed to load categories:', err);
+        }
+    }
+
+    document.getElementById('search-input').addEventListener('input', debounce(() => loadChannels(true), 300));
+    document.getElementById('filter-category').addEventListener('change', () => loadChannels(true));
+    document.getElementById('load-more').addEventListener('click', () => loadChannels(false));
+
+    loadCategories();
+    loadChannels(true);
+
+    function debounce(func, wait) {
+        let timeout;
+        return (...args) => { clearTimeout(timeout); timeout = setTimeout(() => func(...args), wait); };
+    }
+</script>
+` }) %>

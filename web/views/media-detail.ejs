@@ -1,0 +1,804 @@
+<%- include('partials/header', { title: 'Media Details', page: 'movies' }) %>
+
+<style>
+    /* Override main container padding for full-width backdrop */
+    #media-container {
+        margin: -2rem -2rem 0 -2rem;
+    }
+    .media-page {
+        position: relative;
+        min-height: 493px;
+        background-size: cover;
+        background-position: center top;
+    }
+    .media-page-bg {
+        position: absolute;
+        inset: 0;
+        z-index: -10;
+    }
+    .media-page-bg img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    .media-page-bg::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(180deg, rgba(17, 24, 39, 0.47) 0%, rgba(17, 24, 39, 1) 100%);
+    }
+    .media-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 2rem;
+    }
+    @media (min-width: 1280px) {
+        .media-header {
+            flex-direction: row;
+            align-items: flex-end;
+            padding: 0 2rem;
+            position: absolute;
+            bottom: 2rem;
+            left: 0;
+            right: 0;
+        }
+    }
+    .media-poster {
+        width: 10rem;
+        border-radius: 0.5rem;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
+        flex-shrink: 0;
+    }
+    @media (min-width: 768px) {
+        .media-poster { width: 11rem; }
+    }
+    @media (min-width: 1280px) {
+        .media-poster { width: 13rem; margin-right: 1.5rem; }
+    }
+    .media-title {
+        margin-top: 1rem;
+        flex: 1;
+        text-align: center;
+        color: white;
+    }
+    @media (min-width: 1280px) {
+        .media-title {
+            margin-top: 0;
+            text-align: left;
+            margin-right: 1rem;
+        }
+    }
+    .media-title h1 {
+        font-size: 1.5rem;
+        font-weight: bold;
+        margin: 0;
+    }
+    @media (min-width: 1280px) {
+        .media-title h1 { font-size: 2.5rem; }
+    }
+    .media-title .year {
+        color: rgba(156, 163, 175, 0.8);
+        font-weight: normal;
+    }
+    .media-attributes {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        font-size: 0.875rem;
+        color: rgba(156, 163, 175, 1);
+    }
+    @media (min-width: 1280px) {
+        .media-attributes { justify-content: flex-start; }
+    }
+    .media-actions {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        margin-top: 1rem;
+        flex-shrink: 0;
+    }
+    @media (min-width: 1280px) {
+        .media-actions { margin-top: 0; }
+    }
+    .btn-request {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+        color: white;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.4);
+    }
+    .btn-request:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 6px 20px 0 rgba(79, 70, 229, 0.5);
+    }
+    .btn-trailer {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-trailer:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+    .btn-icon {
+        padding: 0.625rem;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 9999px;
+        border: none;
+        color: white;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .btn-icon:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+    .content-rating {
+        padding: 0.125rem 0.375rem;
+        border: 1px solid rgba(107, 114, 128, 0.5);
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+        color: rgba(156, 163, 175, 1);
+    }
+    .media-overview {
+        display: flex;
+        flex-direction: column;
+        padding: 2rem;
+        color: white;
+    }
+    @media (min-width: 1024px) {
+        .media-overview { flex-direction: row; gap: 2rem; }
+    }
+    .media-overview-left {
+        flex: 1;
+        min-width: 0;
+    }
+    .media-overview-right {
+        width: 100%;
+        margin-top: 2rem;
+    }
+    @media (min-width: 1024px) {
+        .media-overview-right {
+            width: 20rem;
+            margin-top: 0;
+            flex-shrink: 0;
+        }
+    }
+    .media-facts {
+        background: rgba(17, 24, 39, 0.8);
+        border: 1px solid rgba(55, 65, 81, 0.5);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+    .media-fact {
+        display: flex;
+        justify-content: space-between;
+        padding: 0.75rem 1rem;
+        border-bottom: 1px solid rgba(55, 65, 81, 0.5);
+        font-size: 0.875rem;
+    }
+    .media-fact:last-child {
+        border-bottom: none;
+    }
+    .media-fact-label {
+        color: rgba(156, 163, 175, 1);
+    }
+    .media-fact-value {
+        color: white;
+        text-align: right;
+    }
+    .rating-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.25rem;
+        padding: 0.25rem 0.5rem;
+        background: rgba(0, 0, 0, 0.3);
+        border-radius: 0.375rem;
+        font-weight: 600;
+    }
+    /* Crew Grid */
+    .crew-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 1rem 2rem;
+        margin-bottom: 1.5rem;
+    }
+    @media (min-width: 768px) {
+        .crew-grid { grid-template-columns: repeat(3, 1fr); }
+    }
+    .crew-item {
+        min-width: 0;
+    }
+    .crew-role {
+        color: rgba(156, 163, 175, 1);
+        font-size: 0.875rem;
+        margin-bottom: 0.125rem;
+    }
+    .crew-name {
+        color: white;
+        font-weight: 500;
+        text-decoration: none;
+    }
+    .crew-name:hover {
+        color: #a78bfa;
+    }
+    /* Cast Slider */
+    .cast-section {
+        padding: 0 2rem 2rem;
+    }
+    .cast-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 1rem;
+    }
+    .cast-header h2 {
+        color: white;
+        font-size: 1.25rem;
+        font-weight: 600;
+        margin: 0;
+    }
+    .cast-header h2 a {
+        color: white;
+        text-decoration: none;
+    }
+    .cast-header h2 a:hover {
+        color: #a78bfa;
+    }
+    .cast-slider-container {
+        position: relative;
+    }
+    .cast-slider {
+        display: flex;
+        gap: 1rem;
+        overflow-x: auto;
+        scroll-behavior: smooth;
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+        padding: 0.5rem 0;
+    }
+    .cast-slider::-webkit-scrollbar {
+        display: none;
+    }
+    .cast-card {
+        flex-shrink: 0;
+        width: 9rem;
+        text-decoration: none;
+    }
+    .cast-card img {
+        width: 100%;
+        aspect-ratio: 2/3;
+        object-fit: cover;
+        border-radius: 0.5rem;
+        background: rgba(55, 65, 81, 0.5);
+    }
+    .cast-card-name {
+        color: white;
+        font-weight: 500;
+        font-size: 0.875rem;
+        margin-top: 0.5rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .cast-card-character {
+        color: rgba(156, 163, 175, 1);
+        font-size: 0.75rem;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .slider-btn {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 2.5rem;
+        height: 2.5rem;
+        background: rgba(17, 24, 39, 0.9);
+        border: 1px solid rgba(55, 65, 81, 0.5);
+        border-radius: 9999px;
+        color: white;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 10;
+        transition: all 0.2s;
+    }
+    .slider-btn:hover {
+        background: rgba(31, 41, 55, 1);
+    }
+    .slider-btn:disabled {
+        opacity: 0.3;
+        cursor: not-allowed;
+    }
+    .slider-btn.prev { left: -1rem; }
+    .slider-btn.next { right: -1rem; }
+    /* External Links */
+    .external-links {
+        display: flex;
+        justify-content: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+    }
+    .external-links a {
+        padding: 0.5rem;
+        background: rgba(55, 65, 81, 0.5);
+        border-radius: 0.375rem;
+        transition: background 0.2s;
+    }
+    .external-links a:hover {
+        background: rgba(75, 85, 99, 0.7);
+    }
+    .external-links img {
+        width: 1.25rem;
+        height: 1.25rem;
+    }
+</style>
+
+<div id="media-container">
+    <!-- Loading -->
+    <div class="p-8 text-center" id="loading">
+        <p class="text-dark-400">Loading...</p>
+    </div>
+</div>
+
+<script>
+    const mediaId = '<%= mediaId %>';
+    let mediaData = null;
+    let tmdbData = null;
+
+    // Helper to clean M3U metadata from titles
+    function cleanM3UTitle(rawTitle) {
+        if (!rawTitle) return { title: '', year: null };
+
+        let cleanTitle = rawTitle;
+
+        // If title contains M3U attributes (corrupted data), extract the actual name
+        // Corrupted format example: '000 Days (2014)" tvg-logo="..." group-title="...",DE - 10,000 Days (2014)'
+        if (cleanTitle.includes('tvg-logo=') || cleanTitle.includes('group-title=') || cleanTitle.includes('tvg-id=')) {
+            // Find the last closing quote followed by a comma - the actual title is after that
+            const lastQuoteComma = cleanTitle.lastIndexOf('",');
+            if (lastQuoteComma > -1 && lastQuoteComma < cleanTitle.length - 2) {
+                cleanTitle = cleanTitle.substring(lastQuoteComma + 2).trim();
+            } else {
+                // Alternative: find any comma after the last quote
+                let lastQuotePos = cleanTitle.lastIndexOf('"');
+                if (lastQuotePos > -1) {
+                    const commaAfterQuote = cleanTitle.indexOf(',', lastQuotePos);
+                    if (commaAfterQuote > -1 && commaAfterQuote < cleanTitle.length - 1) {
+                        cleanTitle = cleanTitle.substring(commaAfterQuote + 1).trim();
+                    }
+                }
+            }
+        }
+
+        // Remove country/language prefix (DE -, EN -, etc.)
+        cleanTitle = cleanTitle.replace(/^[A-Z]{2}\s*-\s*/, '');
+
+        // Extract year if present (handles both "Title (2014)" and "Title 2014")
+        let titleMatch = cleanTitle.match(/^(.+?)\s*\((\d{4})\)\s*$/);
+        if (!titleMatch) {
+            // Try without parentheses
+            titleMatch = cleanTitle.match(/^(.+?)\s+(\d{4})\s*$/);
+        }
+        const title = titleMatch ? titleMatch[1].trim() : cleanTitle.trim();
+        const year = titleMatch ? parseInt(titleMatch[2]) : null;
+
+        return { title, year };
+    }
+
+    async function loadMedia() {
+        try {
+            const response = await fetch('/api/media/' + mediaId);
+            mediaData = await response.json();
+
+            // Try to fetch TMDB data if we have a tmdb_id
+            if (mediaData.tmdb_id) {
+                try {
+                    const endpoint = mediaData.media_type === 'series' ? 'tv' : 'movie';
+                    const tmdbResponse = await fetch(`/api/tmdb/${endpoint}/${mediaData.tmdb_id}`);
+                    if (tmdbResponse.ok) {
+                        tmdbData = await tmdbResponse.json();
+                    }
+                } catch (e) {
+                    console.log('TMDB data not available');
+                }
+            } else {
+                // No tmdb_id - try to search TMDB by title
+                const cleaned = cleanM3UTitle(mediaData.title);
+                if (cleaned.title && cleaned.title.length > 2) {
+                    try {
+                        const searchType = mediaData.media_type === 'series' ? 'tv' : 'movie';
+                        const searchUrl = `/api/tmdb/search/${searchType}?query=${encodeURIComponent(cleaned.title)}${cleaned.year ? `&year=${cleaned.year}` : ''}`;
+                        const searchResponse = await fetch(searchUrl);
+                        if (searchResponse.ok) {
+                            const searchResults = await searchResponse.json();
+                            if (searchResults.length > 0) {
+                                // Get full details for the first match
+                                const match = searchResults[0];
+                                const detailResponse = await fetch(`/api/tmdb/${searchType}/${match.id}`);
+                                if (detailResponse.ok) {
+                                    tmdbData = await detailResponse.json();
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.log('TMDB search failed:', e);
+                    }
+                }
+            }
+
+            renderMedia();
+        } catch (err) {
+            document.getElementById('media-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load media</div>';
+        }
+    }
+
+    function getLanguageName(code) {
+        const languages = {
+            'en': 'English', 'de': 'German', 'fr': 'French', 'es': 'Spanish',
+            'it': 'Italian', 'pt': 'Portuguese', 'nl': 'Dutch', 'pl': 'Polish',
+            'ru': 'Russian', 'ja': 'Japanese', 'ko': 'Korean', 'zh': 'Chinese',
+            'sv': 'Swedish', 'da': 'Danish', 'no': 'Norwegian', 'fi': 'Finnish'
+        };
+        return languages[code?.toLowerCase()] || code || '';
+    }
+
+    function renderMedia() {
+        const container = document.getElementById('media-container');
+        const media = mediaData;
+
+        // Build display values with TMDB fallbacks
+        const cleaned = cleanM3UTitle(media.title);
+        const extractedTitle = cleaned.title;
+        const extractedYear = cleaned.year;
+
+        const title = tmdbData?.title || extractedTitle;
+        const originalTitle = tmdbData?.original_title || extractedTitle;
+        const showOriginalTitle = originalTitle && originalTitle !== title;
+        const year = tmdbData?.release_date?.substring(0, 4) || media.year || extractedYear;
+        const runtime = tmdbData?.runtime || media.runtime;
+        const plot = tmdbData?.overview || media.plot;
+        const rating = tmdbData?.vote_average || media.rating;
+        const voteCount = tmdbData?.vote_count || 0;
+        const tagline = tmdbData?.tagline || '';
+
+        // Handle genres
+        const genres = Array.isArray(tmdbData?.genres)
+            ? tmdbData.genres.map(g => g.name).join(', ')
+            : (tmdbData?.genres || media.genres);
+
+        // Handle poster/backdrop URLs
+        const poster = tmdbData?.poster_path
+            ? (tmdbData.poster_path.startsWith('http') ? tmdbData.poster_path : `https://image.tmdb.org/t/p/w300${tmdbData.poster_path}`)
+            : media.poster || '/static/img/no-poster.png';
+        const backdrop = tmdbData?.backdrop_path
+            ? (tmdbData.backdrop_path.startsWith('http') ? tmdbData.backdrop_path : `https://image.tmdb.org/t/p/w1920_and_h800_multi_faces${tmdbData.backdrop_path}`)
+            : media.backdrop;
+
+        // Additional TMDB data
+        const status = tmdbData?.status || 'Unknown';
+        const releaseDate = tmdbData?.release_date || null;
+        const originalLanguage = tmdbData?.original_language?.toUpperCase() || '';
+        const productionCountry = tmdbData?.production_countries?.[0];
+        const productionCompanies = tmdbData?.production_companies || [];
+        const certification = tmdbData?.releases?.countries?.find(c => c.iso_3166_1 === 'US')?.certification ||
+                            tmdbData?.releases?.countries?.find(c => c.iso_3166_1 === 'DE')?.certification || '';
+
+        // Crew data
+        const crew = tmdbData?.credits?.crew || [];
+        const directors = crew.filter(c => c.job === 'Director');
+        const screenwriters = crew.filter(c => c.job === 'Screenplay' || c.job === 'Writer').slice(0, 2);
+        const editors = crew.filter(c => c.job === 'Editor').slice(0, 1);
+        const producers = crew.filter(c => c.job === 'Producer').slice(0, 3);
+
+        // Cast data
+        const cast = tmdbData?.credits?.cast || [];
+
+        // Trailer
+        const trailer = tmdbData?.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+
+        // Rating display
+        const ratingPercent = rating ? Math.round(rating * 10) : 0;
+
+        container.innerHTML = `
+            <!-- Media Page with Backdrop -->
+            <div class="media-page">
+                <!-- Backdrop Image -->
+                <div class="media-page-bg">
+                    ${backdrop ? `<img src="${backdrop}" alt="" />` : ''}
+                </div>
+
+                <!-- Header Content -->
+                <div class="media-header">
+                    <!-- Poster -->
+                    <div class="media-poster">
+                        <img src="${poster}" alt="${title}" style="width: 100%; height: auto;"
+                             onerror="this.src='/static/img/no-poster.png'" />
+                    </div>
+
+                    <!-- Title Area -->
+                    <div class="media-title">
+                        <h1>${title} <span class="year">(${year || ''})</span></h1>
+                        <div class="media-attributes">
+                            ${certification ? `<span class="content-rating">${certification}</span>` : ''}
+                            ${runtime ? `<span>${runtime} min</span>` : ''}
+                            ${genres ? `<span style="color: rgba(107, 114, 128, 1);">|</span><span>${genres}</span>` : ''}
+                        </div>
+                    </div>
+
+                    <!-- Actions -->
+                    <div class="media-actions">
+                        ${trailer ? `
+                            <button onclick="window.open('https://www.youtube.com/watch?v=${trailer.key}', '_blank')" class="btn-trailer">
+                                <svg style="width: 1.25rem; height: 1.25rem;" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                                </svg>
+                                Trailer
+                            </button>
+                        ` : ''}
+                        <button onclick="downloadMedia(${media.id})" class="btn-request">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                            </svg>
+                            Request
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Content Area -->
+            <div class="media-overview">
+                <!-- Left Content -->
+                <div class="media-overview-left">
+                    <!-- Overview -->
+                    <div style="margin-bottom: 1.5rem;">
+                        <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
+                        <p style="color: rgba(209, 213, 219, 1); line-height: 1.625;">${plot || 'No overview available.'}</p>
+                    </div>
+
+                    <!-- Crew Grid -->
+                    ${(directors.length || screenwriters.length || editors.length || producers.length) ? `
+                        <div class="crew-grid">
+                            ${directors.map(d => `
+                                <div class="crew-item">
+                                    <div class="crew-role">Director</div>
+                                    <a href="https://www.themoviedb.org/person/${d.id}" target="_blank" class="crew-name">${d.name}</a>
+                                </div>
+                            `).join('')}
+                            ${screenwriters.map(s => `
+                                <div class="crew-item">
+                                    <div class="crew-role">Screenplay</div>
+                                    <a href="https://www.themoviedb.org/person/${s.id}" target="_blank" class="crew-name">${s.name}</a>
+                                </div>
+                            `).join('')}
+                            ${editors.map(e => `
+                                <div class="crew-item">
+                                    <div class="crew-role">Editor</div>
+                                    <a href="https://www.themoviedb.org/person/${e.id}" target="_blank" class="crew-name">${e.name}</a>
+                                </div>
+                            `).join('')}
+                            ${producers.map(p => `
+                                <div class="crew-item">
+                                    <div class="crew-role">Producer</div>
+                                    <a href="https://www.themoviedb.org/person/${p.id}" target="_blank" class="crew-name">${p.name}</a>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+
+                    <!-- View Full Crew -->
+                    ${tmdbData?.id ? `
+                        <div style="margin-bottom: 1.5rem;">
+                            <a href="https://www.themoviedb.org/movie/${tmdbData.id}/cast" target="_blank"
+                               style="color: rgba(156, 163, 175, 1); font-size: 0.875rem; display: inline-flex; align-items: center; gap: 0.25rem; text-decoration: none;">
+                                View Full Crew
+                                <svg style="width: 1rem; height: 1rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                                </svg>
+                            </a>
+                        </div>
+                    ` : ''}
+                </div>
+
+                <!-- Right Sidebar -->
+                <div class="media-overview-right">
+                    <div class="media-facts">
+                        <!-- Ratings -->
+                        ${rating ? `
+                            <div class="media-fact" style="justify-content: flex-end; gap: 1rem;">
+                                <div class="rating-badge">
+                                    <span>&#11088;</span>
+                                    <span>${ratingPercent}%</span>
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        ${showOriginalTitle ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Original Title</span>
+                                <span class="media-fact-value">${originalTitle}</span>
+                            </div>
+                        ` : ''}
+
+                        <div class="media-fact">
+                            <span class="media-fact-label">Status</span>
+                            <span class="media-fact-value">${status}</span>
+                        </div>
+
+                        ${releaseDate ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Release Date</span>
+                                <span class="media-fact-value">${new Date(releaseDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</span>
+                            </div>
+                        ` : ''}
+
+                        ${runtime ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Runtime</span>
+                                <span class="media-fact-value">${runtime} minutes</span>
+                            </div>
+                        ` : ''}
+
+                        ${originalLanguage ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Original Language</span>
+                                <span class="media-fact-value">${getLanguageName(originalLanguage.toLowerCase())}</span>
+                            </div>
+                        ` : ''}
+
+                        ${productionCountry ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Production Country</span>
+                                <span class="media-fact-value" style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <img src="https://flagcdn.com/16x12/${productionCountry.iso_3166_1.toLowerCase()}.png" alt="${productionCountry.iso_3166_1}" />
+                                    ${productionCountry.name}
+                                </span>
+                            </div>
+                        ` : ''}
+
+                        ${productionCompanies.length > 0 ? `
+                            <div class="media-fact" style="flex-direction: column; gap: 0.5rem; align-items: flex-start;">
+                                <span class="media-fact-label">Studios</span>
+                                <div style="display: flex; flex-direction: column; gap: 0.25rem;">
+                                    ${productionCompanies.slice(0, 3).map(c => `
+                                        <span style="color: white;">${c.name}</span>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+
+                        <!-- External Links -->
+                        <div class="external-links">
+                            ${tmdbData?.id ? `
+                                <a href="https://www.themoviedb.org/movie/${tmdbData.id}" target="_blank" title="TMDB">
+                                    <img src="https://www.themoviedb.org/assets/2/v4/logos/v2/blue_square_1-5bdc75aaebeb75dc7ae79426ddd9be3b2be1e342510f8202baf6bffa71d7f5c4.svg" alt="TMDB" />
+                                </a>
+                            ` : ''}
+                            ${media.imdb_id || tmdbData?.imdb_id ? `
+                                <a href="https://www.imdb.com/title/${media.imdb_id || tmdbData?.imdb_id}" target="_blank" title="IMDb">
+                                    <img src="https://upload.wikimedia.org/wikipedia/commons/6/69/IMDB_Logo_2016.svg" alt="IMDb" />
+                                </a>
+                            ` : ''}
+                            ${tmdbData?.id ? `
+                                <a href="https://trakt.tv/search/tmdb/${tmdbData.id}?id_type=movie" target="_blank" title="Trakt">
+                                    <svg viewBox="0 0 24 24" style="width: 1.25rem; height: 1.25rem;" fill="#ed1c24">
+                                        <path d="M12 24C5.385 24 0 18.615 0 12S5.385 0 12 0s12 5.385 12 12-5.385 12-12 12zm0-22.5C6.21 1.5 1.5 6.21 1.5 12S6.21 22.5 12 22.5 22.5 17.79 22.5 12 17.79 1.5 12 1.5zM9 16.5l-4.5-4.5 1.065-1.065L9 14.37l9.435-9.435L19.5 6 9 16.5z"/>
+                                    </svg>
+                                </a>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cast Section -->
+            ${cast.length > 0 ? `
+                <div class="cast-section">
+                    <div class="cast-header">
+                        <h2><a href="https://www.themoviedb.org/movie/${tmdbData?.id || ''}/cast" target="_blank">Cast</a></h2>
+                    </div>
+                    <div class="cast-slider-container">
+                        <button class="slider-btn prev" onclick="slideCast(-1)" disabled>
+                            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                            </svg>
+                        </button>
+                        <div class="cast-slider" id="castSlider">
+                            ${cast.slice(0, 20).map(actor => `
+                                <a href="https://www.themoviedb.org/person/${actor.id}" target="_blank" class="cast-card">
+                                    <img src="${actor.profile_path ? `https://image.tmdb.org/t/p/w185${actor.profile_path}` : '/static/img/no-poster.png'}"
+                                         alt="${actor.name}"
+                                         onerror="this.src='/static/img/no-poster.png'" />
+                                    <div class="cast-card-name">${actor.name}</div>
+                                    <div class="cast-card-character">${actor.character || ''}</div>
+                                </a>
+                            `).join('')}
+                        </div>
+                        <button class="slider-btn next" onclick="slideCast(1)">
+                            <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+            ` : ''}
+        `;
+
+        // Initialize slider buttons
+        updateSliderButtons();
+    }
+
+    function slideCast(direction) {
+        const slider = document.getElementById('castSlider');
+        const cardWidth = 160; // 9rem + gap
+        slider.scrollLeft += direction * cardWidth * 3;
+        setTimeout(updateSliderButtons, 300);
+    }
+
+    function updateSliderButtons() {
+        const slider = document.getElementById('castSlider');
+        if (!slider) return;
+
+        const prevBtn = document.querySelector('.slider-btn.prev');
+        const nextBtn = document.querySelector('.slider-btn.next');
+
+        if (prevBtn) prevBtn.disabled = slider.scrollLeft <= 0;
+        if (nextBtn) nextBtn.disabled = slider.scrollLeft >= slider.scrollWidth - slider.clientWidth - 10;
+    }
+
+    async function downloadMedia(mediaId) {
+        try {
+            const response = await fetch('/api/downloads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ media_id: mediaId })
+            });
+            const result = await response.json();
+            if (result.success || result.id) {
+                if (window.showToast) {
+                    showToast('Added to download queue!', 'success');
+                } else {
+                    alert('Added to download queue!');
+                }
+            } else {
+                if (window.showToast) {
+                    showToast(result.error || 'Already in queue', 'error');
+                } else {
+                    alert(result.error || 'Already in queue');
+                }
+            }
+        } catch (err) {
+            if (window.showToast) {
+                showToast('Failed to add to queue', 'error');
+            } else {
+                alert('Failed to add to queue');
+            }
+        }
+    }
+
+    loadMedia();
+</script>
+
+<%- include('partials/footer') %>
