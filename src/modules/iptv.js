@@ -209,7 +209,7 @@ async function syncXtreamSource(source) {
 
 async function syncM3USource(source) {
     logger.info('iptv', `Syncing M3U source: ${source.name}`);
-    const headers = { 'User-Agent': source.user_agent || 'IBOPlayer' };
+    const headers = getDefaultHeaders(source.user_agent || 'IBOPlayer', source);
 
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
