@@ -655,35 +655,39 @@
         const container = document.getElementById('seasons-list');
         if (!container) return;
 
+        // Always show LOCAL seasons (library-first approach), enriched with TMDB metadata
+        const localSeasons = generateSeasonsFromShowData();
         const tmdbSeasons = tmdbData?.seasons?.filter(s => s.season_number > 0) || [];
-        const seasonsToShow = tmdbSeasons.length > 0
-            ? tmdbSeasons.sort((a, b) => b.season_number - a.season_number)
-            : generateSeasonsFromShowData();
+
+        const seasonsToShow = localSeasons.map(localSeason => {
+            const tmdbSeason = tmdbSeasons.find(t => t.season_number === localSeason.season_number);
+            return {
+                ...localSeason,
+                poster_path: tmdbSeason?.poster_path || null,
+                overview: tmdbSeason?.overview || null
+            };
+        });
 
         container.innerHTML = seasonsToShow.map(season => {
             const isExpanded = expandedSeasons.has(season.season_number);
             const localEpisodes = getEpisodesForSeason(season.season_number);
             const tmdbEpisodes = seasonEpisodeCache[season.season_number]?.episodes || [];
-            const hasEpisodes = localEpisodes.length > 0 || tmdbEpisodes.length > 0;
+            const hasEpisodes = localEpisodes.length > 0;
 
-            // Merge local and TMDB episode data
-            const episodes = tmdbEpisodes.length > 0 ? tmdbEpisodes.map((tmdbEp, idx) => {
-                const localEp = localEpisodes.find(e => e.episode_number === tmdbEp.episode_number) || localEpisodes[idx];
+            // Show LOCAL episodes enriched with TMDB metadata (library-first approach)
+            const episodes = localEpisodes.map((ep, idx) => {
+                const tmdbEp = tmdbEpisodes.find(t => t.episode_number === (ep.episode_number || idx + 1));
                 return {
-                    ...tmdbEp,
-                    id: localEp?.id,
-                    stream_url: localEp?.stream_url,
-                    hasLocal: !!localEp
+                    episode_number: ep.episode_number || idx + 1,
+                    name: tmdbEp?.name || cleanEpisodeTitle(ep.title, ep.episode_number || idx + 1),
+                    overview: tmdbEp?.overview || ep.plot || '',
+                    air_date: tmdbEp?.air_date || ep.air_date,
+                    still_path: tmdbEp?.still_path || ep.backdrop,
+                    id: ep.id,
+                    stream_url: ep.stream_url,
+                    hasLocal: true
                 };
-            }) : localEpisodes.map((ep, idx) => ({
-                episode_number: ep.episode_number || idx + 1,
-                name: cleanEpisodeTitle(ep.title, ep.episode_number || idx + 1),
-                overview: ep.plot || '',
-                air_date: ep.air_date,
-                still_path: ep.backdrop,
-                id: ep.id,
-                hasLocal: true
-            }));
+            });
 
             // Check if all episodes in season are selected
             const availableEps = episodes.filter(e => e.id);
