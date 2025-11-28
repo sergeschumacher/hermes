@@ -244,7 +244,10 @@ function setupApiRoutes() {
                 return a.localeCompare(b);
             });
 
-            res.json({ years, languages });
+            // Get active sources
+            const sources = await db.all('SELECT id, name FROM sources WHERE active = 1 ORDER BY name');
+
+            res.json({ years, languages, sources });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -253,7 +256,7 @@ function setupApiRoutes() {
     // Media endpoints
     router.get('/media', async (req, res) => {
         try {
-            const { type, search, year, quality, language, genre, category, sort, order, limit, offset, dedupe } = req.query;
+            const { type, search, year, quality, language, genre, category, source, sort, order, limit, offset, dedupe } = req.query;
 
             // For movies, deduplicate by title (keeping best version with TMDB poster)
             const shouldDedupe = dedupe !== 'false' && (type === 'movie');
@@ -312,6 +315,10 @@ function setupApiRoutes() {
             if (category) {
                 sql += ' AND category = ?';
                 params.push(category);
+            }
+            if (source) {
+                sql += ' AND source_id = ?';
+                params.push(parseInt(source));
             }
 
             // Close the subquery and filter for dedupe
@@ -863,7 +870,7 @@ function setupApiRoutes() {
     // Get grouped shows (for Netflix-style series view)
     router.get('/shows', async (req, res) => {
         try {
-            const { search, quality, year, language, sort, order, limit, offset } = req.query;
+            const { search, quality, year, language, source, sort, order, limit, offset } = req.query;
             const db = modules.db;
 
             let sql = `
@@ -901,6 +908,11 @@ function setupApiRoutes() {
             if (language) {
                 sql += ' AND show_language = ?';
                 params.push(language);
+            }
+
+            if (source) {
+                sql += ' AND source_id = ?';
+                params.push(parseInt(source));
             }
 
             sql += ' GROUP BY show_name';

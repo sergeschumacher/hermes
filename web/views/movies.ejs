@@ -40,6 +40,10 @@
                     <option value="">All Languages</option>
                 </select>
 
+                <select id="filter-source" class="select w-auto min-w-[140px]">
+                    <option value="">All Sources</option>
+                </select>
+
                 <select id="sort-by" class="select w-auto min-w-[150px]">
                     <option value="title">Sort by Title</option>
                     <option value="year">Sort by Year</option>
@@ -222,6 +226,7 @@
             quality: document.getElementById('filter-quality').value,
             year: document.getElementById('filter-year').value,
             language: document.getElementById('filter-language').value,
+            source: document.getElementById('filter-source').value,
             sort: document.getElementById('sort-by').value
         };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(filters));
@@ -235,6 +240,7 @@
                 if (filters.quality) document.getElementById('filter-quality').value = filters.quality;
                 if (filters.year) document.getElementById('filter-year').value = filters.year;
                 if (filters.language) document.getElementById('filter-language').value = filters.language;
+                if (filters.source) document.getElementById('filter-source').value = filters.source;
                 if (filters.sort) document.getElementById('sort-by').value = filters.sort;
             }
         } catch (err) {
@@ -258,6 +264,7 @@
             quality: document.getElementById('filter-quality').value,
             year: document.getElementById('filter-year').value,
             language: document.getElementById('filter-language').value,
+            source: document.getElementById('filter-source').value,
             sort: document.getElementById('sort-by').value,
             order: document.getElementById('sort-by').value === 'title' ? 'asc' : 'desc',
             limit,
@@ -370,6 +377,13 @@
             filters.languages.forEach(lang => {
                 if (lang) langSelect.innerHTML += \`<option value="\${lang}">\${lang}</option>\`;
             });
+
+            const sourceSelect = document.getElementById('filter-source');
+            if (filters.sources) {
+                filters.sources.forEach(source => {
+                    if (source.name) sourceSelect.innerHTML += \`<option value="\${source.id}">\${source.name}</option>\`;
+                });
+            }
         } catch (err) {
             console.error('Failed to load filters:', err);
         }
@@ -380,6 +394,7 @@
     document.getElementById('filter-quality').addEventListener('change', () => { saveFilters(); loadMovies(true); });
     document.getElementById('filter-year').addEventListener('change', () => { saveFilters(); loadMovies(true); });
     document.getElementById('filter-language').addEventListener('change', () => { saveFilters(); loadMovies(true); });
+    document.getElementById('filter-source').addEventListener('change', () => { saveFilters(); loadMovies(true); });
     document.getElementById('sort-by').addEventListener('change', () => { saveFilters(); loadMovies(true); });
 
     // Infinite scroll
