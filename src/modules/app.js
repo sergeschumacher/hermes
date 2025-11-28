@@ -347,7 +347,12 @@ function setupApiRoutes() {
 
     router.get('/media/:id', async (req, res) => {
         try {
-            const media = await modules.db.get('SELECT * FROM media WHERE id = ?', [req.params.id]);
+            const media = await modules.db.get(`
+                SELECT m.*, s.name as source_name
+                FROM media m
+                LEFT JOIN sources s ON m.source_id = s.id
+                WHERE m.id = ?
+            `, [req.params.id]);
             if (!media) return res.status(404).json({ error: 'Not found' });
 
             // Get episodes if series
@@ -931,13 +936,14 @@ function setupApiRoutes() {
             const db = modules.db;
             const showName = decodeURIComponent(req.params.name);
 
-            // Get all episodes for this show
+            // Get all episodes for this show with source info
             const episodes = await db.all(`
-                SELECT *
-                FROM media
-                WHERE media_type = 'series'
-                  AND show_name = ?
-                ORDER BY show_language, season_number, episode_number
+                SELECT m.*, s.name as source_name
+                FROM media m
+                LEFT JOIN sources s ON m.source_id = s.id
+                WHERE m.media_type = 'series'
+                  AND m.show_name = ?
+                ORDER BY m.show_language, m.season_number, m.episode_number
             `, [showName]);
 
             if (episodes.length === 0) {
@@ -946,6 +952,7 @@ function setupApiRoutes() {
 
             // Group by language
             const languageGroups = {};
+            const sourceNames = new Set();
             let poster = null;
             let backdrop = null;
             let rating = null;
@@ -966,6 +973,9 @@ function setupApiRoutes() {
                 }
 
                 languageGroups[lang].seasons[season].push(ep);
+
+                // Collect source names
+                if (ep.source_name) sourceNames.add(ep.source_name);
 
                 // Get best poster (prefer TMDB)
                 if (ep.poster && ep.poster.includes('image.tmdb.org')) {
@@ -990,6 +1000,7 @@ function setupApiRoutes() {
                 plot,
                 genres,
                 tmdbId,
+                sources: Array.from(sourceNames),
                 languages: Object.keys(languageGroups).sort(),
                 totalEpisodes: episodes.length,
                 languageGroups
@@ -1316,7 +1327,22 @@ function setupRadarrApi() {
     // Movie lookup by TMDB ID
     router.get('/movie/lookup', async (req, res) => {
         try {
-            const { term, tmdbId } = req.query;
+            let { term, tmdbId } = req.query;
+
+            // Overseerr sends TMDB ID in term as "tmdb:12345" format
+            if (term && term.startsWith('tmdb:')) {
+                tmdbId = term.replace('tmdb:', '');
+                term = null;
+            }
+
+            // Also handle "imdb:tt1234567" format
+            let imdbId = null;
+            if (term && term.startsWith('imdb:')) {
+                imdbId = term.replace('imdb:', '');
+                term = null;
+            }
+
+            logger?.info('radarr-api', `Movie lookup - term: ${term}, tmdbId: ${tmdbId}, imdbId: ${imdbId}`);
 
             if (tmdbId) {
                 // Direct TMDB lookup
@@ -1326,6 +1352,19 @@ function setupRadarrApi() {
                         res.json([formatAsRadarrMovie(tmdbData)]);
                         return;
                     }
+                }
+            } else if (imdbId && modules.tmdb) {
+                // IMDB lookup via TMDB
+                try {
+                    const findResult = await modules.tmdb.findByExternalId(imdbId, 'imdb_id');
+                    if (findResult?.movie_results?.length > 0) {
+                        const movie = findResult.movie_results[0];
+                        const fullData = await modules.tmdb.getMovie(movie.id);
+                        res.json([formatAsRadarrMovie(fullData || movie)]);
+                        return;
+                    }
+                } catch (e) {
+                    logger?.warn('radarr-api', `IMDB lookup failed: ${e.message}`);
                 }
             } else if (term) {
                 // Search by title

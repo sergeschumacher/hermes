@@ -350,6 +350,7 @@
                             ${contentRating ? `<span class="content-rating">${contentRating}</span>` : ''}
                             <span>${totalSeasons} Season${totalSeasons !== 1 ? 's' : ''}</span>
                             ${genres ? `<span style="color: rgba(107, 114, 128, 1);">|</span><span>${genres}</span>` : ''}
+                            ${showData.sources?.length ? `<span style="color: rgba(107, 114, 128, 1);">|</span><span style="color: #6366f1; font-weight: 500;">${showData.sources.join(', ')}</span>` : ''}
                         </div>
                     </div>
 
