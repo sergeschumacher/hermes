@@ -440,11 +440,20 @@ function setupApiRoutes() {
             // Find all versions with similar normalized titles
             const versions = await modules.db.all(`
                 SELECT m.*, s.name as source_name,
-                    CASE
-                        WHEN m.title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 2)
-                        WHEN m.title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 3)
-                        ELSE NULL
-                    END as language_code
+                    COALESCE(
+                        -- First try to extract from title prefix (e.g., "DE - Title")
+                        CASE
+                            WHEN m.title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 2)
+                            WHEN m.title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 3)
+                            ELSE NULL
+                        END,
+                        -- Then try to extract from category (e.g., "VOD - Movies [DE]")
+                        CASE
+                            WHEN m.category LIKE '%[__]%' THEN SUBSTR(m.category, INSTR(m.category, '[') + 1, 2)
+                            WHEN m.category LIKE '%[___]%' THEN SUBSTR(m.category, INSTR(m.category, '[') + 1, 3)
+                            ELSE NULL
+                        END
+                    ) as language_code
                 FROM media m
                 LEFT JOIN sources s ON m.source_id = s.id
                 WHERE m.media_type = ?

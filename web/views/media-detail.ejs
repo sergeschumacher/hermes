@@ -798,10 +798,12 @@
         const langFact = document.getElementById('available-languages-fact');
         const langValue = document.getElementById('available-languages-value');
 
-        // Get unique languages from versions
+        // Get unique languages from versions (skip entries without language_code)
         const languageMap = new Map();
         mediaVersions.forEach(v => {
-            const lang = v.language_code || 'Unknown';
+            const lang = v.language_code;
+            // Skip entries without a valid language code
+            if (!lang || lang === 'Unknown') return;
             if (!languageMap.has(lang)) {
                 languageMap.set(lang, v);
             }
@@ -810,7 +812,6 @@
         // Update "Available in" metadata
         if (langFact && langValue && languageMap.size > 0) {
             const languages = Array.from(languageMap.keys())
-                .filter(l => l !== 'Unknown')
                 .map(l => getLanguageName(l) || l);
             if (languages.length > 0) {
                 langFact.style.display = 'flex';
@@ -818,7 +819,7 @@
             }
         }
 
-        // Only show selector if multiple languages
+        // Only show selector if multiple languages available
         if (!container || languageMap.size <= 1) {
             if (container) container.style.display = 'none';
             return;
