@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
+const { spawn } = require('child_process');
 
 let app = null;
 let server = null;
@@ -247,7 +248,15 @@ function setupApiRoutes() {
             // Get active sources
             const sources = await db.all('SELECT id, name FROM sources WHERE active = 1 ORDER BY name');
 
-            res.json({ years, languages, sources });
+            // Get live TV categories
+            const liveCategoriesResult = await db.all(`
+                SELECT DISTINCT category FROM media
+                WHERE media_type = 'live' AND category IS NOT NULL AND category != ''
+                ORDER BY category
+            `);
+            const categories = liveCategoriesResult.map(r => r.category);
+
+            res.json({ years, languages, sources, categories });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -653,16 +662,22 @@ function setupApiRoutes() {
     // Filters data
     router.get('/filters', async (req, res) => {
         try {
-            const years = await modules.db.all('SELECT DISTINCT year FROM media WHERE year IS NOT NULL ORDER BY year DESC');
-            const qualities = await modules.db.all('SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL');
-            const languages = await modules.db.all('SELECT DISTINCT language FROM media WHERE language IS NOT NULL');
-            const categories = await modules.db.all('SELECT DISTINCT category FROM media WHERE category IS NOT NULL ORDER BY category');
+            const { type } = req.query;
+            const typeFilter = type ? 'AND media_type = ?' : '';
+            const typeParam = type ? [type] : [];
+
+            const years = await modules.db.all(`SELECT DISTINCT year FROM media WHERE year IS NOT NULL ${typeFilter} ORDER BY year DESC`, typeParam);
+            const qualities = await modules.db.all(`SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL ${typeFilter}`, typeParam);
+            const languages = await modules.db.all(`SELECT DISTINCT language FROM media WHERE language IS NOT NULL ${typeFilter}`, typeParam);
+            const categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
+            const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
             res.json({
                 years: years.map(y => y.year),
                 qualities: qualities.map(q => q.quality),
                 languages: languages.map(l => l.language),
-                categories: categories.map(c => c.category)
+                categories: categories.map(c => c.category),
+                sources
             });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -948,17 +963,16 @@ function setupApiRoutes() {
             const db = modules.db;
             const showName = decodeURIComponent(req.params.name);
 
-            // Get all episodes for this show with source info
-            const episodes = await db.all(`
+            // Get all series entries for this show (parent entries from Xtream API)
+            const seriesEntries = await db.all(`
                 SELECT m.*, s.name as source_name
                 FROM media m
                 LEFT JOIN sources s ON m.source_id = s.id
                 WHERE m.media_type = 'series'
                   AND m.show_name = ?
-                ORDER BY m.show_language, m.season_number, m.episode_number
             `, [showName]);
 
-            if (episodes.length === 0) {
+            if (seriesEntries.length === 0) {
                 return res.status(404).json({ error: 'Show not found' });
             }
 
@@ -972,35 +986,79 @@ function setupApiRoutes() {
             let plot = null;
             let genres = null;
             let tmdbId = null;
+            let totalEpisodeCount = 0;
 
-            for (const ep of episodes) {
-                const lang = ep.show_language || 'Unknown';
+            for (const series of seriesEntries) {
+                // Extract language from series entry
+                const lang = series.show_language || 'Unknown';
                 if (!languageGroups[lang]) {
                     languageGroups[lang] = { seasons: {} };
                 }
 
-                const season = ep.season_number || 0;
-                if (!languageGroups[lang].seasons[season]) {
-                    languageGroups[lang].seasons[season] = [];
-                }
-
-                languageGroups[lang].seasons[season].push(ep);
-
                 // Collect source names
-                if (ep.source_name) sourceNames.add(ep.source_name);
+                if (series.source_name) sourceNames.add(series.source_name);
 
                 // Get best poster (prefer TMDB)
-                if (ep.poster && ep.poster.includes('image.tmdb.org')) {
-                    poster = ep.poster;
-                } else if (!poster && ep.poster) {
-                    poster = ep.poster;
+                if (series.poster && series.poster.includes('image.tmdb.org')) {
+                    poster = series.poster;
+                } else if (!poster && series.poster) {
+                    poster = series.poster;
                 }
-                if (ep.backdrop && ep.backdrop.includes('image.tmdb.org')) backdrop = ep.backdrop;
-                if (ep.rating && (!rating || ep.rating > rating)) rating = ep.rating;
-                if (ep.year && (!year || ep.year < year)) year = ep.year;
-                if (ep.plot && !plot) plot = ep.plot;
-                if (ep.genres && !genres) genres = ep.genres;
-                if (ep.tmdb_id && !tmdbId) tmdbId = ep.tmdb_id;
+                if (series.backdrop && series.backdrop.includes('image.tmdb.org')) backdrop = series.backdrop;
+                if (series.rating && (!rating || series.rating > rating)) rating = series.rating;
+                if (series.year && (!year || series.year < year)) year = series.year;
+                if (series.plot && !plot) plot = series.plot;
+                if (series.genres && !genres) genres = series.genres;
+                if (series.tmdb_id && !tmdbId) tmdbId = series.tmdb_id;
+
+                // Check if this is a parent series with episodes in episodes table
+                // (Xtream API sources store episodes separately)
+                if (series.season_number === null || series.season_number === undefined) {
+                    // Fetch episodes from episodes table
+                    const episodes = await db.all(`
+                        SELECT e.*, m.show_language
+                        FROM episodes e
+                        JOIN media m ON e.media_id = m.id
+                        WHERE e.media_id = ?
+                        ORDER BY e.season, e.episode
+                    `, [series.id]);
+
+                    for (const ep of episodes) {
+                        const epLang = ep.show_language || lang;
+                        if (!languageGroups[epLang]) {
+                            languageGroups[epLang] = { seasons: {} };
+                        }
+
+                        const season = ep.season || 0;
+                        if (!languageGroups[epLang].seasons[season]) {
+                            languageGroups[epLang].seasons[season] = [];
+                        }
+
+                        languageGroups[epLang].seasons[season].push({
+                            id: ep.id,
+                            media_id: ep.media_id,
+                            title: ep.title,
+                            plot: ep.plot,
+                            air_date: ep.air_date,
+                            runtime: ep.runtime,
+                            stream_url: ep.stream_url,
+                            container: ep.container,
+                            season_number: ep.season,
+                            episode_number: ep.episode,
+                            source_name: series.source_name
+                        });
+                        totalEpisodeCount++;
+                    }
+                } else {
+                    // This is an M3U-style entry with season/episode in media table
+                    const season = series.season_number || 0;
+                    if (!languageGroups[lang].seasons[season]) {
+                        languageGroups[lang].seasons[season] = [];
+                    }
+
+                    languageGroups[lang].seasons[season].push(series);
+                    totalEpisodeCount++;
+                }
             }
 
             res.json({
@@ -1014,7 +1072,7 @@ function setupApiRoutes() {
                 tmdbId,
                 sources: Array.from(sourceNames),
                 languages: Object.keys(languageGroups).sort(),
-                totalEpisodes: episodes.length,
+                totalEpisodes: totalEpisodeCount,
                 languageGroups
             });
         } catch (err) {
@@ -1256,6 +1314,48 @@ function setupApiRoutes() {
             await modules.db.run('DELETE FROM requests WHERE id = ?', [req.params.id]);
             res.json({ success: true });
         } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Play stream in external player (VLC)
+    router.post('/play', async (req, res) => {
+        try {
+            const { url } = req.body;
+            if (!url) {
+                return res.status(400).json({ error: 'URL is required' });
+            }
+
+            // Determine VLC path based on platform
+            const platform = process.platform;
+            let vlcPath;
+            let args;
+
+            if (platform === 'darwin') {
+                // macOS - use open command to launch VLC
+                vlcPath = 'open';
+                args = ['-a', 'VLC', url];
+            } else if (platform === 'win32') {
+                // Windows
+                vlcPath = 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe';
+                args = [url];
+            } else {
+                // Linux
+                vlcPath = 'vlc';
+                args = [url];
+            }
+
+            // Spawn VLC process (detached so it doesn't block)
+            const vlc = spawn(vlcPath, args, {
+                detached: true,
+                stdio: 'ignore'
+            });
+            vlc.unref();
+
+            logger?.info('play', `Opening stream in VLC: ${url}`);
+            res.json({ success: true, message: 'Opening in VLC...' });
+        } catch (err) {
+            logger?.error('play', `Failed to open VLC: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -1908,6 +2008,48 @@ function setupRadarrApi() {
     // Queue endpoint
     router.get('/queue', (req, res) => {
         res.json({ records: [], page: 1, pageSize: 10, totalRecords: 0 });
+    });
+
+    // Play stream in external player (VLC)
+    router.post('/play', async (req, res) => {
+        try {
+            const { url } = req.body;
+            if (!url) {
+                return res.status(400).json({ error: 'URL is required' });
+            }
+
+            // Determine VLC path based on platform
+            const platform = process.platform;
+            let vlcPath;
+            let args;
+
+            if (platform === 'darwin') {
+                // macOS - use open command to launch VLC
+                vlcPath = 'open';
+                args = ['-a', 'VLC', url];
+            } else if (platform === 'win32') {
+                // Windows
+                vlcPath = 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe';
+                args = [url];
+            } else {
+                // Linux
+                vlcPath = 'vlc';
+                args = [url];
+            }
+
+            // Spawn VLC process (detached so it doesn't block)
+            const vlc = spawn(vlcPath, args, {
+                detached: true,
+                stdio: 'ignore'
+            });
+            vlc.unref();
+
+            logger?.info('play', `Opening stream in VLC: ${url}`);
+            res.json({ success: true, message: 'Opening in VLC...' });
+        } catch (err) {
+            logger?.error('play', `Failed to open VLC: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
     });
 
     // Helper function to format TMDB data as Sonarr series

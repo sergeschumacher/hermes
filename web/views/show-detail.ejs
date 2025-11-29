@@ -574,28 +574,30 @@
         return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
-    // Selection management
-    let selectedEpisodes = new Set();
+    // Selection management - stores objects with media_id and episode_id
+    let selectedEpisodes = new Map(); // key: unique identifier, value: {media_id, episode_id}
 
-    function toggleEpisodeSelection(mediaId, seasonNum, epNum) {
-        const key = `${mediaId}`;
+    function toggleEpisodeSelection(episodeId, mediaId, seasonNum, epNum) {
+        const key = `${episodeId}`;
         if (selectedEpisodes.has(key)) {
             selectedEpisodes.delete(key);
         } else {
-            selectedEpisodes.add(key);
+            selectedEpisodes.set(key, { media_id: mediaId, episode_id: episodeId });
         }
         updateSelectionUI();
         renderSeasonsList();
     }
 
     function toggleSeasonSelection(seasonNum, episodes) {
-        const seasonEpIds = episodes.filter(e => e.id).map(e => `${e.id}`);
-        const allSelected = seasonEpIds.every(id => selectedEpisodes.has(id));
+        const seasonEps = episodes.filter(e => e.id);
+        const allSelected = seasonEps.every(e => selectedEpisodes.has(`${e.id}`));
 
         if (allSelected) {
-            seasonEpIds.forEach(id => selectedEpisodes.delete(id));
+            seasonEps.forEach(e => selectedEpisodes.delete(`${e.id}`));
         } else {
-            seasonEpIds.forEach(id => selectedEpisodes.add(id));
+            seasonEps.forEach(e => {
+                selectedEpisodes.set(`${e.id}`, { media_id: e.media_id || e.id, episode_id: e.media_id ? e.id : null });
+            });
         }
         updateSelectionUI();
         renderSeasonsList();
@@ -621,16 +623,15 @@
     async function downloadSelected() {
         if (selectedEpisodes.size === 0) return;
 
-        const ids = Array.from(selectedEpisodes);
         let success = 0;
         let failed = 0;
 
-        for (const mediaId of ids) {
+        for (const [key, info] of selectedEpisodes) {
             try {
                 const response = await fetch('/api/downloads', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ media_id: parseInt(mediaId) })
+                    body: JSON.stringify({ media_id: info.media_id, episode_id: info.episode_id })
                 });
                 const result = await response.json();
                 if (result.success || result.id) {
@@ -704,7 +705,7 @@
                                 <input type="checkbox"
                                        ${allSeasonSelected ? 'checked' : ''}
                                        ${someSeasonSelected && !allSeasonSelected ? 'style="opacity: 0.5;"' : ''}
-                                       onchange="toggleSeasonSelection(${season.season_number}, ${JSON.stringify(episodes.filter(e => e.id).map(e => ({id: e.id}))).replace(/"/g, '&quot;')})"
+                                       onchange="toggleSeasonSelection(${season.season_number}, ${JSON.stringify(episodes.filter(e => e.id).map(e => ({id: e.id, media_id: e.media_id}))).replace(/"/g, '&quot;')})"
                                        style="width: 1.25rem; height: 1.25rem; accent-color: #6366f1; cursor: pointer;" />
                             </label>
                         ` : ''}
@@ -741,7 +742,7 @@
                                             <label style="display: flex; align-items: center; padding: 0.5rem; cursor: pointer; align-self: flex-start;">
                                                 <input type="checkbox"
                                                        ${isSelected ? 'checked' : ''}
-                                                       onchange="toggleEpisodeSelection(${ep.id}, ${season.season_number}, ${ep.episode_number})"
+                                                       onchange="toggleEpisodeSelection(${ep.id}, ${ep.media_id || ep.id}, ${season.season_number}, ${ep.episode_number})"
                                                        style="width: 1.25rem; height: 1.25rem; accent-color: #6366f1; cursor: pointer;" />
                                             </label>
                                         ` : `

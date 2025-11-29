@@ -28,6 +28,74 @@ function getDefaultHeaders(userAgent = 'IBOPlayer', source = null) {
     };
 }
 
+// Extract language code from category or title patterns like [DE], |DE|, GERMANY, etc.
+function extractLanguageFromText(category, title) {
+    const text = `${category || ''} ${title || ''}`.toUpperCase();
+
+    // Common language patterns: [XX], |XX|, (XX), -XX-, XX- prefix
+    const langPatterns = [
+        /\[([A-Z]{2})\]/,           // [DE], [EN]
+        /\|([A-Z]{2})\|/,           // |DE|, |EN|
+        /\(([A-Z]{2})\)/,           // (DE), (EN)
+        /-([A-Z]{2})-/,             // -DE-, -EN-
+        /^([A-Z]{2})\s*[-|]/,       // DE -, DE|
+        /[-|]\s*([A-Z]{2})$/,       // - DE, |DE
+    ];
+
+    for (const pattern of langPatterns) {
+        const match = text.match(pattern);
+        if (match) {
+            return match[1];
+        }
+    }
+
+    // Country name to language code mapping
+    const countryToLang = {
+        'GERMAN': 'DE', 'GERMANY': 'DE', 'DEUTSCH': 'DE', 'DEUTSCHE': 'DE',
+        'ENGLISH': 'EN', 'UK': 'EN', 'USA': 'EN', 'BRITISH': 'EN', 'AMERICAN': 'EN',
+        'FRENCH': 'FR', 'FRANCE': 'FR', 'FRANCAIS': 'FR', 'FRANÇAIS': 'FR',
+        'SPANISH': 'ES', 'SPAIN': 'ES', 'ESPANOL': 'ES', 'ESPAÑOL': 'ES', 'LATINO': 'ES',
+        'ITALIAN': 'IT', 'ITALY': 'IT', 'ITALIANO': 'IT',
+        'PORTUGUESE': 'PT', 'PORTUGAL': 'PT', 'BRAZIL': 'PT', 'BRASIL': 'PT',
+        'DUTCH': 'NL', 'NETHERLANDS': 'NL', 'HOLLAND': 'NL',
+        'POLISH': 'PL', 'POLAND': 'PL', 'POLSKI': 'PL',
+        'TURKISH': 'TR', 'TURKEY': 'TR', 'TURK': 'TR',
+        'RUSSIAN': 'RU', 'RUSSIA': 'RU',
+        'ARABIC': 'AR', 'ARAB': 'AR',
+        'HINDI': 'HI', 'INDIAN': 'HI', 'INDIA': 'HI',
+        'KOREAN': 'KO', 'KOREA': 'KO',
+        'JAPANESE': 'JA', 'JAPAN': 'JA',
+        'CHINESE': 'ZH', 'CHINA': 'ZH',
+        'SWEDISH': 'SV', 'SWEDEN': 'SV',
+        'NORWEGIAN': 'NO', 'NORWAY': 'NO',
+        'DANISH': 'DA', 'DENMARK': 'DA',
+        'FINNISH': 'FI', 'FINLAND': 'FI',
+        'GREEK': 'EL', 'GREECE': 'EL',
+        'ROMANIAN': 'RO', 'ROMANIA': 'RO',
+        'HUNGARIAN': 'HU', 'HUNGARY': 'HU',
+        'CZECH': 'CS', 'CZECHIA': 'CS',
+        'SLOVAK': 'SK', 'SLOVAKIA': 'SK',
+        'CROATIAN': 'HR', 'CROATIA': 'HR',
+        'SERBIAN': 'SR', 'SERBIA': 'SR',
+        'BULGARIAN': 'BG', 'BULGARIA': 'BG',
+        'UKRAINIAN': 'UK', 'UKRAINE': 'UK',
+        'ALBANIAN': 'SQ', 'ALBANIA': 'SQ',
+        'PERSIAN': 'FA', 'IRANIAN': 'FA', 'IRAN': 'FA', 'FARSI': 'FA',
+        'HEBREW': 'HE', 'ISRAELI': 'HE', 'ISRAEL': 'HE'
+    };
+
+    // Check for country/language names
+    for (const [name, code] of Object.entries(countryToLang)) {
+        // Match as whole word (with word boundaries or special characters)
+        const regex = new RegExp(`(^|[\\s|\\[\\(\\-])${name}([\\s|\\]\\)\\-]|$)`, 'i');
+        if (regex.test(text)) {
+            return code;
+        }
+    }
+
+    return null;
+}
+
 async function fetchWithRetry(url, options = {}, retries = 3, source = null) {
     for (let i = 0; i < retries; i++) {
         try {
@@ -53,12 +121,16 @@ async function syncXtreamSource(source) {
     const baseUrl = source.url.replace(/\/$/, '');
     const headers = { 'User-Agent': source.user_agent || 'IBOPlayer' };
 
+    // Sanitize credentials - remove any control characters (including null bytes)
+    const cleanUsername = (source.username || '').replace(/[\x00-\x1F\x7F]/g, '');
+    const cleanPassword = (source.password || '').replace(/[\x00-\x1F\x7F]/g, '');
+
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
 
     // Test connection first
     app?.emit('sync:progress', { source: source.id, step: 'auth', message: 'Authenticating...' });
-    const authUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}`;
+    const authUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}`;
     const authResponse = await fetchWithRetry(authUrl, { headers }, 3, source);
 
     if (!authResponse.data?.user_info?.auth) {
@@ -69,7 +141,7 @@ async function syncXtreamSource(source) {
 
     // Fetch categories first to map category_id to category_name
     app?.emit('sync:progress', { source: source.id, step: 'categories', message: 'Fetching categories...' });
-    const categoriesUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_live_categories`;
+    const categoriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_categories`;
     const categoriesResponse = await fetchWithRetry(categoriesUrl, { headers }, 3, source);
     const categories = categoriesResponse.data || [];
     const categoryMap = {};
@@ -80,7 +152,7 @@ async function syncXtreamSource(source) {
 
     // Sync Live TV
     app?.emit('sync:progress', { source: source.id, step: 'live', message: 'Fetching live channels...' });
-    const liveUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_live_streams`;
+    const liveUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_streams`;
     const liveResponse = await fetchWithRetry(liveUrl, { headers }, 3, source);
     const liveChannels = liveResponse.data || [];
 
@@ -91,7 +163,8 @@ async function syncXtreamSource(source) {
 
     for (let i = 0; i < liveChannels.length; i++) {
         const channel = liveChannels[i];
-        const streamUrl = `${baseUrl}/live/${source.username}/${source.password}/${channel.stream_id}.ts`;
+        // Build stream URL using sanitized credentials
+        const streamUrl = `${baseUrl}/live/${cleanUsername}/${cleanPassword}/${channel.stream_id}.ts`;
 
         // Get category name from map
         const categoryName = categoryMap[channel.category_id] || '';
@@ -118,7 +191,7 @@ async function syncXtreamSource(source) {
 
     // Sync VOD
     app?.emit('sync:progress', { source: source.id, step: 'vod', message: 'Fetching movies...' });
-    const vodUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_vod_streams`;
+    const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
     const vodResponse = await fetchWithRetry(vodUrl, { headers }, 3, source);
     const vodItems = vodResponse.data || [];
 
@@ -128,7 +201,7 @@ async function syncXtreamSource(source) {
     for (let i = 0; i < vodItems.length; i++) {
         const vod = vodItems[i];
         const ext = vod.container_extension || 'mp4';
-        const streamUrl = `${baseUrl}/movie/${source.username}/${source.password}/${vod.stream_id}.${ext}`;
+        const streamUrl = `${baseUrl}/movie/${cleanUsername}/${cleanPassword}/${vod.stream_id}.${ext}`;
         const quality = detectQuality(vod.name);
 
         await db.run(`
@@ -148,7 +221,7 @@ async function syncXtreamSource(source) {
 
     // Sync Series
     app?.emit('sync:progress', { source: source.id, step: 'series', message: 'Fetching series...' });
-    const seriesUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_series`;
+    const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
     const seriesResponse = await fetchWithRetry(seriesUrl, { headers }, 3, source);
     const seriesList = seriesResponse.data || [];
 
@@ -170,14 +243,14 @@ async function syncXtreamSource(source) {
         // Fetch episodes (with rate limiting)
         try {
             await new Promise(r => setTimeout(r, 100)); // Small delay between requests
-            const episodesUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_series_info&series_id=${series.series_id}`;
+            const episodesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series_info&series_id=${series.series_id}`;
             const episodesResponse = await fetchWithRetry(episodesUrl, { headers }, 3, source);
             const episodesData = episodesResponse.data?.episodes || {};
 
             for (const [season, episodes] of Object.entries(episodesData)) {
                 for (const ep of episodes) {
                     const ext = ep.container_extension || 'mkv';
-                    const streamUrl = `${baseUrl}/series/${source.username}/${source.password}/${ep.id}.${ext}`;
+                    const streamUrl = `${baseUrl}/series/${cleanUsername}/${cleanPassword}/${ep.id}.${ext}`;
 
                     await db.run(`
                         INSERT OR REPLACE INTO episodes (media_id, external_id, season, episode, title, plot, air_date, runtime, stream_url, container)
@@ -323,22 +396,27 @@ async function syncM3USource(source) {
         // Create a unique external_id for this series from this source
         const seriesExternalId = `m3u_series_${key.replace(/[^a-z0-9]/g, '_')}`;
 
+        // Extract language from category or series name
+        const language = extractLanguageFromText(series.category, series.seriesName);
+
         // Insert or update the parent series entry
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, category, episode_count)
-            VALUES (?, ?, 'series', ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, poster, category, episode_count, language)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = excluded.title,
                 poster = COALESCE(excluded.poster, media.poster),
                 category = COALESCE(excluded.category, media.category),
-                episode_count = excluded.episode_count
+                episode_count = excluded.episode_count,
+                language = COALESCE(excluded.language, media.language)
         `, [
             source.id,
             seriesExternalId,
             series.seriesName,
             series.logo,
             series.category,
-            totalEpisodes
+            totalEpisodes,
+            language
         ]);
 
         // Get the media_id (either from insert or existing)
@@ -398,6 +476,9 @@ async function syncM3USource(source) {
             mediaType = 'series';
         }
 
+        // Extract language from tvg-language attribute, or from category/title patterns
+        const language = channel.language || extractLanguageFromText(channel.group, channel.name);
+
         await db.run(`
             INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -409,7 +490,7 @@ async function syncM3USource(source) {
             channel.logo,
             channel.group,
             channel.url,
-            channel.language
+            language
         ]);
 
         processedCount++;
@@ -650,7 +731,10 @@ module.exports = {
             const headers = { 'User-Agent': source.user_agent || 'IBOPlayer' };
 
             if (source.type === 'xtream') {
-                const authUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}`;
+                // Sanitize credentials
+                const cleanUsername = (source.username || '').replace(/[\x00-\x1F\x7F]/g, '');
+                const cleanPassword = (source.password || '').replace(/[\x00-\x1F\x7F]/g, '');
+                const authUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}`;
                 const response = await fetchWithRetry(authUrl, { headers, timeout: 10000 }, 3, source);
 
                 if (response.data?.user_info?.auth) {

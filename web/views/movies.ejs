@@ -234,6 +234,26 @@
 
     function restoreFilters() {
         try {
+            // URL parameters take priority over localStorage
+            const urlParams = new URLSearchParams(window.location.search);
+            const hasUrlParams = urlParams.has('quality') || urlParams.has('year') ||
+                                 urlParams.has('language') || urlParams.has('source') || urlParams.has('sort');
+
+            // If URL has filter params, use them and clear stored source to avoid conflicts
+            if (hasUrlParams) {
+                if (urlParams.has('quality')) document.getElementById('filter-quality').value = urlParams.get('quality');
+                if (urlParams.has('year')) document.getElementById('filter-year').value = urlParams.get('year');
+                if (urlParams.has('language')) document.getElementById('filter-language').value = urlParams.get('language');
+                if (urlParams.has('source')) document.getElementById('filter-source').value = urlParams.get('source');
+                if (urlParams.has('sort')) document.getElementById('sort-by').value = urlParams.get('sort');
+                // Don't restore source from localStorage if URL has language param (user wants cross-source results)
+                if (urlParams.has('language') && !urlParams.has('source')) {
+                    document.getElementById('filter-source').value = '';
+                }
+                return;
+            }
+
+            // Fall back to localStorage if no URL params
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
                 const filters = JSON.parse(saved);
