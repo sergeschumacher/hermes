@@ -1,20 +1,23 @@
 <%- include('partials/header', { title: 'Show Details', page: 'series' }) %>
 
 <style>
-    /* Full-width backdrop - no top margin to avoid cutoff */
+    /* Full-width backdrop within main content area */
     #show-container {
         margin: 0 -2rem 0 -2rem;
+        position: relative;
     }
     .media-page {
         position: relative;
         min-height: 493px;
         background-size: cover;
         background-position: center top;
+        overflow: hidden; /* Prevent backdrop from extending outside */
     }
     .media-page-bg {
         position: absolute;
         inset: 0;
-        z-index: -10;
+        z-index: 0;
+        overflow: hidden;
     }
     .media-page-bg img {
         width: 100%;
@@ -32,16 +35,19 @@
         flex-direction: column;
         align-items: center;
         padding-top: 2rem;
+        position: relative;
+        z-index: 1; /* Above background */
     }
     @media (min-width: 1280px) {
         .media-header {
             flex-direction: row;
             align-items: flex-end;
-            padding: 0 2rem;
+            padding: 0 2rem 0 4rem; /* Extra left padding to compensate for negative margin */
             position: absolute;
             bottom: 2rem;
             left: 0;
             right: 0;
+            z-index: 1;
         }
     }
     .media-poster {
@@ -139,7 +145,7 @@
     .media-overview {
         display: flex;
         flex-direction: column;
-        padding: 2rem;
+        padding: 2rem 2rem 2rem 4rem; /* Extra left padding to compensate for negative margin */
         color: white;
     }
     @media (min-width: 1024px) {
@@ -493,7 +499,7 @@
 
                         <div class="media-fact">
                             <span class="media-fact-label">Available in</span>
-                            <span class="media-fact-value">${showData.languages.join(', ')}</span>
+                            <span class="media-fact-value">${showData.languages.filter(l => l !== 'Unknown').join(', ') || 'Unknown'}</span>
                         </div>
 
                         <!-- External Links -->
@@ -538,7 +544,7 @@
             }
         }
 
-        return Array.from(seasons).sort((a, b) => b - a).map(seasonNum => {
+        return Array.from(seasons).sort((a, b) => a - b).map(seasonNum => {
             // Count unique episodes by episode_number across all languages
             const uniqueEpisodes = new Set();
             for (const lang of showData.languages) {
