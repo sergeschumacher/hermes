@@ -89,10 +89,17 @@ socket.on('sync:progress', (data) => {
 
     if (progressEl) {
         // On settings page - update progress UI
-        if (statusEl) statusEl.textContent = data.message;
-        if (barEl && data.current && data.total) {
-            const percent = Math.round((data.current / data.total) * 100);
-            barEl.style.width = percent + '%';
+        // Show percentage in status if available
+        const percentStr = typeof data.percent === 'number' ? ` (${data.percent}%)` : '';
+        if (statusEl) statusEl.textContent = data.message + percentStr;
+        // Use percent if provided, otherwise calculate from current/total
+        if (barEl) {
+            if (typeof data.percent === 'number') {
+                barEl.style.width = data.percent + '%';
+            } else if (data.current && data.total) {
+                const percent = Math.round((data.current / data.total) * 100);
+                barEl.style.width = percent + '%';
+            }
         }
     } else {
         // Not on settings page - show notification
@@ -264,7 +271,39 @@ function formatDuration(minutes) {
     return hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
 }
 
+// Restore sync progress on page load (for persistence across navigation)
+async function restoreSyncStatus() {
+    try {
+        const response = await fetch('/api/sources/sync-status');
+        const syncStatus = await response.json();
+
+        for (const [sourceId, status] of Object.entries(syncStatus)) {
+            if (status.syncing) {
+                const progressEl = document.getElementById('sync-progress-' + sourceId);
+                const statusEl = document.getElementById('sync-status-' + sourceId);
+                const barEl = document.getElementById('sync-bar-' + sourceId);
+                const btnEl = document.getElementById('sync-btn-' + sourceId);
+
+                if (progressEl) {
+                    progressEl.classList.remove('hidden');
+                    if (btnEl) btnEl.disabled = true;
+
+                    const percentStr = typeof status.percent === 'number' ? ` (${status.percent}%)` : '';
+                    if (statusEl) statusEl.textContent = (status.message || 'Syncing...') + percentStr;
+
+                    if (barEl && typeof status.percent === 'number') {
+                        barEl.style.width = status.percent + '%';
+                    }
+                }
+            }
+        }
+    } catch (err) {
+        console.error('Failed to restore sync status:', err);
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     updateDownloadBadge();
+    restoreSyncStatus();
 });

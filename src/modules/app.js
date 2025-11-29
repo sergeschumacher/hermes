@@ -473,6 +473,19 @@ function setupApiRoutes() {
         }
     });
 
+    // Get sync status for all sources (for page reload persistence)
+    router.get('/sources/sync-status', async (req, res) => {
+        try {
+            if (modules.iptv && modules.iptv.getAllSyncStatus) {
+                res.json(modules.iptv.getAllSyncStatus());
+            } else {
+                res.json({});
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Downloads endpoints
     router.get('/downloads', async (req, res) => {
         try {

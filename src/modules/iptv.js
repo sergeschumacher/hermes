@@ -7,6 +7,29 @@ let db = null;
 let settings = null;
 let app = null;
 
+// Track sync status for each source (persists across page navigation)
+const syncStatus = {};
+
+function updateSyncStatus(sourceId, data) {
+    syncStatus[sourceId] = {
+        ...syncStatus[sourceId],
+        ...data,
+        lastUpdate: Date.now()
+    };
+}
+
+function clearSyncStatus(sourceId) {
+    delete syncStatus[sourceId];
+}
+
+function getSyncStatus(sourceId) {
+    return syncStatus[sourceId] || null;
+}
+
+function getAllSyncStatus() {
+    return syncStatus;
+}
+
 // Default spoofed MAC address for IPTV provider authentication (IBU Player Pro)
 const DEFAULT_SPOOFED_MAC = '77:f4:8b:a4:ed:10';
 const DEFAULT_SPOOFED_DEVICE_KEY = '006453';
@@ -127,9 +150,10 @@ async function syncXtreamSource(source) {
 
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
+    updateSyncStatus(source.id, { step: 'auth', message: 'Authenticating...', percent: 0, syncing: true, sourceType: 'xtream' });
 
     // Test connection first
-    app?.emit('sync:progress', { source: source.id, step: 'auth', message: 'Authenticating...' });
+    app?.emit('sync:progress', { source: source.id, step: 'auth', message: 'Authenticating...', percent: 0 });
     const authUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}`;
     const authResponse = await fetchWithRetry(authUrl, { headers }, 3, source);
 
@@ -140,7 +164,8 @@ async function syncXtreamSource(source) {
     logger.info('iptv', `Authenticated to ${source.name}`);
 
     // Fetch categories first to map category_id to category_name
-    app?.emit('sync:progress', { source: source.id, step: 'categories', message: 'Fetching categories...' });
+    updateSyncStatus(source.id, { step: 'categories', message: 'Fetching categories...', percent: 5 });
+    app?.emit('sync:progress', { source: source.id, step: 'categories', message: 'Fetching categories...', percent: 5 });
     const categoriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_categories`;
     const categoriesResponse = await fetchWithRetry(categoriesUrl, { headers }, 3, source);
     const categories = categoriesResponse.data || [];
@@ -150,14 +175,16 @@ async function syncXtreamSource(source) {
     }
     logger.info('iptv', `Loaded ${categories.length} categories`);
 
-    // Sync Live TV
-    app?.emit('sync:progress', { source: source.id, step: 'live', message: 'Fetching live channels...' });
+    // Sync Live TV (10-40%)
+    updateSyncStatus(source.id, { step: 'live', message: 'Fetching live channels...', percent: 10 });
+    app?.emit('sync:progress', { source: source.id, step: 'live', message: 'Fetching live channels...', percent: 10 });
     const liveUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_streams`;
     const liveResponse = await fetchWithRetry(liveUrl, { headers }, 3, source);
     const liveChannels = liveResponse.data || [];
 
     logger.info('iptv', `Found ${liveChannels.length} live channels`);
-    app?.emit('sync:progress', { source: source.id, step: 'live', message: `Saving ${liveChannels.length} live channels...`, total: liveChannels.length });
+    updateSyncStatus(source.id, { step: 'live', message: `Saving ${liveChannels.length} live channels...`, percent: 12, total: liveChannels.length });
+    app?.emit('sync:progress', { source: source.id, step: 'live', message: `Saving ${liveChannels.length} live channels...`, total: liveChannels.length, percent: 12 });
 
     let liveCount = 0, movieCount = 0, seriesCount = 0;
 
@@ -181,22 +208,27 @@ async function syncXtreamSource(source) {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `, [source.id, String(channel.stream_id), mediaType, channel.name, channel.stream_icon, categoryName, streamUrl, channel.lang]);
 
-        // Emit progress every 100 items
+        // Emit progress every 100 items (12-40% = 28% range for live channels)
         if ((i + 1) % 100 === 0 || i === liveChannels.length - 1) {
-            app?.emit('sync:progress', { source: source.id, step: 'live', message: `Channels: ${i + 1}/${liveChannels.length}`, current: i + 1, total: liveChannels.length });
+            const livePercent = 12 + Math.round(((i + 1) / liveChannels.length) * 28);
+            const msg = `Channels: ${i + 1}/${liveChannels.length}`;
+            updateSyncStatus(source.id, { step: 'live', message: msg, percent: livePercent, current: i + 1, total: liveChannels.length });
+            app?.emit('sync:progress', { source: source.id, step: 'live', message: msg, current: i + 1, total: liveChannels.length, percent: livePercent });
         }
     }
 
     logger.info('iptv', `Categorized: ${liveCount} live, ${movieCount} movies, ${seriesCount} series`);
 
-    // Sync VOD
-    app?.emit('sync:progress', { source: source.id, step: 'vod', message: 'Fetching movies...' });
+    // Sync VOD (40-70%)
+    updateSyncStatus(source.id, { step: 'vod', message: 'Fetching movies...', percent: 40 });
+    app?.emit('sync:progress', { source: source.id, step: 'vod', message: 'Fetching movies...', percent: 40 });
     const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
     const vodResponse = await fetchWithRetry(vodUrl, { headers }, 3, source);
     const vodItems = vodResponse.data || [];
 
     logger.info('iptv', `Found ${vodItems.length} VOD items`);
-    app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length });
+    updateSyncStatus(source.id, { step: 'vod', message: `Saving ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
+    app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
     for (let i = 0; i < vodItems.length; i++) {
         const vod = vodItems[i];
@@ -213,20 +245,25 @@ async function syncXtreamSource(source) {
             vod.genre || null, quality, vod.tmdb || null
         ]);
 
-        // Emit progress every 100 items
+        // Emit progress every 100 items (42-70% = 28% range for VOD)
         if ((i + 1) % 100 === 0 || i === vodItems.length - 1) {
-            app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Movies: ${i + 1}/${vodItems.length}`, current: i + 1, total: vodItems.length });
+            const vodPercent = 42 + Math.round(((i + 1) / vodItems.length) * 28);
+            const msg = `Movies: ${i + 1}/${vodItems.length}`;
+            updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: i + 1, total: vodItems.length });
+            app?.emit('sync:progress', { source: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
         }
     }
 
-    // Sync Series
-    app?.emit('sync:progress', { source: source.id, step: 'series', message: 'Fetching series...' });
+    // Sync Series (70-100%)
+    updateSyncStatus(source.id, { step: 'series', message: 'Fetching series...', percent: 70 });
+    app?.emit('sync:progress', { source: source.id, step: 'series', message: 'Fetching series...', percent: 70 });
     const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
     const seriesResponse = await fetchWithRetry(seriesUrl, { headers }, 3, source);
     const seriesList = seriesResponse.data || [];
 
     logger.info('iptv', `Found ${seriesList.length} series`);
-    app?.emit('sync:progress', { source: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length });
+    updateSyncStatus(source.id, { step: 'series', message: `Processing ${seriesList.length} series...`, percent: 72, total: seriesList.length });
+    app?.emit('sync:progress', { source: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
     for (let i = 0; i < seriesList.length; i++) {
         const series = seriesList[i];
@@ -267,9 +304,12 @@ async function syncXtreamSource(source) {
             logger.warn('iptv', `Failed to fetch episodes for series ${series.series_id}: ${err.message}`);
         }
 
-        // Emit progress every 10 series (since each has episode fetching)
+        // Emit progress every 10 series (72-100% = 28% range for series)
         if ((i + 1) % 10 === 0 || i === seriesList.length - 1) {
-            app?.emit('sync:progress', { source: source.id, step: 'series', message: `Series: ${i + 1}/${seriesList.length}`, current: i + 1, total: seriesList.length });
+            const seriesPercent = 72 + Math.round(((i + 1) / seriesList.length) * 28);
+            const msg = `Series: ${i + 1}/${seriesList.length}`;
+            updateSyncStatus(source.id, { step: 'series', message: msg, percent: seriesPercent, current: i + 1, total: seriesList.length });
+            app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
         }
     }
 
@@ -277,6 +317,7 @@ async function syncXtreamSource(source) {
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
 
     logger.info('iptv', `Sync complete for ${source.name}`);
+    clearSyncStatus(source.id);
     app?.emit('sync:complete', { source: source.id });
 }
 
@@ -286,7 +327,8 @@ async function syncM3USource(source) {
 
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
-    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...' });
+    updateSyncStatus(source.id, { step: 'fetch', message: 'Fetching M3U playlist...', percent: 0, syncing: true, sourceType: 'm3u' });
+    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
 
     // Fetch M3U content
     const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
@@ -337,8 +379,9 @@ async function syncM3USource(source) {
         logger.warn('iptv', `Failed to save M3U backup file: ${err.message}`);
     }
 
-    // Parse M3U
-    app?.emit('sync:progress', { source: source.id, step: 'parse', message: 'Parsing playlist...' });
+    // Parse M3U (10%)
+    updateSyncStatus(source.id, { step: 'parse', message: 'Parsing playlist...', percent: 10 });
+    app?.emit('sync:progress', { source: source.id, step: 'parse', message: 'Parsing playlist...', percent: 10 });
     const channels = parseM3U(m3uContent);
 
     logger.info('iptv', `Found ${channels.length} channels in M3U`);
@@ -380,7 +423,8 @@ async function syncM3USource(source) {
     logger.info('iptv', `Identified ${seriesMap.size} series with episodes, ${nonEpisodeChannels.length} other channels`);
 
     const totalItems = seriesMap.size + nonEpisodeChannels.length;
-    app?.emit('sync:progress', { source: source.id, step: 'save', message: `Saving ${totalItems} items...`, total: totalItems });
+    updateSyncStatus(source.id, { step: 'save', message: `Saving ${totalItems} items...`, percent: 20, total: totalItems });
+    app?.emit('sync:progress', { source: source.id, step: 'save', message: `Saving ${totalItems} items...`, total: totalItems, percent: 20 });
 
     let processedCount = 0;
 
@@ -453,12 +497,17 @@ async function syncM3USource(source) {
 
         processedCount++;
         if (processedCount % 50 === 0 || processedCount === totalItems) {
+            // M3U save progress: 20-100% = 80% range
+            const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
+            const msg = `Items: ${processedCount}/${totalItems}`;
+            updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
             app?.emit('sync:progress', {
                 source: source.id,
                 step: 'save',
-                message: `Items: ${processedCount}/${totalItems}`,
+                message: msg,
                 current: processedCount,
-                total: totalItems
+                total: totalItems,
+                percent: savePercent
             });
         }
     }
@@ -495,12 +544,17 @@ async function syncM3USource(source) {
 
         processedCount++;
         if (processedCount % 100 === 0 || processedCount === totalItems) {
+            // M3U save progress: 20-100% = 80% range
+            const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
+            const msg = `Items: ${processedCount}/${totalItems}`;
+            updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
             app?.emit('sync:progress', {
                 source: source.id,
                 step: 'save',
-                message: `Items: ${processedCount}/${totalItems}`,
+                message: msg,
                 current: processedCount,
-                total: totalItems
+                total: totalItems,
+                percent: savePercent
             });
         }
     }
@@ -509,6 +563,7 @@ async function syncM3USource(source) {
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
 
     logger.info('iptv', `Sync complete for ${source.name}: ${seriesMap.size} series (${[...seriesMap.values()].reduce((sum, s) => sum + s.episodes.length, 0)} episodes), ${nonEpisodeChannels.length} other channels`);
+    clearSyncStatus(source.id);
     app?.emit('sync:complete', { source: source.id });
 }
 
@@ -777,8 +832,14 @@ module.exports = {
             }
         } catch (err) {
             logger.error('iptv', `Sync failed for ${source.name}: ${err.message}`);
+            clearSyncStatus(source.id);
             app?.emit('sync:error', { source: source.id, error: err.message });
             throw err;
         }
+    },
+
+    // Get sync status for all sources (for page reload persistence)
+    getAllSyncStatus: () => {
+        return { ...syncStatus };
     }
 };
