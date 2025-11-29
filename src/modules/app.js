@@ -267,18 +267,44 @@ function setupApiRoutes() {
         try {
             const { type, search, year, quality, language, genre, category, source, sort, order, limit, offset, dedupe } = req.query;
 
-            // For movies, deduplicate by title (keeping best version with TMDB poster)
+            // For movies, deduplicate by normalized title (keeping best version with TMDB poster)
             const shouldDedupe = dedupe !== 'false' && (type === 'movie');
 
             let sql;
             if (shouldDedupe) {
-                // Use subquery to get one entry per title, preferring items with TMDB posters
+                // Normalize titles by:
+                // 1. Removing language prefixes like "DE - ", "EN - ", etc.
+                // 2. Extracting year from title if present
+                // 3. Trimming and lowercasing for consistent comparison
                 sql = `SELECT * FROM (
                     SELECT *,
-                           ROW_NUMBER() OVER (PARTITION BY title ORDER BY
-                               CASE WHEN poster LIKE '%image.tmdb.org%' THEN 0 ELSE 1 END,
-                               CASE WHEN tmdb_id IS NOT NULL THEN 0 ELSE 1 END,
-                               id
+                           ROW_NUMBER() OVER (
+                               PARTITION BY
+                                   -- Normalize title: remove language prefix, extract base title
+                                   LOWER(TRIM(
+                                       CASE
+                                           -- Remove 2-3 letter language prefix with dash (e.g., "DE - ", "EN - ", "GER - ")
+                                           WHEN title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(title, 6)
+                                           WHEN title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(title, 7)
+                                           ELSE title
+                                       END
+                                   )),
+                                   -- Also partition by year (from year column or extracted from title)
+                                   COALESCE(year,
+                                       CASE
+                                           WHEN title GLOB '*([0-9][0-9][0-9][0-9])*'
+                                           THEN CAST(SUBSTR(title, INSTR(title, '(') + 1, 4) AS INTEGER)
+                                           ELSE NULL
+                                       END
+                                   )
+                               ORDER BY
+                                   -- Prefer entries with TMDB posters
+                                   CASE WHEN poster LIKE '%image.tmdb.org%' THEN 0 ELSE 1 END,
+                                   -- Then prefer entries with TMDB ID
+                                   CASE WHEN tmdb_id IS NOT NULL THEN 0 ELSE 1 END,
+                                   -- Then prefer entries with higher rating
+                                   CASE WHEN rating IS NOT NULL THEN 0 ELSE 1 END,
+                                   id
                            ) as rn
                     FROM media WHERE 1=1`;
             } else {
@@ -389,6 +415,61 @@ function setupApiRoutes() {
             `, [media.id]);
 
             res.json(media);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get all versions of a movie (different languages) for language selector
+    router.get('/media/:id/versions', async (req, res) => {
+        try {
+            // First get the base media to find normalized title
+            const baseMedia = await modules.db.get('SELECT * FROM media WHERE id = ?', [req.params.id]);
+            if (!baseMedia) return res.status(404).json({ error: 'Not found' });
+
+            // Normalize the title (remove language prefix)
+            let normalizedTitle = baseMedia.title;
+            if (/^[A-Z]{2,3}\s*-\s*/.test(normalizedTitle)) {
+                normalizedTitle = normalizedTitle.replace(/^[A-Z]{2,3}\s*-\s*/, '');
+            }
+
+            // Extract year if present
+            const yearMatch = normalizedTitle.match(/\((\d{4})\)/);
+            const targetYear = baseMedia.year || (yearMatch ? parseInt(yearMatch[1]) : null);
+
+            // Find all versions with similar normalized titles
+            const versions = await modules.db.all(`
+                SELECT m.*, s.name as source_name,
+                    CASE
+                        WHEN m.title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 2)
+                        WHEN m.title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(m.title, 1, 3)
+                        ELSE NULL
+                    END as language_code
+                FROM media m
+                LEFT JOIN sources s ON m.source_id = s.id
+                WHERE m.media_type = ?
+                  AND (
+                      -- Match by TMDB ID if available
+                      (m.tmdb_id IS NOT NULL AND m.tmdb_id = ?)
+                      OR
+                      -- Match by normalized title and year
+                      (
+                          LOWER(TRIM(
+                              CASE
+                                  WHEN m.title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(m.title, 6)
+                                  WHEN m.title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(m.title, 7)
+                                  ELSE m.title
+                              END
+                          )) = LOWER(TRIM(?))
+                          AND (m.year = ? OR m.year IS NULL OR ? IS NULL)
+                      )
+                  )
+                ORDER BY
+                    CASE WHEN m.id = ? THEN 0 ELSE 1 END,
+                    language_code
+            `, [baseMedia.media_type, baseMedia.tmdb_id, normalizedTitle, targetYear, targetYear, req.params.id]);
+
+            res.json(versions);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

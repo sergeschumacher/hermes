@@ -1,15 +1,17 @@
 <%- include('partials/header', { title: 'Media Details', page: 'movies' }) %>
 
 <style>
-    /* Full-width backdrop - no top margin to avoid cutoff */
+    /* Full-width backdrop - same styling as series page */
     #media-container {
         margin: 0 -2rem 0 -2rem;
+        padding-left: 4rem; /* Extra left padding to account for sidebar */
     }
     .media-page {
         position: relative;
         min-height: 493px;
         background-size: cover;
         background-position: center top;
+        overflow: hidden; /* Prevent backdrop extending outside */
     }
     .media-page-bg {
         position: absolute;
@@ -37,7 +39,7 @@
         .media-header {
             flex-direction: row;
             align-items: flex-end;
-            padding: 0 2rem;
+            padding: 0 2rem 0 4rem; /* Extra left padding */
             position: absolute;
             bottom: 2rem;
             left: 0;
@@ -163,7 +165,7 @@
     .media-overview {
         display: flex;
         flex-direction: column;
-        padding: 2rem;
+        padding: 2rem 2rem 2rem 4rem; /* Extra left padding */
         color: white;
     }
     @media (min-width: 1024px) {
@@ -244,7 +246,7 @@
     }
     /* Cast Slider */
     .cast-section {
-        padding: 0 2rem 2rem;
+        padding: 0 2rem 2rem 4rem; /* Extra left padding */
     }
     .cast-header {
         display: flex;
@@ -367,6 +369,8 @@
     const mediaId = '<%= mediaId %>';
     let mediaData = null;
     let tmdbData = null;
+    let mediaVersions = []; // All language versions of this movie
+    let selectedVersionId = null; // Currently selected version for download
 
     // Helper to clean M3U metadata from titles
     function cleanM3UTitle(rawTitle) {
@@ -410,8 +414,20 @@
 
     async function loadMedia() {
         try {
-            const response = await fetch('/api/media/' + mediaId);
-            mediaData = await response.json();
+            // Fetch media data and versions in parallel
+            const [mediaResponse, versionsResponse] = await Promise.all([
+                fetch('/api/media/' + mediaId),
+                fetch('/api/media/' + mediaId + '/versions').catch(() => null)
+            ]);
+
+            mediaData = await mediaResponse.json();
+            selectedVersionId = mediaData.id; // Default to current media
+
+            if (versionsResponse && versionsResponse.ok) {
+                mediaVersions = await versionsResponse.json();
+            } else {
+                mediaVersions = [mediaData]; // Fallback to just the current media
+            }
 
             // Try to fetch TMDB data if we have a tmdb_id
             if (mediaData.tmdb_id) {
@@ -559,11 +575,13 @@
                                 Trailer
                             </button>
                         ` : ''}
-                        <button onclick="downloadMedia(${media.id})" class="btn-request">
+                        <!-- Language Selector -->
+                        <div id="language-selector-container"></div>
+                        <button onclick="downloadMedia(selectedVersionId)" class="btn-request">
                             <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>
-                            Request
+                            Download
                         </button>
                     </div>
                 </div>
@@ -690,6 +708,25 @@
                             </div>
                         ` : ''}
 
+                        ${tmdbData?.budget && tmdbData.budget > 0 ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Budget</span>
+                                <span class="media-fact-value">$${(tmdbData.budget / 1000000).toFixed(1)}M</span>
+                            </div>
+                        ` : ''}
+
+                        ${tmdbData?.revenue && tmdbData.revenue > 0 ? `
+                            <div class="media-fact">
+                                <span class="media-fact-label">Revenue</span>
+                                <span class="media-fact-value">$${(tmdbData.revenue / 1000000).toFixed(1)}M</span>
+                            </div>
+                        ` : ''}
+
+                        <div class="media-fact" id="available-languages-fact" style="display: none;">
+                            <span class="media-fact-label">Available in</span>
+                            <span class="media-fact-value" id="available-languages-value"></span>
+                        </div>
+
                         <!-- External Links -->
                         <div class="external-links">
                             ${tmdbData?.id ? `
@@ -747,8 +784,56 @@
             ` : ''}
         `;
 
-        // Initialize slider buttons
+        // Initialize slider buttons and language selector
         updateSliderButtons();
+        renderLanguageSelector();
+    }
+
+    function renderLanguageSelector() {
+        const container = document.getElementById('language-selector-container');
+        const langFact = document.getElementById('available-languages-fact');
+        const langValue = document.getElementById('available-languages-value');
+
+        // Get unique languages from versions
+        const languageMap = new Map();
+        mediaVersions.forEach(v => {
+            const lang = v.language_code || 'Unknown';
+            if (!languageMap.has(lang)) {
+                languageMap.set(lang, v);
+            }
+        });
+
+        // Update "Available in" metadata
+        if (langFact && langValue && languageMap.size > 0) {
+            const languages = Array.from(languageMap.keys())
+                .filter(l => l !== 'Unknown')
+                .map(l => getLanguageName(l) || l);
+            if (languages.length > 0) {
+                langFact.style.display = 'flex';
+                langValue.textContent = languages.join(', ');
+            }
+        }
+
+        // Only show selector if multiple languages
+        if (!container || languageMap.size <= 1) {
+            if (container) container.style.display = 'none';
+            return;
+        }
+
+        container.innerHTML = `
+            <select onchange="changeVersion(this.value)"
+                    style="padding: 0.5rem 1rem; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); border-radius: 9999px; color: white; font-size: 0.875rem; cursor: pointer; font-weight: 600;">
+                ${Array.from(languageMap.entries()).map(([lang, v]) => `
+                    <option value="${v.id}" ${v.id === selectedVersionId ? 'selected' : ''} style="background: #1f2937; color: white;">
+                        ${getLanguageName(lang)} (${lang})
+                    </option>
+                `).join('')}
+            </select>
+        `;
+    }
+
+    function changeVersion(versionId) {
+        selectedVersionId = parseInt(versionId);
     }
 
     function slideCast(direction) {
