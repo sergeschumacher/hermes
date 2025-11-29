@@ -259,6 +259,7 @@
     let tmdbData = null;
     let expandedSeasons = new Set();
     let seasonEpisodeCache = {};
+    let selectedLanguage = null; // null = show all languages merged
 
     async function loadShow() {
         try {
@@ -402,8 +403,12 @@
 
                     <!-- Seasons -->
                     <div>
-                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;">
-                            <h2 style="font-size: 1.125rem; font-weight: 600;">Seasons</h2>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem;">
+                            <div style="display: flex; align-items: center; gap: 1rem;">
+                                <h2 style="font-size: 1.125rem; font-weight: 600;">Seasons</h2>
+                                <!-- Language Selector -->
+                                <div id="language-selector" style="display: none;"></div>
+                            </div>
                             <p style="font-size: 0.875rem; color: rgba(156, 163, 175, 1);">Select episodes to add to download queue</p>
                         </div>
                         <div id="seasons-list"></div>
@@ -511,6 +516,7 @@
             </div>
         `;
 
+        renderLanguageSelector();
         renderSeasonsList();
     }
 
@@ -533,28 +539,79 @@
         }
 
         return Array.from(seasons).sort((a, b) => b - a).map(seasonNum => {
-            let episodeCount = 0;
+            // Count unique episodes by episode_number across all languages
+            const uniqueEpisodes = new Set();
             for (const lang of showData.languages) {
-                const eps = showData.languageGroups[lang]?.seasons?.[seasonNum];
-                if (eps) episodeCount = Math.max(episodeCount, eps.length);
+                const eps = showData.languageGroups[lang]?.seasons?.[seasonNum] || [];
+                eps.forEach(ep => uniqueEpisodes.add(ep.episode_number));
             }
 
             return {
                 season_number: seasonNum,
                 name: seasonNum === 0 ? 'Specials' : `Season ${seasonNum}`,
-                episode_count: episodeCount
+                episode_count: uniqueEpisodes.size
             };
         });
     }
 
     function getEpisodesForSeason(seasonNum) {
+        // If a specific language is selected, return only those episodes
+        if (selectedLanguage) {
+            const eps = showData.languageGroups[selectedLanguage]?.seasons?.[seasonNum] || [];
+            return eps.map(ep => ({ ...ep, language: selectedLanguage }))
+                      .sort((a, b) => a.episode_number - b.episode_number);
+        }
+
+        // Merge episodes from all languages, deduplicating by episode_number
+        const episodeMap = new Map(); // episode_number -> episode data (prefer ones with id)
+
         for (const lang of showData.languages) {
-            const eps = showData.languageGroups[lang]?.seasons?.[seasonNum];
-            if (eps && eps.length > 0) {
-                return eps;
+            const eps = showData.languageGroups[lang]?.seasons?.[seasonNum] || [];
+            for (const ep of eps) {
+                const epNum = ep.episode_number;
+                const existing = episodeMap.get(epNum);
+                // Keep the one with an id, or the first one
+                if (!existing || (ep.id && !existing.id)) {
+                    episodeMap.set(epNum, { ...ep, language: lang });
+                }
             }
         }
-        return [];
+
+        return Array.from(episodeMap.values()).sort((a, b) => a.episode_number - b.episode_number);
+    }
+
+    function changeLanguage(lang) {
+        selectedLanguage = lang || null;
+        clearSelection();
+        renderLanguageSelector();
+        renderSeasonsList();
+    }
+
+    function renderLanguageSelector() {
+        const container = document.getElementById('language-selector');
+        if (!container || !showData) return;
+
+        const languages = showData.languages.filter(l => l !== 'Unknown');
+
+        // Only show selector if there are multiple languages
+        if (languages.length <= 1) {
+            container.style.display = 'none';
+            return;
+        }
+
+        container.style.display = 'block';
+        container.innerHTML = `
+            <select onchange="changeLanguage(this.value)"
+                    style="padding: 0.375rem 0.75rem; background: rgba(55, 65, 81, 0.5); border: 1px solid rgba(75, 85, 99, 0.5); border-radius: 0.375rem; color: white; font-size: 0.875rem; cursor: pointer;">
+                <option value="" ${!selectedLanguage ? 'selected' : ''}>All Languages</option>
+                ${languages.map(lang => `
+                    <option value="${lang}" ${selectedLanguage === lang ? 'selected' : ''}>${getLanguageName(lang)} (${lang})</option>
+                `).join('')}
+                ${showData.languages.includes('Unknown') ? `
+                    <option value="Unknown" ${selectedLanguage === 'Unknown' ? 'selected' : ''}>Unknown</option>
+                ` : ''}
+            </select>
+        `;
     }
 
     function cleanEpisodeTitle(rawTitle, episodeNum) {
