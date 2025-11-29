@@ -180,6 +180,87 @@
                 </div>
             </div>
         </div>
+
+        <!-- Language Preferences -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Language Preferences</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <p class="text-sm text-dark-400">Select languages for filtering movies, series, and live TV</p>
+
+                <!-- Selected Languages (Badges) -->
+                <div id="selected-languages" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
+                    <!-- Badges populated by JS -->
+                    <span class="text-dark-500 text-sm" id="no-languages-msg">No languages selected</span>
+                </div>
+
+                <!-- Add Language Dropdown -->
+                <div class="relative">
+                    <select id="language-selector" class="select" onchange="addLanguage(this.value)">
+                        <option value="">+ Add language...</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <!-- EPG Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">EPG Settings</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <p class="text-sm text-dark-400">Select countries for TV guide data (from globetvapp/epg)</p>
+
+                <!-- Selected Countries (Badges) -->
+                <div id="selected-countries" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
+                    <!-- Badges populated by JS -->
+                    <span class="text-dark-500 text-sm" id="no-countries-msg">No countries selected</span>
+                </div>
+
+                <!-- Add Country Dropdown -->
+                <div class="relative">
+                    <select id="country-selector" class="select" onchange="addCountry(this.value)">
+                        <option value="">+ Add country...</option>
+                    </select>
+                </div>
+
+                <div class="flex gap-2 pt-2">
+                    <button onclick="syncGlobalEpg()" class="btn btn-primary" id="sync-epg-btn">Sync EPG Now</button>
+                    <span id="epg-sync-status" class="text-sm text-dark-400 self-center"></span>
+                </div>
+                <div id="epg-sync-progress" class="hidden">
+                    <div class="flex items-center gap-2 mb-2">
+                        <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                        <span class="text-sm text-dark-300" id="epg-sync-status-text">Syncing EPG...</span>
+                    </div>
+                    <div class="w-full bg-dark-700 rounded-full h-2">
+                        <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="epg-sync-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4 pt-2 border-t border-dark-700">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Recordings Folder</label>
+                        <input type="text" id="setting-recordingsPath" class="input" placeholder="/path/to/recordings" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">EPG Sync Hour (0-23)</label>
+                        <input type="number" id="setting-epgSyncHour" class="input" min="0" max="23" value="4" />
+                    </div>
+                </div>
+                <div id="ffmpeg-status" class="text-sm"></div>
+            </div>
+        </div>
+
+        <!-- Scheduler Status -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Scheduler</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div id="scheduler-status">Loading scheduler status...</div>
+            </div>
+        </div>
     </div>
 
     <!-- Save Button -->
@@ -202,7 +283,7 @@
             </div>
             <div>
                 <label class="block text-sm text-dark-400 mb-1">Type</label>
-                <select id="source-type" class="input">
+                <select id="source-type" class="select">
                     <option value="xtream">Xtream Codes</option>
                     <option value="m3u">M3U URL</option>
                 </select>
@@ -253,7 +334,7 @@
                 </div>
                 <div id="playback-speed-container">
                     <label class="block text-sm text-dark-400 mb-1">Speed Multiplier</label>
-                    <select id="source-playback-speed" class="input">
+                    <select id="source-playback-speed" class="select">
                         <option value="1.0">1.0x (Real-time playback)</option>
                         <option value="1.25">1.25x (Slightly faster)</option>
                         <option value="1.5" selected>1.5x (Recommended)</option>
@@ -274,13 +355,65 @@
 </div>
 
 <script>
-    const settingKeys = ['tempPath', 'downloadPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey'];
+    const settingKeys = ['tempPath', 'downloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour'];
+
+    // Common language codes
+    const LANGUAGES = [
+        { code: 'de', name: 'German' },
+        { code: 'en', name: 'English' },
+        { code: 'fr', name: 'French' },
+        { code: 'es', name: 'Spanish' },
+        { code: 'it', name: 'Italian' },
+        { code: 'pt', name: 'Portuguese' },
+        { code: 'nl', name: 'Dutch' },
+        { code: 'pl', name: 'Polish' },
+        { code: 'ru', name: 'Russian' },
+        { code: 'tr', name: 'Turkish' },
+        { code: 'ar', name: 'Arabic' },
+        { code: 'ja', name: 'Japanese' },
+        { code: 'ko', name: 'Korean' },
+        { code: 'zh', name: 'Chinese' }
+    ];
+
+    let availableEpgCountries = [];
+    let selectedLanguages = [];
+    let selectedEpgCountries = [];
 
     // Track which enrichment is running
     let activeEnrichment = null;
 
     // Initialize socket listeners when DOM is ready (socket from app.js)
     document.addEventListener('DOMContentLoaded', () => {
+        // EPG socket events
+        socket.on('epg:start', (data) => {
+            document.getElementById('epg-sync-progress').classList.remove('hidden');
+            document.getElementById('sync-epg-btn').disabled = true;
+            document.getElementById('epg-sync-status-text').textContent = 'Starting EPG sync...';
+        });
+
+        socket.on('epg:progress', (data) => {
+            document.getElementById('epg-sync-status-text').textContent = data.message;
+            if (data.total) {
+                const pct = Math.round((data.current / data.total) * 100);
+                document.getElementById('epg-sync-bar').style.width = pct + '%';
+            }
+        });
+
+        socket.on('epg:complete', (data) => {
+            document.getElementById('epg-sync-progress').classList.add('hidden');
+            document.getElementById('sync-epg-btn').disabled = false;
+            document.getElementById('epg-sync-status').textContent =
+                \`Synced: \${data.programCount} programs, \${data.channelCount} channels\`;
+            if (window.showToast) showToast('EPG sync complete!', 'success');
+        });
+
+        socket.on('epg:error', (data) => {
+            document.getElementById('epg-sync-progress').classList.add('hidden');
+            document.getElementById('sync-epg-btn').disabled = false;
+            document.getElementById('epg-sync-status').textContent = 'Error: ' + data.error;
+            if (window.showToast) showToast('EPG sync failed: ' + data.error, 'error');
+        });
+
         socket.on('enrich:start', (data) => {
             activeEnrichment = data.source || 'tmdb';
             const prefix = activeEnrichment === 'overseerr' ? 'overseerr-' : '';
@@ -318,7 +451,178 @@
         loadSettings();
         loadSources();
         loadEnrichStats();
+        loadEpgCountries();
+        loadSchedulerStatus();
+        checkFfmpeg();
     });
+
+    // Render language badges
+    function renderLanguageBadges() {
+        const container = document.getElementById('selected-languages');
+        const noMsg = document.getElementById('no-languages-msg');
+
+        if (selectedLanguages.length === 0) {
+            container.innerHTML = '<span class="text-dark-500 text-sm" id="no-languages-msg">No languages selected</span>';
+            return;
+        }
+
+        container.innerHTML = selectedLanguages.map(code => {
+            const lang = LANGUAGES.find(l => l.code === code);
+            const name = lang ? lang.name : code;
+            return \`
+                <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-primary-500/20 text-primary-400 text-sm">
+                    \${name}
+                    <button onclick="removeLanguage('\${code}')" class="hover:text-white ml-1">&times;</button>
+                </span>
+            \`;
+        }).join('');
+
+        // Update dropdown to exclude already selected
+        populateLanguageDropdown();
+    }
+
+    function populateLanguageDropdown() {
+        const selector = document.getElementById('language-selector');
+        const available = LANGUAGES.filter(l => !selectedLanguages.includes(l.code));
+        selector.innerHTML = '<option value="">+ Add language...</option>' +
+            available.map(l => \`<option value="\${l.code}">\${l.name}</option>\`).join('');
+    }
+
+    function addLanguage(code) {
+        if (!code || selectedLanguages.includes(code)) return;
+        selectedLanguages.push(code);
+        renderLanguageBadges();
+        document.getElementById('language-selector').value = '';
+    }
+
+    function removeLanguage(code) {
+        selectedLanguages = selectedLanguages.filter(c => c !== code);
+        renderLanguageBadges();
+    }
+
+    // Render EPG country badges
+    function renderCountryBadges() {
+        const container = document.getElementById('selected-countries');
+
+        if (selectedEpgCountries.length === 0) {
+            container.innerHTML = '<span class="text-dark-500 text-sm" id="no-countries-msg">No countries selected</span>';
+            return;
+        }
+
+        container.innerHTML = selectedEpgCountries.map(country => \`
+            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-sm">
+                \${country}
+                <button onclick="removeCountry('\${country}')" class="hover:text-white ml-1">&times;</button>
+            </span>
+        \`).join('');
+
+        // Update dropdown to exclude already selected
+        populateCountryDropdown();
+    }
+
+    function populateCountryDropdown() {
+        const selector = document.getElementById('country-selector');
+        const available = availableEpgCountries.filter(c => !selectedEpgCountries.includes(c));
+        selector.innerHTML = '<option value="">+ Add country...</option>' +
+            available.map(c => \`<option value="\${c}">\${c}</option>\`).join('');
+    }
+
+    function addCountry(country) {
+        if (!country || selectedEpgCountries.includes(country)) return;
+        selectedEpgCountries.push(country);
+        renderCountryBadges();
+        document.getElementById('country-selector').value = '';
+    }
+
+    function removeCountry(country) {
+        selectedEpgCountries = selectedEpgCountries.filter(c => c !== country);
+        renderCountryBadges();
+    }
+
+    async function loadEpgCountries() {
+        try {
+            const response = await fetch('/api/epg/countries');
+            availableEpgCountries = await response.json();
+            renderCountryBadges();
+        } catch (err) {
+            console.error('Failed to load EPG countries:', err);
+        }
+    }
+
+    async function syncGlobalEpg() {
+        try {
+            // Save current EPG country selection first
+            await fetch('/api/settings', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ epgCountries: selectedEpgCountries })
+            });
+
+            const response = await fetch('/api/epg/sync-global', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ countries: selectedEpgCountries })
+            });
+            const result = await response.json();
+            if (!result.success) throw new Error(result.error);
+        } catch (err) {
+            console.error('Failed to sync EPG:', err);
+            if (window.showToast) showToast('Failed to sync EPG: ' + err.message, 'error');
+        }
+    }
+
+    async function loadSchedulerStatus() {
+        try {
+            const response = await fetch('/api/scheduler/status');
+            const status = await response.json();
+            const container = document.getElementById('scheduler-status');
+
+            let html = '<div class="space-y-2">';
+            html += \`<p class="text-sm"><span class="text-dark-400">Status:</span> <span class="text-\${status.running ? 'green' : 'red'}-400">\${status.running ? 'Running' : 'Stopped'}</span></p>\`;
+            html += \`<p class="text-sm"><span class="text-dark-400">Active Recordings:</span> \${status.activeRecordings}</p>\`;
+
+            if (status.upcomingRecordings && status.upcomingRecordings.length > 0) {
+                html += '<p class="text-sm text-dark-400 mt-2">Upcoming Recordings:</p>';
+                html += '<ul class="text-sm space-y-1 ml-4">';
+                for (const rec of status.upcomingRecordings.slice(0, 5)) {
+                    const start = new Date(rec.start_time).toLocaleString();
+                    html += \`<li class="text-dark-300">• \${rec.title} - \${start}</li>\`;
+                }
+                html += '</ul>';
+            }
+
+            if (status.tasks && status.tasks.length > 0) {
+                html += '<p class="text-sm text-dark-400 mt-2">Scheduled Tasks:</p>';
+                html += '<ul class="text-sm space-y-1 ml-4">';
+                for (const task of status.tasks) {
+                    const nextRun = new Date(task.next_run).toLocaleString();
+                    html += \`<li class="text-dark-300">• \${task.task_type} - next: \${nextRun}</li>\`;
+                }
+                html += '</ul>';
+            }
+
+            html += '</div>';
+            container.innerHTML = html;
+        } catch (err) {
+            console.error('Failed to load scheduler status:', err);
+            document.getElementById('scheduler-status').textContent = 'Failed to load status';
+        }
+    }
+
+    async function checkFfmpeg() {
+        try {
+            const response = await fetch('/api/scheduler/ffmpeg');
+            const result = await response.json();
+            const container = document.getElementById('ffmpeg-status');
+            if (result.available) {
+                container.innerHTML = '<span class="text-green-400">ffmpeg found:</span> ' + result.path;
+            } else {
+                container.innerHTML = '<span class="text-yellow-400">ffmpeg not found</span> - required for recording';
+            }
+        } catch (err) {
+            console.error('Failed to check ffmpeg:', err);
+        }
+    }
 
     async function loadSettings() {
         try {
@@ -329,6 +633,14 @@
                 if (el && settings[key] !== undefined) el.value = settings[key];
             });
             document.getElementById('webhook-url').textContent = window.location.origin + '/api/webhooks/overseerr';
+
+            // Load language preferences
+            selectedLanguages = settings.preferredLanguages || ['de', 'en'];
+            renderLanguageBadges();
+
+            // Load EPG countries
+            selectedEpgCountries = settings.epgCountries || ['Germany'];
+            renderCountryBadges();
         } catch (err) {
             console.error('Failed to load settings:', err);
         }
@@ -342,16 +654,29 @@
                 settings[key] = el.type === 'number' ? parseInt(el.value) : el.value;
             }
         });
+
+        // Add language preferences and EPG countries
+        settings.preferredLanguages = selectedLanguages;
+        settings.epgCountries = selectedEpgCountries;
+
         try {
             await fetch('/api/settings', {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(settings)
             });
-            alert('Settings saved!');
+            if (window.showToast) {
+                showToast('Settings saved!', 'success');
+            } else {
+                alert('Settings saved!');
+            }
         } catch (err) {
             console.error('Failed to save settings:', err);
-            alert('Failed to save settings');
+            if (window.showToast) {
+                showToast('Failed to save settings', 'error');
+            } else {
+                alert('Failed to save settings');
+            }
         }
     }
 
@@ -389,6 +714,7 @@
                     </div>
                 </div>
             \`).join('');
+
         } catch (err) {
             console.error('Failed to load sources:', err);
         }
@@ -532,6 +858,59 @@
             const btnEl = document.getElementById('sync-btn-' + id);
             if (progressEl) progressEl.classList.add('hidden');
             if (btnEl) btnEl.disabled = false;
+        }
+    }
+
+    async function syncEpg(id) {
+        try {
+            // Show progress UI
+            const progressEl = document.getElementById('epg-progress-' + id);
+            const btnEl = document.getElementById('epg-sync-btn-' + id);
+            if (progressEl) progressEl.classList.remove('hidden');
+            if (btnEl) btnEl.disabled = true;
+
+            const response = await fetch('/api/sources/' + id + '/sync-epg', { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                // Update EPG info display
+                const infoEl = document.getElementById('epg-info-' + id);
+                if (infoEl) {
+                    infoEl.textContent = \`EPG: \${result.programCount} programs, \${result.channelCount} channels\`;
+                }
+                if (window.showToast) {
+                    showToast('EPG sync complete!', 'success');
+                }
+            } else {
+                throw new Error(result.error || 'EPG sync failed');
+            }
+        } catch (err) {
+            console.error('Failed to sync EPG:', err);
+            if (window.showToast) {
+                showToast('EPG sync failed: ' + err.message, 'error');
+            }
+        } finally {
+            // Hide progress
+            const progressEl = document.getElementById('epg-progress-' + id);
+            const btnEl = document.getElementById('epg-sync-btn-' + id);
+            if (progressEl) progressEl.classList.add('hidden');
+            if (btnEl) btnEl.disabled = false;
+        }
+    }
+
+    async function fetchEpgStatus() {
+        try {
+            const response = await fetch('/api/epg/status');
+            const statuses = await response.json();
+
+            statuses.forEach(status => {
+                const infoEl = document.getElementById('epg-info-' + status.source_id);
+                if (infoEl && status.last_sync) {
+                    infoEl.textContent = \`EPG: \${status.program_count} programs, \${status.channel_count} channels (last: \${new Date(status.last_sync).toLocaleString()})\`;
+                }
+            });
+        } catch (err) {
+            console.error('Failed to fetch EPG status:', err);
         }
     }
 

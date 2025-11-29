@@ -23,7 +23,7 @@ dataDirs.forEach(dir => {
 
 // Module loader
 const modules = {};
-const moduleOrder = ['logger', 'settings', 'db', 'tmdb', 'iptv', 'download', 'plex', 'overseerr', 'search', 'app'];
+const moduleOrder = ['logger', 'settings', 'db', 'tmdb', 'iptv', 'epg', 'scheduler', 'download', 'plex', 'overseerr', 'search', 'app'];
 
 async function loadModules() {
     console.log(`[${APP_NAME}] Starting v${VERSION}...`);

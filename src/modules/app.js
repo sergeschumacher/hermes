@@ -159,6 +159,7 @@ function setupRoutes() {
     app.get('/series/:name/season/:season', (req, res) => res.render('season-detail', { page: 'series', showName: decodeURIComponent(req.params.name), seasonNumber: parseInt(req.params.season) }));
     app.get('/requests', (req, res) => res.render('requests', { page: 'requests' }));
     app.get('/logs', (req, res) => res.render('logs', { page: 'logs' }));
+    app.get('/epg', (req, res) => res.render('epg', { page: 'epg' }));
 
     // API Routes
     setupApiRoutes();
@@ -381,6 +382,26 @@ function setupApiRoutes() {
             params.push(limitNum, offsetNum);
 
             const media = await modules.db.all(sql, params);
+
+            // Add source name to each media item
+            if (media.length > 0) {
+                const sourceIds = [...new Set(media.filter(m => m.source_id).map(m => m.source_id))];
+                if (sourceIds.length > 0) {
+                    const placeholders = sourceIds.map(() => '?').join(',');
+                    const sources = await modules.db.all(
+                        `SELECT id, name FROM sources WHERE id IN (${placeholders})`,
+                        sourceIds
+                    );
+                    const sourceMap = {};
+                    for (const s of sources) {
+                        sourceMap[s.id] = s.name;
+                    }
+                    for (const m of media) {
+                        m.source_name = sourceMap[m.source_id] || null;
+                    }
+                }
+            }
+
             res.json(media);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -571,6 +592,232 @@ function setupApiRoutes() {
             } else {
                 res.json({});
             }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // EPG (Electronic Program Guide) endpoints
+    router.post('/sources/:id/sync-epg', async (req, res) => {
+        try {
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+            if (!source.epg_url) return res.status(400).json({ error: 'No EPG URL configured for this source' });
+
+            if (modules.epg) {
+                // Sync EPG in background
+                modules.epg.syncEpg(source).catch(err => {
+                    logger.error('app', `EPG sync failed for ${source.name}: ${err.message}`);
+                });
+                res.json({ success: true, message: 'EPG sync started' });
+            } else {
+                res.status(500).json({ error: 'EPG module not loaded' });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get EPG for a specific channel
+    router.get('/epg/channel/:channelId', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            const current = await modules.epg.getCurrentProgram(req.params.channelId);
+            const upcoming = await modules.epg.getUpcomingPrograms(req.params.channelId, 5);
+
+            res.json({ current, upcoming });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get EPG for multiple channels at once (batch)
+    router.post('/epg/channels', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            const { channelIds } = req.body;
+            if (!channelIds || !Array.isArray(channelIds)) {
+                return res.status(400).json({ error: 'channelIds array required' });
+            }
+
+            const epgData = await modules.epg.getEpgForChannels(channelIds);
+            res.json(epgData);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get EPG sync status
+    router.get('/epg/status', async (req, res) => {
+        try {
+            const syncInfo = await db.all(`
+                SELECT es.*, s.name as source_name
+                FROM epg_sync es
+                JOIN sources s ON es.source_id = s.id
+            `);
+            res.json(syncInfo);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get available EPG countries
+    router.get('/epg/countries', (req, res) => {
+        if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+        res.json(modules.epg.getAvailableCountries());
+    });
+
+    // Get EPG channels (distinct channels that have EPG data)
+    router.get('/epg/channels', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const country = req.query.country || null;
+            const channels = await modules.epg.getChannelsWithEpg(country);
+            res.json(channels);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Sync global EPG
+    router.post('/epg/sync-global', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            const { countries } = req.body;
+            io?.emit('epg:start', { countries: countries || settings.get('epgCountries') });
+
+            // Run sync in background
+            modules.epg.syncGlobalEpg(countries).then(result => {
+                io?.emit('epg:complete', result);
+            }).catch(err => {
+                io?.emit('epg:error', { error: err.message });
+            });
+
+            res.json({ success: true, message: 'Global EPG sync started' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get EPG program guide for a time range
+    router.get('/epg/guide', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            const start = req.query.start ? new Date(req.query.start) : new Date();
+            const end = req.query.end ? new Date(req.query.end) : new Date(start.getTime() + 6 * 60 * 60 * 1000);
+            const channelIds = req.query.channels ? req.query.channels.split(',') : null;
+
+            const programs = await modules.epg.getProgramGuide(start, end, channelIds);
+            res.json(programs);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get EPG program by ID
+    router.get('/epg/program/:id', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const program = await modules.epg.getProgramById(parseInt(req.params.id));
+            if (!program) return res.status(404).json({ error: 'Program not found' });
+            res.json(program);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Recordings endpoints
+    router.get('/recordings', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const filter = {};
+            if (req.query.status) filter.status = req.query.status;
+            if (req.query.upcoming) filter.upcoming = true;
+            if (req.query.limit) filter.limit = parseInt(req.query.limit);
+            const recordings = await modules.scheduler.getRecordings(filter);
+            res.json(recordings);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.get('/recordings/:id', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const recording = await modules.scheduler.getRecording(parseInt(req.params.id));
+            if (!recording) return res.status(404).json({ error: 'Recording not found' });
+            res.json(recording);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/recordings', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const { mediaId, title, startTime, endTime, recurrence, epgProgramId } = req.body;
+            const recording = await modules.scheduler.scheduleRecording(
+                mediaId, title, startTime, endTime,
+                { recurrence, epgProgramId }
+            );
+            res.json(recording);
+        } catch (err) {
+            res.status(400).json({ error: err.message });
+        }
+    });
+
+    router.delete('/recordings/:id', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const deleteFile = req.query.deleteFile === 'true';
+            await modules.scheduler.deleteRecording(parseInt(req.params.id), deleteFile);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/recordings/:id/cancel', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            await modules.scheduler.cancelRecording(parseInt(req.params.id));
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Scheduler status
+    router.get('/scheduler/status', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const status = await modules.scheduler.getStatus();
+            res.json(status);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/scheduler/trigger/:taskType', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            await modules.scheduler.triggerTask(req.params.taskType);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Check ffmpeg availability
+    router.get('/scheduler/ffmpeg', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            const ffmpeg = await modules.scheduler.checkFfmpeg();
+            res.json(ffmpeg);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

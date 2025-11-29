@@ -12,6 +12,7 @@ const defaults = {
     // Paths
     tempPath: '',
     downloadPath: '',
+    recordingsPath: '',
 
     // TMDB
     tmdbApiKey: '',
@@ -31,6 +32,18 @@ const defaults = {
     downloadRetries: 3,
     downloadDelayMin: 1000,
     downloadDelayMax: 5000,
+
+    // Language preferences (ISO 639-1 codes)
+    // These filter movies, series, and live TV by language
+    preferredLanguages: ['de', 'en'],
+
+    // EPG countries from globetvapp/epg
+    // Available: Germany, Austria, Switzerland, United Kingdom, USA, France, Spain, Italy, etc.
+    epgCountries: ['Germany'],
+
+    // Scheduler settings
+    epgSyncHour: 4,  // Hour of day to sync EPG (0-23, default 4am)
+    sourceSyncIntervalHours: 24,  // How often to refresh IPTV sources
 
     // User agents for rotation
     userAgents: [
@@ -77,6 +90,7 @@ module.exports = {
         // Set default paths based on data directory
         defaults.tempPath = path.join(PATHS.data, 'temp');
         defaults.downloadPath = path.join(PATHS.data, 'downloads');
+        defaults.recordingsPath = path.join(PATHS.data, 'recordings');
 
         load();
     },
