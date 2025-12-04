@@ -136,6 +136,7 @@
     let currentCategory = null;
     let allCategories = [];
     let currentCountry = '';
+    let preferredLanguages = []; // From settings
 
     // Country names for display
     const countryNames = {
@@ -197,9 +198,23 @@
 
     async function loadCategories() {
         try {
+            // Load settings to get preferred languages
+            const settingsResp = await fetch('/api/settings');
+            const settings = await settingsResp.json();
+            preferredLanguages = (settings.preferredLanguages || []).map(l => l.toUpperCase());
+
             const response = await fetch('/api/filters?type=live');
             const filters = await response.json();
             allCategories = filters.categories.filter(cat => cat);
+
+            // Filter categories to only show preferred countries
+            if (preferredLanguages.length > 0) {
+                allCategories = allCategories.filter(cat => {
+                    const country = getCategoryCountry(cat);
+                    return country && preferredLanguages.includes(country);
+                });
+            }
+
             populateCountryFilter();
             applyFilters();
         } catch (err) {

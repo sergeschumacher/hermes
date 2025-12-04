@@ -749,6 +749,7 @@
                     air_date: tmdbEp?.air_date || ep.air_date,
                     still_path: tmdbEp?.still_path || ep.backdrop,
                     id: ep.id,
+                    media_id: ep.media_id,
                     stream_url: ep.stream_url,
                     hasLocal: true
                 };
@@ -851,12 +852,12 @@
         }).join('');
     }
 
-    async function downloadEpisode(mediaId) {
+    async function downloadEpisode(mediaId, episodeId) {
         try {
             await fetch('/api/downloads', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ media_id: mediaId })
+                body: JSON.stringify({ media_id: mediaId, episode_id: episodeId })
             });
             alert('Added to download queue!');
         } catch (err) {

@@ -8,17 +8,14 @@ services:
     ports:
       - "3000:3000"
     volumes:
-      # Persistent data (database, config, cache)
-      - ./data:/data
-      # Download directories - adjust paths as needed
-      - /path/to/your/downloads:/downloads
-      - /path/to/your/temp:/temp
+      # Persistent data (database, config, cache, temp, transcode folders)
+      - /mnt/disks/Movies/:/hermesdata
       # Optional: Mount Plex media directories for direct access
       # - /path/to/plex/movies:/media/movies
       # - /path/to/plex/tv:/media/tv
     environment:
       - NODE_ENV=production
-      - DATA_PATH=/data
+      - DATA_PATH=/hermesdata/data
       # Optional: Set these in .env file instead
       # - TMDB_API_KEY=your_tmdb_api_key
       # - PLEX_URL=http://192.168.1.100:32400

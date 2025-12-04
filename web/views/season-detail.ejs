@@ -240,7 +240,7 @@
                                         </div>
 
                                         <!-- Download Button -->
-                                        <button onclick="downloadEpisode(${ep.id})"
+                                        <button onclick="downloadEpisode(${ep.media_id}, ${ep.id})"
                                                 class="flex-shrink-0 btn btn-primary btn-sm"
                                                 title="Add to download queue">
                                             <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -258,12 +258,12 @@
         `;
     }
 
-    async function downloadEpisode(mediaId) {
+    async function downloadEpisode(mediaId, episodeId) {
         try {
             await fetch('/api/downloads', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ media_id: mediaId })
+                body: JSON.stringify({ media_id: mediaId, episode_id: episodeId })
             });
             alert('Added to download queue!');
         } catch (err) {

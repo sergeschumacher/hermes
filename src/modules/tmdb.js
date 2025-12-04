@@ -446,148 +446,198 @@ module.exports = {
     },
 
     // Batch enrich media that's missing posters
-    batchEnrichPosters: async (mediaType = null, limit = 100) => {
+    // Now supports continuous mode to process all items
+    batchEnrichPosters: async (mediaType = null, limit = 100, continuous = false) => {
         const apiKey = settings.get('tmdbApiKey');
         if (!apiKey) {
             throw new Error('TMDB API key not configured');
         }
 
-        // Find media items that need poster enrichment
-        // Exclude category headers (titles with ## or ####) and generic channel names
-        let sql = `
-            SELECT id, title, media_type, year, poster
-            FROM media
-            WHERE (poster IS NULL OR poster LIKE '%wikipedia%' OR poster LIKE '%stalker_portal%' OR poster LIKE '%icon-tmdb%')
+        let totalSuccess = 0;
+        let totalFailed = 0;
+        let totalProcessed = 0;
+        let batchNumber = 0;
+
+        // Get total count for progress
+        const totalCountResult = await db.get(`
+            SELECT COUNT(*) as count FROM media
+            WHERE tmdb_id IS NULL
+            AND enrichment_attempted IS NULL
             AND title NOT LIKE '%####%'
             AND title NOT LIKE '## %'
             AND title NOT LIKE '%----- %'
             AND title NOT LIKE '%INFO%'
             AND title NOT LIKE '%MIX %'
-        `;
-        const params = [];
+            AND media_type IN ('movie', 'series')
+        `);
+        const grandTotal = totalCountResult?.count || 0;
 
-        if (mediaType) {
-            sql += ' AND media_type = ?';
-            params.push(mediaType);
-        }
-
-        // Order to prioritize likely movie/series titles first
-        sql += ` ORDER BY
-            CASE
-                WHEN title LIKE '%24/7:%' THEN 0
-                WHEN title LIKE '% 4K' OR title LIKE '% HD' THEN 1
-                ELSE 2
-            END,
-            title
-        `;
-        sql += ' LIMIT ?';
-        params.push(limit);
-
-        const items = await db.all(sql, params);
-
-        if (items.length === 0) {
+        if (grandTotal === 0) {
+            logger.info('tmdb', 'No items need enrichment');
             return { processed: 0, success: 0, failed: 0 };
         }
 
-        logger.info('tmdb', `Starting batch enrichment for ${items.length} items`);
-        app?.emit('enrich:start', { total: items.length });
+        logger.info('tmdb', `Starting enrichment: ${grandTotal} items to process (continuous=${continuous})`);
+        app?.emit('enrich:start', { total: grandTotal, source: 'tmdb' });
 
-        let success = 0;
-        let failed = 0;
+        do {
+            batchNumber++;
 
-        for (let i = 0; i < items.length; i++) {
-            const item = items[i];
+            // Find media items that need enrichment
+            // - No TMDB ID yet
+            // - Not previously attempted (or attempted more than 7 days ago)
+            // - Exclude category headers and generic channel names
+            let sql = `
+                SELECT id, title, media_type, year, poster
+                FROM media
+                WHERE tmdb_id IS NULL
+                AND (enrichment_attempted IS NULL OR enrichment_attempted < datetime('now', '-7 days'))
+                AND title NOT LIKE '%####%'
+                AND title NOT LIKE '## %'
+                AND title NOT LIKE '%----- %'
+                AND title NOT LIKE '%INFO%'
+                AND title NOT LIKE '%MIX %'
+                AND media_type IN ('movie', 'series')
+            `;
+            const params = [];
 
-            try {
-                // Extract clean title from channel name
-                const extracted = extractCleanTitle(item.title);
+            if (mediaType) {
+                sql += ' AND media_type = ?';
+                params.push(mediaType);
+            }
 
-                if (!extracted || extracted.skip || !extracted.title || extracted.title.length < 2) {
-                    failed++;
-                    continue;
-                }
+            // Order to prioritize likely movie/series titles first
+            sql += ` ORDER BY
+                CASE
+                    WHEN title LIKE '%24/7:%' THEN 0
+                    WHEN title LIKE '% 4K' OR title LIKE '% HD' THEN 1
+                    ELSE 2
+                END,
+                created_at DESC
+            `;
+            sql += ' LIMIT ?';
+            params.push(limit);
 
-                const { title: cleanTitle, year: extractedYear } = extracted;
+            const items = await db.all(sql, params);
 
-                const year = item.year || extractedYear;
+            if (items.length === 0) {
+                break;
+            }
 
-                // Search TMDB
-                let searchResults;
-                if (item.media_type === 'movie') {
-                    searchResults = await module.exports.searchMovie(cleanTitle, year);
-                } else if (item.media_type === 'series') {
-                    searchResults = await module.exports.searchTv(cleanTitle, year);
-                } else {
-                    // For live channels, try both movie and TV search
-                    searchResults = await module.exports.searchMovie(cleanTitle, year);
-                    if (searchResults.length === 0) {
-                        searchResults = await module.exports.searchTv(cleanTitle, year);
+            logger.info('tmdb', `Batch ${batchNumber}: Processing ${items.length} items`);
+
+            let success = 0;
+            let failed = 0;
+
+            for (let i = 0; i < items.length; i++) {
+                const item = items[i];
+
+                try {
+                    // Mark as attempted (prevents re-processing failures immediately)
+                    await db.run('UPDATE media SET enrichment_attempted = CURRENT_TIMESTAMP WHERE id = ?', [item.id]);
+
+                    // Extract clean title from channel name
+                    const extracted = extractCleanTitle(item.title);
+
+                    if (!extracted || extracted.skip || !extracted.title || extracted.title.length < 2) {
+                        failed++;
+                        continue;
                     }
-                }
 
-                if (searchResults.length > 0) {
-                    const match = searchResults[0];
-                    const posterPath = match.poster_path
-                        ? `${TMDB_IMAGE_BASE}/w500${match.poster_path}`
-                        : null;
-                    const backdropPath = match.backdrop_path
-                        ? `${TMDB_IMAGE_BASE}/w1280${match.backdrop_path}`
-                        : null;
+                    const { title: cleanTitle, year: extractedYear } = extracted;
+                    const year = item.year || extractedYear;
 
-                    if (posterPath) {
-                        await db.run(`
-                            UPDATE media SET
-                                poster = ?,
-                                backdrop = COALESCE(?, backdrop),
-                                tmdb_id = ?,
-                                plot = COALESCE(?, plot),
-                                rating = COALESCE(?, rating),
-                                year = COALESCE(?, year),
-                                last_updated = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        `, [
-                            posterPath, backdropPath, match.id,
-                            match.overview, match.vote_average,
-                            match.release_date?.substring(0, 4) || match.first_air_date?.substring(0, 4),
-                            item.id
-                        ]);
+                    // Search TMDB
+                    let searchResults;
+                    if (item.media_type === 'movie') {
+                        searchResults = await module.exports.searchMovie(cleanTitle, year);
+                    } else if (item.media_type === 'series') {
+                        searchResults = await module.exports.searchTv(cleanTitle, year);
+                    } else {
+                        // For live channels, try both movie and TV search
+                        searchResults = await module.exports.searchMovie(cleanTitle, year);
+                        if (searchResults.length === 0) {
+                            searchResults = await module.exports.searchTv(cleanTitle, year);
+                        }
+                    }
 
-                        success++;
-                        logger.debug('tmdb', `Enriched: "${item.title}" -> "${cleanTitle}" (TMDB: ${match.id})`);
+                    if (searchResults.length > 0) {
+                        const match = searchResults[0];
+                        const posterPath = match.poster_path
+                            ? `${TMDB_IMAGE_BASE}/w500${match.poster_path}`
+                            : null;
+                        const backdropPath = match.backdrop_path
+                            ? `${TMDB_IMAGE_BASE}/w1280${match.backdrop_path}`
+                            : null;
+
+                        if (posterPath) {
+                            await db.run(`
+                                UPDATE media SET
+                                    poster = ?,
+                                    backdrop = COALESCE(?, backdrop),
+                                    tmdb_id = ?,
+                                    plot = COALESCE(?, plot),
+                                    rating = COALESCE(?, rating),
+                                    year = COALESCE(?, year),
+                                    last_updated = CURRENT_TIMESTAMP
+                                WHERE id = ?
+                            `, [
+                                posterPath, backdropPath, match.id,
+                                match.overview, match.vote_average,
+                                match.release_date?.substring(0, 4) || match.first_air_date?.substring(0, 4),
+                                item.id
+                            ]);
+
+                            success++;
+                            logger.debug('tmdb', `Enriched: "${item.title}" -> "${cleanTitle}" (TMDB: ${match.id})`);
+                        } else {
+                            failed++;
+                        }
                     } else {
                         failed++;
+                        logger.debug('tmdb', `No match found for: "${cleanTitle}"`);
                     }
-                } else {
+
+                    // Rate limiting - TMDB allows 40 requests per 10 seconds
+                    await new Promise(r => setTimeout(r, 300));
+
+                    // Progress update
+                    if ((i + 1) % 10 === 0 || i === items.length - 1) {
+                        app?.emit('enrich:progress', {
+                            current: totalProcessed + i + 1,
+                            total: grandTotal,
+                            success: totalSuccess + success,
+                            failed: totalFailed + failed,
+                            message: `Batch ${batchNumber}: ${i + 1}/${items.length} (Total: ${totalProcessed + i + 1}/${grandTotal})`,
+                            source: 'tmdb'
+                        });
+                    }
+
+                } catch (err) {
                     failed++;
-                    logger.debug('tmdb', `No match found for: "${cleanTitle}"`);
+                    logger.warn('tmdb', `Failed to enrich "${item.title}": ${err.message}`);
+                    // Continue on error, but add delay
+                    await new Promise(r => setTimeout(r, 1000));
                 }
-
-                // Rate limiting - TMDB allows 40 requests per 10 seconds
-                await new Promise(r => setTimeout(r, 300));
-
-                // Progress update
-                if ((i + 1) % 10 === 0 || i === items.length - 1) {
-                    app?.emit('enrich:progress', {
-                        current: i + 1,
-                        total: items.length,
-                        success,
-                        failed,
-                        message: `Processing ${i + 1}/${items.length}...`
-                    });
-                }
-
-            } catch (err) {
-                failed++;
-                logger.warn('tmdb', `Failed to enrich "${item.title}": ${err.message}`);
-                // Continue on error, but add delay
-                await new Promise(r => setTimeout(r, 1000));
             }
-        }
 
-        logger.info('tmdb', `Batch enrichment complete: ${success} success, ${failed} failed`);
-        app?.emit('enrich:complete', { success, failed, total: items.length });
+            totalSuccess += success;
+            totalFailed += failed;
+            totalProcessed += items.length;
 
-        return { processed: items.length, success, failed };
+            logger.info('tmdb', `Batch ${batchNumber} complete: ${success} success, ${failed} failed (Total: ${totalSuccess}/${totalProcessed})`);
+
+            // Small delay between batches
+            if (continuous && items.length === limit) {
+                await new Promise(r => setTimeout(r, 2000));
+            }
+
+        } while (continuous && totalProcessed < grandTotal);
+
+        logger.info('tmdb', `Enrichment complete: ${totalSuccess} success, ${totalFailed} failed out of ${totalProcessed} processed`);
+        app?.emit('enrich:complete', { success: totalSuccess, failed: totalFailed, total: totalProcessed, source: 'tmdb' });
+
+        return { processed: totalProcessed, success: totalSuccess, failed: totalFailed };
     },
 
     // Deep enrich media that has TMDB posters but no tmdb_id stored

@@ -327,62 +327,115 @@ async function syncM3USource(source) {
 
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
-    updateSyncStatus(source.id, { step: 'fetch', message: 'Fetching M3U playlist...', percent: 0, syncing: true, sourceType: 'm3u' });
-    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
+    updateSyncStatus(source.id, { step: 'fetch', message: 'Checking for cached M3U...', percent: 0, syncing: true, sourceType: 'm3u' });
+    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Checking for cached M3U...', percent: 0 });
 
-    // Fetch M3U content
-    const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
-    const m3uContent = response.data;
+    let m3uContent = null;
+    let usedCache = false;
+
+    // First, check for recent cached M3U file (within last 24 hours)
+    try {
+        const cacheDir = path.join(process.cwd(), 'data', 'cache', 'm3u');
+        const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+        const files = await fs.readdir(cacheDir);
+
+        // Find most recent cache file for this source
+        const sourceFiles = files
+            .filter(f => f.startsWith(safeName) && f.endsWith('.m3u'))
+            .sort()
+            .reverse();
+
+        if (sourceFiles.length > 0) {
+            const latestFile = sourceFiles[0];
+            const filePath = path.join(cacheDir, latestFile);
+            const stats = await fs.stat(filePath);
+            const ageHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60);
+
+            // Use cache if less than 24 hours old
+            if (ageHours < 24) {
+                logger.info('iptv', `Using cached M3U file: ${latestFile} (${ageHours.toFixed(1)} hours old)`);
+                updateSyncStatus(source.id, { step: 'fetch', message: `Using cached M3U (${ageHours.toFixed(1)}h old)...`, percent: 5 });
+                m3uContent = await fs.readFile(filePath, 'utf8');
+                usedCache = true;
+            } else {
+                logger.info('iptv', `Cached M3U too old (${ageHours.toFixed(1)} hours), fetching fresh`);
+            }
+        }
+    } catch (err) {
+        logger.debug('iptv', `No cached M3U found: ${err.message}`);
+    }
+
+    // If no cache, fetch from URL
+    if (!m3uContent) {
+        updateSyncStatus(source.id, { step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
+        app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
+        const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
+        m3uContent = response.data;
+    }
 
     if (!m3uContent || typeof m3uContent !== 'string') {
         throw new Error('Invalid M3U content');
     }
 
-    // Save M3U to history table (keep last 5 per source)
-    try {
-        const channelCount = (m3uContent.match(/#EXTINF:/g) || []).length;
-        const fileSize = Buffer.byteLength(m3uContent, 'utf8');
+    // Save M3U to history and cache only if we fetched fresh content
+    if (!usedCache) {
+        // Save M3U to history table (keep last 5 per source)
+        try {
+            const channelCount = (m3uContent.match(/#EXTINF:/g) || []).length;
+            const fileSize = Buffer.byteLength(m3uContent, 'utf8');
 
-        // Insert new entry
-        await db.run(`
-            INSERT INTO m3u_history (source_id, content, channel_count, file_size)
-            VALUES (?, ?, ?, ?)
-        `, [source.id, m3uContent, channelCount, fileSize]);
+            // Insert new entry
+            await db.run(`
+                INSERT INTO m3u_history (source_id, content, channel_count, file_size)
+                VALUES (?, ?, ?, ?)
+            `, [source.id, m3uContent, channelCount, fileSize]);
 
-        // Delete old entries, keep only last 5 per source
-        await db.run(`
-            DELETE FROM m3u_history
-            WHERE source_id = ?
-            AND id NOT IN (
-                SELECT id FROM m3u_history
+            // Delete old entries, keep only last 5 per source
+            await db.run(`
+                DELETE FROM m3u_history
                 WHERE source_id = ?
-                ORDER BY fetched_at DESC
-                LIMIT 5
-            )
-        `, [source.id, source.id]);
+                AND id NOT IN (
+                    SELECT id FROM m3u_history
+                    WHERE source_id = ?
+                    ORDER BY fetched_at DESC
+                    LIMIT 5
+                )
+            `, [source.id, source.id]);
 
-        logger.info('iptv', `Saved M3U to history (${channelCount} channels, ${Math.round(fileSize / 1024)} KB)`);
-    } catch (err) {
-        logger.warn('iptv', `Failed to save M3U to history: ${err.message}`);
-    }
+            logger.info('iptv', `Saved M3U to history (${channelCount} channels, ${Math.round(fileSize / 1024)} KB)`);
+        } catch (err) {
+            logger.warn('iptv', `Failed to save M3U to history: ${err.message}`);
+        }
 
-    // Also save M3U backup to cache folder (legacy)
-    try {
-        const cacheDir = path.join(process.cwd(), 'data', 'cache', 'm3u');
-        await fs.mkdir(cacheDir, { recursive: true });
-        const date = new Date().toISOString().split('T')[0];
-        const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
-        const filename = `${safeName}-${date}.m3u`;
-        await fs.writeFile(path.join(cacheDir, filename), m3uContent);
-        logger.debug('iptv', `Saved M3U backup to ${filename}`);
-    } catch (err) {
-        logger.warn('iptv', `Failed to save M3U backup file: ${err.message}`);
+        // Also save M3U backup to cache folder
+        try {
+            const cacheDir = path.join(process.cwd(), 'data', 'cache', 'm3u');
+            await fs.mkdir(cacheDir, { recursive: true });
+            const date = new Date().toISOString().split('T')[0];
+            const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+            const filename = `${safeName}-${date}.m3u`;
+            await fs.writeFile(path.join(cacheDir, filename), m3uContent);
+            logger.debug('iptv', `Saved M3U backup to ${filename}`);
+        } catch (err) {
+            logger.warn('iptv', `Failed to save M3U backup file: ${err.message}`);
+        }
     }
 
     // Parse M3U (10%)
     updateSyncStatus(source.id, { step: 'parse', message: 'Parsing playlist...', percent: 10 });
     app?.emit('sync:progress', { source: source.id, step: 'parse', message: 'Parsing playlist...', percent: 10 });
-    const channels = parseM3U(m3uContent);
+
+    // Get custom parser config if available
+    let parserConfig = null;
+    if (source.m3u_parser_config) {
+        try {
+            parserConfig = JSON.parse(source.m3u_parser_config);
+            logger.debug('iptv', `Using custom parser config for ${source.name}`);
+        } catch (e) {
+            logger.warn('iptv', `Invalid parser config for ${source.name}, using defaults`);
+        }
+    }
+    const channels = parseM3U(m3uContent, parserConfig);
 
     logger.info('iptv', `Found ${channels.length} channels in M3U`);
 
@@ -445,10 +498,11 @@ async function syncM3USource(source) {
 
         // Insert or update the parent series entry
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, category, episode_count, language)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = excluded.title,
+                show_name = excluded.show_name,
                 poster = COALESCE(excluded.poster, media.poster),
                 category = COALESCE(excluded.category, media.category),
                 episode_count = excluded.episode_count,
@@ -457,6 +511,7 @@ async function syncM3USource(source) {
             source.id,
             seriesExternalId,
             series.seriesName,
+            series.seriesName,  // show_name = seriesName for grouping
             series.logo,
             series.category,
             totalEpisodes,
@@ -567,7 +622,103 @@ async function syncM3USource(source) {
     app?.emit('sync:complete', { source: source.id });
 }
 
-function parseM3U(content) {
+// Default parser config for standard M3U format
+const DEFAULT_PARSER_CONFIG = {
+    // Regex patterns to extract fields from EXTINF line
+    // Each pattern should have a capture group for the value
+    patterns: {
+        id: 'tvg-id="([^"]*)"',
+        name: 'tvg-name="([^"]*)"',
+        logo: 'tvg-logo="([^"]*)"',
+        group: 'group-title="([^"]*)"',
+        language: 'tvg-language="([^"]*)"'
+    },
+    // Extract additional fields from the title itself
+    // These patterns run against the extracted name/title
+    titlePatterns: {
+        // Extract language code from title prefix like "DE - ", "EN: ", "FR - "
+        language: '^([A-Z]{2})\\s*[-:]\\s*',
+        // Extract year from title like "Movie Name (2024)"
+        year: '\\((\\d{4})\\)\\s*$',
+        // Extract season/episode from title like "S01E02" or "S01 E02"
+        season: 'S(\\d+)\\s*E\\d+',
+        episode: 'S\\d+\\s*E(\\d+)',
+        // Extract platform/category from title or group
+        platform: '(NETFLIX|AMAZON|PRIME|DISNEY|APPLETV|HBO|PARAMOUNT|PEACOCK|HULU)'
+    },
+    // Content type detection patterns (matched against group-title)
+    // Use pipe-separated keywords for OR matching
+    contentTypePatterns: {
+        livetv: 'LIVE|NEWS|SPORT|24\\/7|CHANNEL|TV\\s|\\sTV|RADIO',
+        movies: 'MOVIE|FILM|VOD|CINEMA|KINO',
+        series: 'SERIE|SHOW|SEASON|S\\d+E\\d+'
+    },
+    // How to extract the display name from after the comma in EXTINF line
+    nameExtraction: 'afterComma' // 'afterComma' | 'tvgName' | 'custom'
+};
+
+// Detect content type using configurable patterns
+function detectContentTypeFromPatterns(group, title, contentTypePatterns) {
+    const textToCheck = `${group || ''} ${title || ''}`.toUpperCase();
+
+    if (!contentTypePatterns) {
+        return null; // Will fall back to default detection
+    }
+
+    // Check patterns in order: series first (most specific), then movies, then livetv
+    // Series detection - check title for S01E01 pattern first as it's very reliable
+    if (contentTypePatterns.series) {
+        try {
+            const seriesRegex = new RegExp(contentTypePatterns.series, 'i');
+            if (seriesRegex.test(textToCheck)) {
+                return 'series';
+            }
+        } catch (e) {
+            // Invalid regex, skip
+        }
+    }
+
+    // Movies detection
+    if (contentTypePatterns.movies) {
+        try {
+            const moviesRegex = new RegExp(contentTypePatterns.movies, 'i');
+            if (moviesRegex.test(textToCheck)) {
+                return 'movie';
+            }
+        } catch (e) {
+            // Invalid regex, skip
+        }
+    }
+
+    // Live TV detection
+    if (contentTypePatterns.livetv) {
+        try {
+            const livetvRegex = new RegExp(contentTypePatterns.livetv, 'i');
+            if (livetvRegex.test(textToCheck)) {
+                return 'live';
+            }
+        } catch (e) {
+            // Invalid regex, skip
+        }
+    }
+
+    return null; // No pattern matched
+}
+
+function parseM3U(content, parserConfig = null) {
+    const config = parserConfig ? { ...DEFAULT_PARSER_CONFIG, ...parserConfig } : DEFAULT_PARSER_CONFIG;
+
+    // Merge patterns if custom config provided
+    if (parserConfig?.patterns) {
+        config.patterns = { ...DEFAULT_PARSER_CONFIG.patterns, ...parserConfig.patterns };
+    }
+    if (parserConfig?.titlePatterns) {
+        config.titlePatterns = { ...DEFAULT_PARSER_CONFIG.titlePatterns, ...parserConfig.titlePatterns };
+    }
+    if (parserConfig?.contentTypePatterns) {
+        config.contentTypePatterns = { ...DEFAULT_PARSER_CONFIG.contentTypePatterns, ...parserConfig.contentTypePatterns };
+    }
+
     const channels = [];
     const lines = content.split('\n');
 
@@ -584,20 +735,28 @@ function parseM3U(content) {
                 group: null,
                 language: null,
                 id: null,
-                url: null
+                url: null,
+                year: null,
+                season: null,
+                episode: null,
+                platform: null,
+                contentType: null
             };
 
-            // Extract attributes using regex
-            const tvgId = line.match(/tvg-id="([^"]*)"/i);
-            const tvgName = line.match(/tvg-name="([^"]*)"/i);
-            const tvgLogo = line.match(/tvg-logo="([^"]*)"/i);
-            const groupTitle = line.match(/group-title="([^"]*)"/i);
-            const tvgLanguage = line.match(/tvg-language="([^"]*)"/i);
-
-            if (tvgId) currentChannel.id = tvgId[1];
-            if (tvgLogo) currentChannel.logo = tvgLogo[1];
-            if (groupTitle) currentChannel.group = groupTitle[1];
-            if (tvgLanguage) currentChannel.language = tvgLanguage[1];
+            // Extract attributes using configured patterns
+            for (const [field, pattern] of Object.entries(config.patterns)) {
+                if (pattern) {
+                    try {
+                        const regex = new RegExp(pattern, 'i');
+                        const match = line.match(regex);
+                        if (match && match[1]) {
+                            currentChannel[field] = match[1];
+                        }
+                    } catch (e) {
+                        // Invalid regex, skip
+                    }
+                }
+            }
 
             // Channel name extraction - properly handle quoted attributes
             // Format: #EXTINF:duration attr1="val1" attr2="val2",Channel Name
@@ -611,15 +770,8 @@ function parseM3U(content) {
                 if (line[j] === '"') {
                     inQuotes = !inQuotes;
                 } else if (line[j] === ',' && !inQuotes) {
-                    // Found a comma outside quotes - this is likely the separator
-                    // But there might be commas in channel name too, so we want
-                    // the comma that comes after the last attribute
                     commaPos = j;
-                    // Check if this looks like it's after the attributes (followed by non-attr content)
-                    // Attributes have format: key="value"
-                    // After the last attribute, the comma is followed by the channel name
                     const rest = line.substring(j + 1);
-                    // If the rest doesn't start with an attribute pattern, this is the channel name separator
                     if (!rest.trim().match(/^[a-z_-]+="/i)) {
                         break;
                     }
@@ -631,8 +783,12 @@ function parseM3U(content) {
             }
 
             // Fallback to tvg-name if we couldn't extract channel name
-            if (!currentChannel.name && tvgName) {
-                currentChannel.name = tvgName[1];
+            if (!currentChannel.name && currentChannel.id) {
+                // Try to use the name from patterns
+                const tvgNameMatch = line.match(/tvg-name="([^"]*)"/i);
+                if (tvgNameMatch) {
+                    currentChannel.name = tvgNameMatch[1];
+                }
             }
 
             // Final fallback: try to extract name after last comma (simple approach)
@@ -643,10 +799,47 @@ function parseM3U(content) {
                 }
             }
 
+            // Apply title patterns to extract additional metadata from the name
+            if (currentChannel.name && config.titlePatterns) {
+                for (const [field, pattern] of Object.entries(config.titlePatterns)) {
+                    if (pattern && !currentChannel[field]) {
+                        try {
+                            const regex = new RegExp(pattern, 'i');
+                            const match = currentChannel.name.match(regex);
+                            if (match && match[1]) {
+                                currentChannel[field] = match[1].toUpperCase();
+                            }
+                        } catch (e) {
+                            // Invalid regex, skip
+                        }
+                    }
+                }
+
+                // Also check group for platform if not found in name
+                if (!currentChannel.platform && currentChannel.group && config.titlePatterns.platform) {
+                    try {
+                        const regex = new RegExp(config.titlePatterns.platform, 'i');
+                        const match = currentChannel.group.match(regex);
+                        if (match && match[1]) {
+                            currentChannel.platform = match[1].toUpperCase();
+                        }
+                    } catch (e) {
+                        // Invalid regex, skip
+                    }
+                }
+            }
+
         } else if (line && !line.startsWith('#') && currentChannel) {
             // This is the URL line
             currentChannel.url = line;
             if (currentChannel.name && currentChannel.url) {
+                // Detect content type using custom patterns first, then fall back to default detection
+                currentChannel.contentType = detectContentTypeFromPatterns(
+                    currentChannel.group,
+                    currentChannel.name,
+                    config.contentTypePatterns
+                ) || detectMediaTypeFromCategory(currentChannel.group, currentChannel.name);
+
                 channels.push(currentChannel);
             }
             currentChannel = null;
@@ -654,6 +847,41 @@ function parseM3U(content) {
     }
 
     return channels;
+}
+
+// Preview parser results for testing regex patterns
+function previewM3UParser(m3uSample, parserConfig = null) {
+    const lines = m3uSample.split('\n');
+    const results = [];
+
+    // Find EXTINF entries (pairs of EXTINF line + URL line)
+    let extinf = null;
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('#EXTINF:')) {
+            extinf = trimmed;
+        } else if (extinf && trimmed && !trimmed.startsWith('#')) {
+            // Parse this pair
+            const parsed = parseM3U(extinf + '\n' + trimmed, parserConfig);
+            if (parsed.length > 0) {
+                results.push({
+                    raw: { extinf, url: trimmed },
+                    parsed: parsed[0]
+                });
+            }
+            extinf = null;
+
+            // Limit preview to 5 entries
+            if (results.length >= 5) break;
+        }
+    }
+
+    return results;
+}
+
+// Get default parser config (for UI display)
+function getDefaultParserConfig() {
+    return DEFAULT_PARSER_CONFIG;
 }
 
 function detectMediaTypeFromCategory(category, title) {
@@ -806,7 +1034,14 @@ module.exports = {
                 const content = response.data;
 
                 if (content && typeof content === 'string' && content.includes('#EXTINF')) {
-                    const channels = parseM3U(content);
+                    // Parse parser config if available
+                    let parserConfig = null;
+                    if (source.m3u_parser_config) {
+                        try {
+                            parserConfig = JSON.parse(source.m3u_parser_config);
+                        } catch (e) {}
+                    }
+                    const channels = parseM3U(content, parserConfig);
                     return {
                         success: true,
                         message: `Valid M3U! Found ${channels.length} channels`
@@ -841,5 +1076,10 @@ module.exports = {
     // Get sync status for all sources (for page reload persistence)
     getAllSyncStatus: () => {
         return { ...syncStatus };
-    }
+    },
+
+    // Parser config functions for API
+    getDefaultParserConfig,
+    previewM3UParser,
+    parseM3U
 };

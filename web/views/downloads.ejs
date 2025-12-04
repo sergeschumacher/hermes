@@ -122,7 +122,15 @@
                 <h2 class="text-lg font-semibold text-white">Transcoding Queue</h2>
                 <span class="badge bg-purple-500/20 text-purple-400" id="transcoding-count">0</span>
             </div>
-            <p class="text-sm text-gray-400">Converting videos for Plex compatibility</p>
+            <div class="flex items-center gap-3">
+                <p class="text-sm text-gray-400">Converting videos for Plex compatibility</p>
+                <button onclick="clearTranscodeQueue()" class="btn btn-sm bg-gray-700 hover:bg-gray-600 text-gray-300" title="Clear completed jobs">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Clear
+                </button>
+            </div>
         </div>
         <div id="transcoding-queue" class="divide-y divide-gray-800/50">
             <div class="empty-state py-12">
@@ -415,6 +423,27 @@
             if (window.showToast) showToast('Transcode job queued for retry', 'success');
         } catch (err) {
             console.error('Failed to retry transcode:', err);
+        }
+    }
+
+    async function clearTranscodeQueue() {
+        try {
+            const response = await fetch('/api/transcoder/clear', { method: 'POST' });
+            const result = await response.json();
+            loadTranscodeQueue();
+            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} completed jobs\`, 'success');
+        } catch (err) {
+            console.error('Failed to clear transcode queue:', err);
+            if (window.showToast) showToast('Failed to clear queue', 'error');
+        }
+    }
+
+    async function deleteTranscodeJob(id) {
+        try {
+            await fetch(\`/api/transcoder/\${id}\`, { method: 'DELETE' });
+            loadTranscodeQueue();
+        } catch (err) {
+            console.error('Failed to delete transcode job:', err);
         }
     }
 

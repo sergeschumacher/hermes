@@ -217,8 +217,9 @@ function buildFfmpegArgs(inputPath, outputPath, hwAccel, codec) {
             args.push('-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda');
             break;
         case 'vaapi':
-            args.push('-vaapi_device', '/dev/dri/renderD128');
-            args.push('-hwaccel', 'vaapi', '-hwaccel_output_format', 'vaapi');
+            // Initialize VAAPI device - use software decode + hwupload for maximum compatibility
+            args.push('-init_hw_device', 'vaapi=va:/dev/dri/renderD128');
+            args.push('-filter_hw_device', 'va');
             break;
         case 'amf':
             // AMF uses DirectX for decoding on Windows
@@ -242,6 +243,8 @@ function buildFfmpegArgs(inputPath, outputPath, hwAccel, codec) {
     } else if (encoder.includes('amf')) {
         args.push('-quality', 'quality', '-rc', 'cqp', '-qp_i', '19', '-qp_p', '19');
     } else if (encoder.includes('vaapi')) {
+        // VAAPI requires video filter to upload frames to hardware
+        args.push('-vf', 'format=nv12,hwupload');
         args.push('-qp', '19', '-profile:v', codec === 'hevc' ? 'main' : 'high');
     } else {
         // libx264/libx265 software encoding
@@ -582,12 +585,21 @@ async function transcodeFile(job) {
         hwAccel = await detectHardwareAcceleration();
     } else if (hwSetting === 'software') {
         hwAccel = { type: 'software', encoders: { h264: 'libx264', hevc: 'libx265' } };
+    } else if (hwSetting === 'vaapi') {
+        // Force VAAPI (Intel QSV)
+        hwAccel = { type: 'vaapi', encoders: { h264: 'h264_vaapi', hevc: 'hevc_vaapi' } };
+    } else if (hwSetting === 'nvenc') {
+        // Force NVENC (NVIDIA)
+        hwAccel = { type: 'nvenc', encoders: { h264: 'h264_nvenc', hevc: 'hevc_nvenc' } };
+    } else if (hwSetting === 'videotoolbox') {
+        // Force VideoToolbox (macOS)
+        hwAccel = { type: 'videotoolbox', encoders: { h264: 'h264_videotoolbox', hevc: 'hevc_videotoolbox' } };
+    } else if (hwSetting === 'amf') {
+        // Force AMF (AMD)
+        hwAccel = { type: 'amf', encoders: { h264: 'h264_amf', hevc: 'hevc_amf' } };
     } else {
-        // Force specific type
+        // Unknown setting, fall back to detection
         hwAccel = await detectHardwareAcceleration();
-        if (hwAccel.type !== hwSetting) {
-            logger?.warn('transcoder', `Requested ${hwSetting} but detected ${hwAccel.type}, using detected`);
-        }
     }
 
     const codec = settings.get('transcodeCodec') || 'h264';

@@ -189,7 +189,7 @@ async function executeTask(task) {
 
         case 'source_sync':
             // Refresh all IPTV sources
-            const sources = await db.all("SELECT * FROM sources WHERE enabled = 1");
+            const sources = await db.all("SELECT * FROM sources WHERE active = 1");
             for (const source of sources) {
                 try {
                     await iptv.refreshSource(source.id);
@@ -722,7 +722,7 @@ async function triggerTask(taskType) {
             break;
 
         case 'source_sync':
-            const sources = await db.all("SELECT * FROM sources WHERE enabled = 1");
+            const sources = await db.all("SELECT * FROM sources WHERE active = 1");
             for (const source of sources) {
                 try {
                     await iptv.refreshSource(source.id);

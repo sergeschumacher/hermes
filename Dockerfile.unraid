@@ -1,0 +1,42 @@
+# Dockerfile for Unraid with Intel Quick Sync (QSV) GPU support
+# Uses linuxserver/ffmpeg as base (has QSV/VAAPI) and adds Node.js
+
+FROM linuxserver/ffmpeg:latest
+
+# Install Node.js 20.x
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates curl gnupg \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg \
+    && echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list \
+    && apt-get update \
+    && apt-get install -y nodejs \
+    && apt-get install -y --no-install-recommends python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+LABEL maintainer="Hermes"
+LABEL description="IPTV Media Manager with Intel QSV GPU support"
+
+WORKDIR /app
+
+COPY package*.json ./
+
+# Install all deps (including devDeps for tailwind), build CSS, then prune
+RUN npm ci
+COPY . .
+RUN npm run build:css && npm prune --production
+
+RUN mkdir -p /data/config /data/cache /data/temp /data/downloads /data/transcode-in /data/transcode-output
+
+ENV NODE_ENV=production
+ENV DATA_PATH=/data
+
+EXPOSE 3000
+VOLUME ["/data"]
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3000/ || exit 1
+
+# Override linuxserver/ffmpeg entrypoint to run Node.js app
+ENTRYPOINT []
+CMD ["node", "index.js"]

@@ -1140,6 +1140,50 @@ function setupApiRoutes() {
         }
     });
 
+    // Clear completed/skipped items from transcode queue
+    router.post('/transcoder/clear', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM transcode_queue
+                WHERE status IN ('completed', 'skipped')
+            `);
+            res.json({ success: true, deleted: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear failed items from transcode queue
+    router.post('/transcoder/clear-failed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM transcode_queue
+                WHERE status = 'failed'
+            `);
+            res.json({ success: true, deleted: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Delete a specific transcode queue item
+    router.delete('/transcoder/:id', async (req, res) => {
+        try {
+            const job = await modules.db.get('SELECT status FROM transcode_queue WHERE id = ?', [req.params.id]);
+            if (!job) {
+                return res.status(404).json({ error: 'Job not found' });
+            }
+            // Don't allow deleting active job
+            if (job.status === 'transcoding') {
+                return res.status(400).json({ error: 'Cannot delete active job. Cancel it first.' });
+            }
+            await modules.db.run('DELETE FROM transcode_queue WHERE id = ?', [req.params.id]);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Downloads endpoints
     router.get('/downloads', async (req, res) => {
         try {
