@@ -70,6 +70,19 @@
                 </div>
             </div>
         </div>
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Transcoding</p>
+                    <p class="text-2xl font-bold text-white" id="stat-transcoding">0</p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4V2M17 4V2M7 20v2M17 20v2M4 7H2M4 17H2M20 7h2M20 17h2M7 11h10M7 15h6" />
+                    </svg>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Active Downloads -->
@@ -93,6 +106,33 @@
                 </div>
                 <p class="empty-state-title">No active downloads</p>
                 <p class="empty-state-text">Downloads will appear here when they start</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transcoding Queue -->
+    <div class="card mb-6" id="transcoding-section">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4V2M17 4V2M7 20v2M17 20v2M4 7H2M4 17H2M20 7h2M20 17h2M7 11h10M7 15h6" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Transcoding Queue</h2>
+                <span class="badge bg-purple-500/20 text-purple-400" id="transcoding-count">0</span>
+            </div>
+            <p class="text-sm text-gray-400">Converting videos for Plex compatibility</p>
+        </div>
+        <div id="transcoding-queue" class="divide-y divide-gray-800/50">
+            <div class="empty-state py-12">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4V2M17 4V2M7 20v2M17 20v2M4 7H2M4 17H2M20 7h2M20 17h2M7 11h10M7 15h6" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No transcoding jobs</p>
+                <p class="empty-state-text">Videos will be transcoded after download or from the watch folder</p>
             </div>
         </div>
     </div>
@@ -179,6 +219,7 @@
 
 <script>
     let downloads = [];
+    let transcodeJobs = [];
 
     function formatBytes(bytes, decimals = 1) {
         if (!bytes || bytes === 0) return '0 B';
@@ -213,6 +254,167 @@
             renderDownloads();
         } catch (err) {
             console.error('Failed to load downloads:', err);
+        }
+    }
+
+    async function loadTranscodeQueue() {
+        try {
+            const response = await fetch('/api/transcoder/queue');
+            transcodeJobs = await response.json();
+            renderTranscodeQueue();
+        } catch (err) {
+            console.error('Failed to load transcode queue:', err);
+        }
+    }
+
+    function renderTranscodeQueue() {
+        const container = document.getElementById('transcoding-queue');
+        const activeJobs = transcodeJobs.filter(j => j.status === 'transcoding' || j.status === 'pending');
+        const completedJobs = transcodeJobs.filter(j => j.status === 'completed' || j.status === 'skipped');
+        const failedJobs = transcodeJobs.filter(j => j.status === 'failed');
+
+        // Update stats
+        document.getElementById('stat-transcoding').textContent = activeJobs.length;
+        document.getElementById('transcoding-count').textContent = transcodeJobs.length;
+
+        // Show/hide section based on whether there are any jobs
+        const section = document.getElementById('transcoding-section');
+        if (transcodeJobs.length === 0) {
+            container.innerHTML = \`
+                <div class="empty-state py-12">
+                    <div class="empty-state-icon">
+                        <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 4V2M17 4V2M7 20v2M17 20v2M4 7H2M4 17H2M20 7h2M20 17h2M7 11h10M7 15h6" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">No transcoding jobs</p>
+                    <p class="empty-state-text">Videos will be transcoded after download or from the watch folder</p>
+                </div>
+            \`;
+            return;
+        }
+
+        let html = '';
+
+        // Active/pending jobs first
+        activeJobs.forEach(job => {
+            const isActive = job.status === 'transcoding';
+            html += \`
+                <div class="p-5 hover:bg-gray-800/30 transition-colors" data-id="\${job.id}">
+                    <div class="flex items-start gap-4">
+                        <div class="w-12 h-12 rounded-lg \${isActive ? 'bg-purple-500/20' : 'bg-gray-700'} flex items-center justify-center flex-shrink-0">
+                            \${isActive ? \`
+                                <svg class="w-6 h-6 text-purple-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                            \` : \`
+                                <svg class="w-6 h-6 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                            \`}
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <div class="flex items-start justify-between gap-4">
+                                <div>
+                                    <h3 class="font-semibold text-white truncate">\${job.filename}</h3>
+                                    <div class="flex items-center gap-2 mt-1">
+                                        <span class="text-sm text-gray-400">\${job.media_type || 'Video'}</span>
+                                        <span class="text-sm \${job.source === 'watch' ? 'text-purple-400' : 'text-primary-400'}">\${job.source === 'watch' ? 'Watch folder' : 'Download'}</span>
+                                    </div>
+                                </div>
+                                \${isActive ? \`
+                                    <button onclick="cancelTranscode(\${job.id})" class="btn btn-danger btn-sm flex-shrink-0">
+                                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        Cancel
+                                    </button>
+                                \` : ''}
+                            </div>
+                            \${isActive ? \`
+                                <div class="mt-4">
+                                    <div class="flex items-center justify-between text-sm mb-2">
+                                        <span class="text-gray-400">\${job.status === 'transcoding' ? 'Transcoding...' : 'Waiting...'}</span>
+                                        <span class="text-purple-400 font-medium">\${job.progress || 0}%</span>
+                                    </div>
+                                    <div class="progress-bar">
+                                        <div class="progress-bar-fill bg-purple-500" style="width: \${job.progress || 0}%"></div>
+                                    </div>
+                                </div>
+                            \` : \`
+                                <p class="text-sm text-gray-500 mt-2">Waiting in queue...</p>
+                            \`}
+                        </div>
+                    </div>
+                </div>
+            \`;
+        });
+
+        // Failed jobs
+        failedJobs.forEach(job => {
+            html += \`
+                <div class="p-4 hover:bg-gray-800/30 transition-colors" data-id="\${job.id}">
+                    <div class="flex items-center gap-4">
+                        <div class="w-8 h-8 rounded-lg bg-danger-500/20 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-medium text-white truncate">\${job.filename}</h3>
+                            <p class="text-sm text-danger-400 truncate">\${job.error_message || 'Transcode failed'}</p>
+                        </div>
+                        <button onclick="retryTranscode(\${job.id})" class="btn btn-secondary btn-sm">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Retry
+                        </button>
+                    </div>
+                </div>
+            \`;
+        });
+
+        // Recently completed (last 5)
+        completedJobs.slice(0, 5).forEach(job => {
+            html += \`
+                <div class="p-4 hover:bg-gray-800/30 transition-colors opacity-60" data-id="\${job.id}">
+                    <div class="flex items-center gap-4">
+                        <div class="w-8 h-8 rounded-lg bg-success-500/20 flex items-center justify-center flex-shrink-0">
+                            <svg class="w-4 h-4 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <h3 class="font-medium text-white truncate">\${job.filename}</h3>
+                            <p class="text-sm text-gray-400">\${job.status === 'skipped' ? 'Skipped (already compatible)' : 'Completed'}</p>
+                        </div>
+                    </div>
+                </div>
+            \`;
+        });
+
+        container.innerHTML = html;
+    }
+
+    async function cancelTranscode(id) {
+        if (!confirm('Cancel this transcode job?')) return;
+        try {
+            await fetch('/api/transcoder/cancel', { method: 'POST' });
+            loadTranscodeQueue();
+        } catch (err) {
+            console.error('Failed to cancel transcode:', err);
+        }
+    }
+
+    async function retryTranscode(id) {
+        try {
+            await fetch(\`/api/transcoder/\${id}/retry\`, { method: 'POST' });
+            loadTranscodeQueue();
+            if (window.showToast) showToast('Transcode job queued for retry', 'success');
+        } catch (err) {
+            console.error('Failed to retry transcode:', err);
         }
     }
 
@@ -566,9 +768,25 @@
         socket.on('download:removed', () => loadDownloads());
         socket.on('download:priority', () => loadDownloads());
 
+        // Transcode events
+        socket.on('transcode:queued', () => loadTranscodeQueue());
+        socket.on('transcode:start', () => loadTranscodeQueue());
+        socket.on('transcode:progress', (data) => {
+            const job = transcodeJobs.find(j => j.id === data.id);
+            if (job) {
+                job.progress = data.progress;
+                renderTranscodeQueue();
+            }
+        });
+        socket.on('transcode:complete', () => loadTranscodeQueue());
+        socket.on('transcode:failed', () => loadTranscodeQueue());
+        socket.on('transcode:skipped', () => loadTranscodeQueue());
+
         // Initial load
         loadDownloads();
+        loadTranscodeQueue();
         setInterval(loadDownloads, 10000);
+        setInterval(loadTranscodeQueue, 5000);
     });
 </script>
 ` }) %>

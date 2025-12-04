@@ -11,8 +11,10 @@ const defaults = {
 
     // Paths
     tempPath: '',
-    downloadPath: '',
-    recordingsPath: '',
+    downloadPath: '',        // Legacy/fallback path
+    movieDownloadPath: '',   // Path for movie downloads
+    seriesDownloadPath: '',  // Path for series downloads
+    recordingsPath: '',      // Path for live TV recordings
 
     // TMDB
     tmdbApiKey: '',
@@ -44,6 +46,15 @@ const defaults = {
     // Scheduler settings
     epgSyncHour: 4,  // Hour of day to sync EPG (0-23, default 4am)
     sourceSyncIntervalHours: 24,  // How often to refresh IPTV sources
+
+    // Transcoding settings
+    transcodeEnabled: true,           // Enable transcoding after download
+    transcodeCodec: 'h264',           // 'h264' or 'hevc'
+    transcodeHwAccel: 'auto',         // 'auto', 'videotoolbox', 'nvenc', 'amf', 'vaapi', 'software'
+    transcodeSkipCompatible: true,    // Skip if already H.264/H.265 in MP4
+    transcodeWatchEnabled: false,     // Enable watch folder for manual transcoding
+    transcodeWatchFolder: '',         // Input folder to watch for files to transcode
+    transcodeOutputFolder: '',        // Output folder for transcoded files
 
     // User agents for rotation
     userAgents: [
@@ -90,7 +101,11 @@ module.exports = {
         // Set default paths based on data directory
         defaults.tempPath = path.join(PATHS.data, 'temp');
         defaults.downloadPath = path.join(PATHS.data, 'downloads');
+        defaults.movieDownloadPath = path.join(PATHS.data, 'downloads', 'movies');
+        defaults.seriesDownloadPath = path.join(PATHS.data, 'downloads', 'series');
         defaults.recordingsPath = path.join(PATHS.data, 'recordings');
+        defaults.transcodeWatchFolder = path.join(PATHS.data, 'transcode-input');
+        defaults.transcodeOutputFolder = path.join(PATHS.data, 'transcode-output');
 
         load();
     },

@@ -27,9 +27,23 @@
                     <label class="block text-sm text-dark-400 mb-1">Temp Download Folder</label>
                     <input type="text" id="setting-tempPath" class="input" placeholder="/path/to/temp" />
                 </div>
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Final Download Folder</label>
-                    <input type="text" id="setting-downloadPath" class="input" placeholder="/path/to/downloads" />
+                <div class="pt-3 border-t border-dark-700">
+                    <label class="block text-sm text-white font-medium mb-3">Download Destinations</label>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Movies Folder</label>
+                            <input type="text" id="setting-movieDownloadPath" class="input" placeholder="smb://server/Movies or /path/to/movies" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Series Folder</label>
+                            <input type="text" id="setting-seriesDownloadPath" class="input" placeholder="smb://server/Shows or /path/to/series" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Live TV Recordings Folder</label>
+                            <input type="text" id="setting-recordingsPath" class="input" placeholder="smb://server/TV or /path/to/recordings" />
+                        </div>
+                    </div>
+                    <p class="text-xs text-dark-500 mt-2">Supports SMB paths (smb://server/share) and local paths</p>
                 </div>
             </div>
         </div>
@@ -157,6 +171,91 @@
                     <div>
                         <label class="block text-sm text-dark-400 mb-1">Max Delay (ms)</label>
                         <input type="number" id="setting-downloadDelayMax" class="input" min="0" value="5000" />
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Video Transcoding Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Video Transcoding</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Enable Transcoding</p>
+                        <p class="text-xs text-dark-400">Convert downloads to MP4 for Plex compatibility</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-transcodeEnabled" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                </div>
+
+                <div id="transcode-options" class="space-y-4">
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm text-dark-400 mb-1">Output Codec</label>
+                            <select id="setting-transcodeCodec" class="select">
+                                <option value="h264">H.264 (Best compatibility)</option>
+                                <option value="hevc">H.265 / HEVC (Smaller files)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm text-dark-400 mb-1">Hardware Acceleration</label>
+                            <select id="setting-transcodeHwAccel" class="select">
+                                <option value="auto">Auto-detect</option>
+                                <option value="videotoolbox">VideoToolbox (Apple)</option>
+                                <option value="nvenc">NVENC (NVIDIA)</option>
+                                <option value="amf">AMF (AMD)</option>
+                                <option value="vaapi">VAAPI (Linux)</option>
+                                <option value="software">Software (CPU)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" id="setting-transcodeSkipCompatible" class="w-4 h-4 text-primary-500 bg-dark-700 border-dark-600 rounded focus:ring-primary-500" />
+                        <label for="setting-transcodeSkipCompatible" class="text-sm text-white">Skip already compatible files (H.264/H.265 in MP4)</label>
+                    </div>
+
+                    <!-- Hardware Status Display -->
+                    <div id="hw-accel-status" class="p-3 bg-dark-800 rounded-lg text-sm">
+                        <span class="text-dark-400">Detecting hardware acceleration...</span>
+                    </div>
+
+                    <!-- Transcoder Status -->
+                    <div id="transcoder-status" class="hidden p-3 bg-dark-800 rounded-lg">
+                        <div class="flex items-center justify-between mb-2">
+                            <span class="text-sm text-white font-medium">Transcoding in progress</span>
+                            <button onclick="cancelTranscode()" class="text-xs text-red-400 hover:text-red-300">Cancel</button>
+                        </div>
+                        <div class="text-xs text-dark-300 mb-2" id="transcode-current-title">...</div>
+                        <div class="w-full bg-dark-700 rounded-full h-2">
+                            <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="transcode-progress-bar" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Watch Folder Section -->
+                    <div class="pt-4 border-t border-dark-700">
+                        <div class="flex items-center justify-between mb-3">
+                            <div>
+                                <p class="text-sm text-white font-medium">Watch Folder</p>
+                                <p class="text-xs text-dark-400">Drop files here to transcode and auto-route to movies/series folders</p>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="setting-transcodeWatchEnabled" class="sr-only peer" />
+                                <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                            </label>
+                        </div>
+                        <div id="watch-folder-options">
+                            <div>
+                                <label class="block text-xs text-dark-400 mb-1">Watch Folder Path</label>
+                                <input type="text" id="setting-transcodeWatchFolder" class="input" placeholder="/path/to/transcode-input" />
+                                <p class="text-xs text-dark-500 mt-1">Series (S01E01) → Series folder | Movies → Movies folder</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -355,7 +454,8 @@
 </div>
 
 <script>
-    const settingKeys = ['tempPath', 'downloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour'];
+    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder'];
+    const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled'];
 
     // Common language codes
     const LANGUAGES = [
@@ -454,6 +554,38 @@
         loadEpgCountries();
         loadSchedulerStatus();
         checkFfmpeg();
+        loadTranscoderHwStatus();
+
+        // Transcoder socket events
+        socket.on('transcode:start', (data) => {
+            document.getElementById('transcoder-status').classList.remove('hidden');
+            document.getElementById('transcode-current-title').textContent = data.title || 'Processing...';
+            document.getElementById('transcode-progress-bar').style.width = '0%';
+        });
+
+        socket.on('transcode:progress', (data) => {
+            document.getElementById('transcoder-status').classList.remove('hidden');
+            document.getElementById('transcode-current-title').textContent = data.title || 'Processing...';
+            document.getElementById('transcode-progress-bar').style.width = (data.progress || 0) + '%';
+        });
+
+        socket.on('transcode:complete', (data) => {
+            document.getElementById('transcoder-status').classList.add('hidden');
+            if (window.showToast) showToast('Transcoding complete: ' + data.title, 'success');
+        });
+
+        socket.on('transcode:failed', (data) => {
+            document.getElementById('transcoder-status').classList.add('hidden');
+            if (window.showToast) showToast('Transcoding failed: ' + data.error, 'error');
+        });
+
+        socket.on('transcode:skipped', (data) => {
+            if (window.showToast) showToast('File already compatible: ' + data.title, 'info');
+        });
+
+        // Toggle transcode options visibility on checkbox change
+        document.getElementById('setting-transcodeEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
+        document.getElementById('setting-transcodeWatchEnabled').addEventListener('change', updateWatchFolderOptionsVisibility);
     });
 
     // Render language badges
@@ -624,6 +756,61 @@
         }
     }
 
+    async function loadTranscoderHwStatus() {
+        try {
+            const response = await fetch('/api/transcoder/hw-status');
+            const result = await response.json();
+            const container = document.getElementById('hw-accel-status');
+            if (!container) return;
+
+            const typeLabels = {
+                'videotoolbox': 'VideoToolbox (Apple Silicon)',
+                'nvenc': 'NVENC (NVIDIA GPU)',
+                'amf': 'AMF (AMD GPU)',
+                'vaapi': 'VAAPI (Linux)',
+                'software': 'Software (CPU)',
+                'unavailable': 'Not Available'
+            };
+
+            const typeName = typeLabels[result.type] || result.type;
+            const isHwAccel = result.available && result.type !== 'software';
+
+            let html = '<div class="flex items-center gap-2">';
+            html += '<span class="w-2 h-2 rounded-full ' + (isHwAccel ? 'bg-green-500' : 'bg-yellow-500') + '"></span>';
+            html += '<span class="text-white font-medium">' + typeName + '</span>';
+            html += '</div>';
+
+            if (result.encoders) {
+                html += '<div class="text-xs text-dark-400 mt-1">';
+                html += 'H.264: ' + (result.encoders.h264 || 'N/A');
+                if (result.encoders.hevc) {
+                    html += ' | HEVC: ' + result.encoders.hevc;
+                }
+                html += '</div>';
+            }
+
+            container.innerHTML = html;
+        } catch (err) {
+            console.error('Failed to load transcoder HW status:', err);
+            const container = document.getElementById('hw-accel-status');
+            if (container) {
+                container.innerHTML = '<span class="text-dark-400">Could not detect hardware acceleration</span>';
+            }
+        }
+    }
+
+    async function cancelTranscode() {
+        if (!confirm('Cancel the current transcoding job?')) return;
+        try {
+            await fetch('/api/transcoder/cancel', { method: 'POST' });
+            document.getElementById('transcoder-status').classList.add('hidden');
+            if (window.showToast) showToast('Transcoding cancelled', 'info');
+        } catch (err) {
+            console.error('Failed to cancel transcode:', err);
+            if (window.showToast) showToast('Failed to cancel: ' + err.message, 'error');
+        }
+    }
+
     async function loadSettings() {
         try {
             const response = await fetch('/api/settings');
@@ -631,6 +818,11 @@
             settingKeys.forEach(key => {
                 const el = document.getElementById('setting-' + key);
                 if (el && settings[key] !== undefined) el.value = settings[key];
+            });
+            // Handle boolean/checkbox settings
+            booleanSettingKeys.forEach(key => {
+                const el = document.getElementById('setting-' + key);
+                if (el && settings[key] !== undefined) el.checked = settings[key];
             });
             document.getElementById('webhook-url').textContent = window.location.origin + '/api/webhooks/overseerr';
 
@@ -641,8 +833,30 @@
             // Load EPG countries
             selectedEpgCountries = settings.epgCountries || ['Germany'];
             renderCountryBadges();
+
+            // Update transcode options visibility
+            updateTranscodeOptionsVisibility();
+            updateWatchFolderOptionsVisibility();
         } catch (err) {
             console.error('Failed to load settings:', err);
+        }
+    }
+
+    function updateTranscodeOptionsVisibility() {
+        const enabled = document.getElementById('setting-transcodeEnabled').checked;
+        const optionsEl = document.getElementById('transcode-options');
+        if (optionsEl) {
+            optionsEl.style.opacity = enabled ? '1' : '0.5';
+            optionsEl.style.pointerEvents = enabled ? 'auto' : 'none';
+        }
+    }
+
+    function updateWatchFolderOptionsVisibility() {
+        const enabled = document.getElementById('setting-transcodeWatchEnabled').checked;
+        const optionsEl = document.getElementById('watch-folder-options');
+        if (optionsEl) {
+            optionsEl.style.opacity = enabled ? '1' : '0.5';
+            optionsEl.style.pointerEvents = enabled ? 'auto' : 'none';
         }
     }
 
@@ -652,6 +866,13 @@
             const el = document.getElementById('setting-' + key);
             if (el) {
                 settings[key] = el.type === 'number' ? parseInt(el.value) : el.value;
+            }
+        });
+        // Handle boolean/checkbox settings
+        booleanSettingKeys.forEach(key => {
+            const el = document.getElementById('setting-' + key);
+            if (el) {
+                settings[key] = el.checked;
             }
         });
 
@@ -690,19 +911,27 @@
                 return;
             }
             container.innerHTML = sources.map(s => \`
-                <div class="p-4" id="source-row-\${s.id}">
-                    <div class="flex items-center justify-between">
-                        <div>
+                <div class="p-4 border-b border-dark-700" id="source-row-\${s.id}">
+                    <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0 flex-1">
                             <h3 class="font-medium text-white">\${s.name}</h3>
                             <p class="text-sm text-dark-400">\${s.type} • \${s.active ? 'Active' : 'Disabled'}</p>
                             <p class="text-xs text-dark-500">\${s.last_sync ? 'Last sync: ' + new Date(s.last_sync).toLocaleString() : 'Never synced'}</p>
                         </div>
-                        <div class="flex gap-2" id="source-buttons-\${s.id}">
+                        <div class="flex gap-2 flex-shrink-0" id="source-buttons-\${s.id}">
+                            <button onclick="enrichSource(\${s.id})" class="btn btn-secondary btn-sm" id="enrich-btn-\${s.id}" title="Enrich with TMDB posters">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                            </button>
                             <button onclick="syncSource(\${s.id})" class="btn btn-secondary btn-sm" id="sync-btn-\${s.id}">Sync</button>
                             <button onclick="editSource(\${s.id})" class="btn btn-secondary btn-sm">Edit</button>
                             <button onclick="deleteSource(\${s.id})" class="btn btn-danger btn-sm">Delete</button>
                         </div>
                     </div>
+                    <!-- Stats row -->
+                    <div class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-dark-700 text-xs" id="source-stats-\${s.id}">
+                        <span class="text-dark-500">Loading stats...</span>
+                    </div>
+                    <!-- Sync progress bar -->
                     <div id="sync-progress-\${s.id}" class="hidden mt-3">
                         <div class="flex items-center gap-2 mb-2">
                             <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
@@ -712,8 +941,31 @@
                             <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="sync-bar-\${s.id}" style="width: 0%"></div>
                         </div>
                     </div>
+                    <!-- Download progress bar -->
+                    <div id="download-progress-\${s.id}" class="hidden mt-3">
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-xs text-dark-400">Downloading:</span>
+                            <span class="text-xs text-dark-300" id="download-title-\${s.id}">...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-1.5">
+                            <div class="bg-green-500 h-1.5 rounded-full transition-all duration-300" id="download-bar-\${s.id}" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <!-- Enrichment progress bar -->
+                    <div id="enrich-progress-\${s.id}" class="hidden mt-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <div class="animate-spin w-3 h-3 border-2 border-purple-500 border-t-transparent rounded-full"></div>
+                            <span class="text-xs text-dark-300" id="enrich-status-\${s.id}">Enriching...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-1.5">
+                            <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="enrich-bar-\${s.id}" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
             \`).join('');
+
+            // Load stats for each source
+            sources.forEach(s => loadSourceStats(s.id));
 
         } catch (err) {
             console.error('Failed to load sources:', err);
@@ -1000,5 +1252,114 @@
             if (btn) btn.disabled = false;
         }
     }
+
+    // Per-source stats and enrichment
+    async function loadSourceStats(sourceId) {
+        try {
+            const response = await fetch('/api/sources/' + sourceId + '/stats');
+            const stats = await response.json();
+            const el = document.getElementById('source-stats-' + sourceId);
+            if (el) {
+                el.innerHTML =
+                    '<div><span class="text-dark-400">Movies</span><div class="text-white text-sm font-medium">' + stats.movies.toLocaleString() + '</div></div>' +
+                    '<div><span class="text-dark-400">Series</span><div class="text-white text-sm font-medium">' + stats.series.toLocaleString() + '</div></div>' +
+                    '<div><span class="text-dark-400">Downloads</span><div class="text-white text-sm font-medium">' + stats.downloaded.toLocaleString() + '</div></div>' +
+                    '<div><span class="text-dark-400">Enriched</span><div class="text-white text-sm font-medium">' + stats.enriched.toLocaleString() + ' / ' + stats.total.toLocaleString() + '</div></div>';
+            }
+        } catch (err) {
+            console.error('Failed to load source stats:', err);
+            const el = document.getElementById('source-stats-' + sourceId);
+            if (el) el.innerHTML = '<span class="text-dark-500 col-span-4">Failed to load stats</span>';
+        }
+    }
+
+    async function enrichSource(sourceId) {
+        try {
+            const btn = document.getElementById('enrich-btn-' + sourceId);
+            if (btn) btn.disabled = true;
+            const response = await fetch('/api/sources/' + sourceId + '/enrich', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Unknown error');
+            }
+        } catch (err) {
+            console.error('Failed to start source enrichment:', err);
+            if (window.showToast) showToast('Failed to start enrichment: ' + err.message, 'error');
+            const btn = document.getElementById('enrich-btn-' + sourceId);
+            if (btn) btn.disabled = false;
+        }
+    }
+
+    // Socket listeners for per-source events
+    document.addEventListener('DOMContentLoaded', () => {
+        // Per-source sync progress
+        socket.on('sync:source:progress', (data) => {
+            const progressEl = document.getElementById('sync-progress-' + data.sourceId);
+            const statusEl = document.getElementById('sync-status-' + data.sourceId);
+            const barEl = document.getElementById('sync-bar-' + data.sourceId);
+            if (progressEl) progressEl.classList.remove('hidden');
+            if (statusEl) statusEl.textContent = data.message || ('Syncing... ' + data.current + '/' + data.total);
+            if (barEl && data.total) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+        });
+
+        socket.on('sync:source:complete', (data) => {
+            const progressEl = document.getElementById('sync-progress-' + data.sourceId);
+            const btnEl = document.getElementById('sync-btn-' + data.sourceId);
+            if (progressEl) progressEl.classList.add('hidden');
+            if (btnEl) btnEl.disabled = false;
+            loadSourceStats(data.sourceId);
+            loadSources();
+        });
+
+        // Per-source enrichment progress
+        socket.on('enrich:source:start', (data) => {
+            const progressEl = document.getElementById('enrich-progress-' + data.sourceId);
+            const statusEl = document.getElementById('enrich-status-' + data.sourceId);
+            const barEl = document.getElementById('enrich-bar-' + data.sourceId);
+            if (progressEl) progressEl.classList.remove('hidden');
+            if (statusEl) statusEl.textContent = 'Starting enrichment... (0/' + data.total + ')';
+            if (barEl) barEl.style.width = '0%';
+        });
+
+        socket.on('enrich:source:progress', (data) => {
+            const statusEl = document.getElementById('enrich-status-' + data.sourceId);
+            const barEl = document.getElementById('enrich-bar-' + data.sourceId);
+            if (statusEl) statusEl.textContent = data.current + '/' + data.total + ' (' + data.success + ' enriched, ' + data.failed + ' not found)';
+            if (barEl && data.total) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+        });
+
+        socket.on('enrich:source:complete', (data) => {
+            const progressEl = document.getElementById('enrich-progress-' + data.sourceId);
+            const statusEl = document.getElementById('enrich-status-' + data.sourceId);
+            const btnEl = document.getElementById('enrich-btn-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Complete: ' + data.success + ' enriched, ' + data.failed + ' not found';
+            if (btnEl) btnEl.disabled = false;
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+                loadSourceStats(data.sourceId);
+            }, 3000);
+        });
+
+        // Per-source download progress
+        socket.on('download:source:progress', (data) => {
+            const progressEl = document.getElementById('download-progress-' + data.sourceId);
+            const titleEl = document.getElementById('download-title-' + data.sourceId);
+            const barEl = document.getElementById('download-bar-' + data.sourceId);
+            if (progressEl) progressEl.classList.remove('hidden');
+            if (titleEl) titleEl.textContent = data.title || 'Downloading...';
+            if (barEl) barEl.style.width = (data.percent || 0) + '%';
+        });
+
+        socket.on('download:source:complete', (data) => {
+            const progressEl = document.getElementById('download-progress-' + data.sourceId);
+            if (progressEl) {
+                setTimeout(() => progressEl.classList.add('hidden'), 2000);
+            }
+            loadSourceStats(data.sourceId);
+        });
+    });
 </script>
 ` }) %>

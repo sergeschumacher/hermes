@@ -85,6 +85,123 @@ function getCacheFilename(url) {
     return hash + ext;
 }
 
+// Enrich media for a specific source (uses cache first)
+async function enrichSourceMedia(sourceId, modules) {
+    const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
+    const db = modules.db;
+    const tmdb = modules.tmdb;
+
+    // Get items that need enrichment for this source
+    const items = await db.all(`
+        SELECT id, title, media_type, year, poster
+        FROM media
+        WHERE source_id = ?
+        AND tmdb_id IS NULL
+        AND (enrichment_attempted IS NULL OR enrichment_attempted < datetime('now', '-7 days'))
+        AND media_type IN ('movie', 'series')
+        ORDER BY created_at DESC
+        LIMIT 500
+    `, [sourceId]);
+
+    if (items.length === 0) {
+        logger?.info('enrich', `No items to enrich for source ${sourceId}`);
+        io?.emit('enrich:source:complete', { sourceId, success: 0, failed: 0, total: 0 });
+        return { success: 0, failed: 0, total: 0 };
+    }
+
+    logger?.info('enrich', `Starting enrichment for source ${sourceId}: ${items.length} items`);
+    io?.emit('enrich:source:start', { sourceId, total: items.length });
+
+    let success = 0;
+    let failed = 0;
+
+    for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+
+        try {
+            // Mark as attempted
+            await db.run('UPDATE media SET enrichment_attempted = CURRENT_TIMESTAMP WHERE id = ?', [item.id]);
+
+            // Extract clean title
+            const extracted = tmdb.extractCleanTitle(item.title);
+            if (!extracted || extracted.skip || !extracted.title || extracted.title.length < 2) {
+                failed++;
+                continue;
+            }
+
+            const { title: cleanTitle, year: extractedYear } = extracted;
+            const year = item.year || extractedYear;
+
+            // Search TMDB (cache is checked automatically in searchMovie/searchTv)
+            let searchResults;
+            if (item.media_type === 'movie') {
+                searchResults = await tmdb.searchMovie(cleanTitle, year);
+            } else {
+                searchResults = await tmdb.searchTv(cleanTitle, year);
+            }
+
+            if (searchResults.length > 0) {
+                const match = searchResults[0];
+                const posterPath = match.poster_path
+                    ? `${TMDB_IMAGE_BASE}/w500${match.poster_path}`
+                    : null;
+                const backdropPath = match.backdrop_path
+                    ? `${TMDB_IMAGE_BASE}/w1280${match.backdrop_path}`
+                    : null;
+
+                if (posterPath) {
+                    await db.run(`
+                        UPDATE media SET
+                            poster = ?,
+                            backdrop = COALESCE(?, backdrop),
+                            tmdb_id = ?,
+                            plot = COALESCE(?, plot),
+                            rating = COALESCE(?, rating),
+                            year = COALESCE(?, year),
+                            last_updated = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    `, [
+                        posterPath, backdropPath, match.id,
+                        match.overview, match.vote_average,
+                        match.release_date?.substring(0, 4) || match.first_air_date?.substring(0, 4),
+                        item.id
+                    ]);
+                    success++;
+                } else {
+                    failed++;
+                }
+            } else {
+                failed++;
+            }
+
+            // Rate limiting
+            await new Promise(r => setTimeout(r, 250));
+
+            // Progress update every 10 items
+            if ((i + 1) % 10 === 0 || i === items.length - 1) {
+                io?.emit('enrich:source:progress', {
+                    sourceId,
+                    current: i + 1,
+                    total: items.length,
+                    success,
+                    failed,
+                    percent: Math.round(((i + 1) / items.length) * 100)
+                });
+            }
+
+        } catch (err) {
+            failed++;
+            logger?.warn('enrich', `Failed to enrich "${item.title}": ${err.message}`);
+            await new Promise(r => setTimeout(r, 1000));
+        }
+    }
+
+    logger?.info('enrich', `Enrichment complete for source ${sourceId}: ${success} success, ${failed} failed`);
+    io?.emit('enrich:source:complete', { sourceId, success, failed, total: items.length });
+
+    return { success, failed, total: items.length };
+}
+
 function setupRoutes() {
     // Static files
     app.use('/static', express.static(PATHS.static));
@@ -517,10 +634,10 @@ function setupApiRoutes() {
 
     router.post('/sources', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier } = req.body;
+            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config } = req.body;
             const result = await modules.db.run(
-                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5]
+                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null]
             );
             res.json({ id: result.lastID, message: 'Source added' });
         } catch (err) {
@@ -530,10 +647,10 @@ function setupApiRoutes() {
 
     router.put('/sources/:id', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier } = req.body;
+            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config } = req.body;
             await modules.db.run(
-                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=? WHERE id=?',
-                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, req.params.id]
+                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=?, m3u_parser_config=? WHERE id=?',
+                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, req.params.id]
             );
             res.json({ message: 'Source updated' });
         } catch (err) {
@@ -545,6 +662,17 @@ function setupApiRoutes() {
         try {
             await modules.db.run('DELETE FROM sources WHERE id = ?', [req.params.id]);
             res.json({ message: 'Source deleted' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/sources/:id/toggle', async (req, res) => {
+        try {
+            const { active } = req.body;
+            await modules.db.run('UPDATE sources SET active = ? WHERE id = ?', [active ? 1 : 0, req.params.id]);
+            logger?.info('sources', `Source ${req.params.id} ${active ? 'enabled' : 'disabled'}`);
+            res.json({ success: true, active: active ? 1 : 0 });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -591,6 +719,115 @@ function setupApiRoutes() {
                 res.json(modules.iptv.getAllSyncStatus());
             } else {
                 res.json({});
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get per-source stats (downloads and enrichment)
+    router.get('/sources/:id/stats', async (req, res) => {
+        try {
+            const sourceId = req.params.id;
+            const db = modules.db;
+
+            // Get media type counts for this source
+            const mediaCounts = await db.get(`
+                SELECT
+                    SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END) as movies,
+                    SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END) as series,
+                    COUNT(*) as total
+                FROM media
+                WHERE source_id = ?
+            `, [sourceId]);
+
+            // Get download stats for this source
+            const downloadStats = await db.get(`
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN d.status = 'completed' THEN 1 ELSE 0 END) as completed
+                FROM downloads d
+                JOIN media m ON d.media_id = m.id
+                WHERE m.source_id = ?
+            `, [sourceId]);
+
+            // Get enrichment stats for this source
+            const enrichmentStats = await db.get(`
+                SELECT
+                    COUNT(*) as total,
+                    SUM(CASE WHEN tmdb_id IS NOT NULL THEN 1 ELSE 0 END) as enriched
+                FROM media
+                WHERE source_id = ? AND media_type IN ('movie', 'series')
+            `, [sourceId]);
+
+            res.json({
+                movies: mediaCounts?.movies || 0,
+                series: mediaCounts?.series || 0,
+                total: mediaCounts?.total || 0,
+                downloaded: downloadStats?.completed || 0,
+                enriched: enrichmentStats?.enriched || 0
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Enrich media for a specific source
+    router.post('/sources/:id/enrich', async (req, res) => {
+        try {
+            const sourceId = parseInt(req.params.id);
+            if (!modules.tmdb) {
+                return res.status(400).json({ error: 'TMDB module not loaded' });
+            }
+
+            // Start enrichment in background for this source only
+            enrichSourceMedia(sourceId, modules).catch(err => {
+                logger.error('api', `Source enrichment failed: ${err.message}`);
+            });
+
+            res.json({ message: 'Enrichment started for source', sourceId });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // M3U Parser configuration endpoints
+    router.get('/sources/parser-config/default', async (req, res) => {
+        try {
+            if (modules.iptv && modules.iptv.getDefaultParserConfig) {
+                res.json(modules.iptv.getDefaultParserConfig());
+            } else {
+                res.status(500).json({ error: 'IPTV module not loaded' });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/sources/:id/parser-preview', async (req, res) => {
+        try {
+            const source = await modules.db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+            if (source.type !== 'm3u') return res.status(400).json({ error: 'Parser preview only works for M3U sources' });
+
+            const { parserConfig } = req.body;
+
+            // Get sample M3U content from history
+            const history = await modules.db.get(
+                'SELECT content FROM m3u_history WHERE source_id = ? ORDER BY fetched_at DESC LIMIT 1',
+                [source.id]
+            );
+
+            if (!history || !history.content) {
+                return res.status(400).json({ error: 'No M3U content available. Please sync the source first.' });
+            }
+
+            // Preview parsing with provided config
+            if (modules.iptv && modules.iptv.previewM3UParser) {
+                const results = modules.iptv.previewM3UParser(history.content, parserConfig);
+                res.json({ results, sampleCount: results.length });
+            } else {
+                res.status(500).json({ error: 'IPTV module not loaded' });
             }
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -823,22 +1060,109 @@ function setupApiRoutes() {
         }
     });
 
+    // Transcoder endpoints
+    router.get('/transcoder/status', async (req, res) => {
+        try {
+            if (!modules.transcoder) return res.json({ available: false });
+            const status = modules.transcoder.getStatus();
+            const queueCount = await modules.db.get(
+                'SELECT COUNT(*) as count FROM transcode_queue WHERE status = ?',
+                ['pending']
+            );
+            res.json({
+                available: true,
+                ...status,
+                queueCount: queueCount?.count || 0
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.get('/transcoder/hw-status', async (req, res) => {
+        try {
+            if (!modules.transcoder) {
+                return res.json({ available: false, type: 'unavailable', encoders: {} });
+            }
+            const hwStatus = await modules.transcoder.detectHardwareAcceleration();
+            res.json({
+                available: hwStatus.type !== 'software' && hwStatus.type !== 'unavailable',
+                type: hwStatus.type,
+                encoders: hwStatus.encoders
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.get('/transcoder/queue', async (req, res) => {
+        try {
+            const queue = await modules.db.all(`
+                SELECT tq.*,
+                       COALESCE(m.title, tq.filename) as title,
+                       m.poster
+                FROM transcode_queue tq
+                LEFT JOIN downloads d ON tq.download_id = d.id
+                LEFT JOIN media m ON d.media_id = m.id
+                ORDER BY
+                    CASE tq.status
+                        WHEN 'transcoding' THEN 1
+                        WHEN 'pending' THEN 2
+                        WHEN 'failed' THEN 3
+                        ELSE 4
+                    END,
+                    tq.created_at DESC
+                LIMIT 50
+            `);
+            res.json(queue);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/transcoder/:id/retry', async (req, res) => {
+        try {
+            if (!modules.transcoder) return res.status(500).json({ error: 'Transcoder not available' });
+            await modules.transcoder.retryJob(parseInt(req.params.id));
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/transcoder/cancel', async (req, res) => {
+        try {
+            if (!modules.transcoder) return res.status(500).json({ error: 'Transcoder not available' });
+            await modules.transcoder.cancelActive();
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Downloads endpoints
     router.get('/downloads', async (req, res) => {
         try {
+            // Auto-clean orphaned downloads (where media no longer exists)
+            await modules.db.run(`
+                DELETE FROM downloads
+                WHERE media_id NOT IN (SELECT id FROM media)
+            `);
+
             const downloads = await modules.db.all(`
                 SELECT d.*, m.title, m.poster, m.media_type, e.title as episode_title,
                        e.season as ep_season, e.episode as ep_episode
                 FROM downloads d
-                LEFT JOIN media m ON d.media_id = m.id
+                INNER JOIN media m ON d.media_id = m.id
                 LEFT JOIN episodes e ON d.episode_id = e.id
                 ORDER BY
                     CASE d.status
                         WHEN 'downloading' THEN 1
-                        WHEN 'queued' THEN 2
-                        WHEN 'completed' THEN 3
-                        WHEN 'failed' THEN 4
-                        WHEN 'cancelled' THEN 5
+                        WHEN 'transcoding' THEN 2
+                        WHEN 'queued' THEN 3
+                        WHEN 'completed' THEN 4
+                        WHEN 'failed' THEN 5
+                        WHEN 'cancelled' THEN 6
                     END,
                     d.priority DESC,
                     d.created_at DESC
@@ -851,7 +1175,16 @@ function setupApiRoutes() {
 
     router.post('/downloads', async (req, res) => {
         try {
-            const { media_id, episode_id, priority } = req.body;
+            let { media_id, episode_id, priority } = req.body;
+
+            // If episode_id is provided, ensure media_id is correct (get it from the episode)
+            if (episode_id) {
+                const episode = await modules.db.get('SELECT media_id FROM episodes WHERE id = ?', [episode_id]);
+                if (episode) {
+                    media_id = episode.media_id;
+                }
+            }
+
             if (modules.download) {
                 const result = await modules.download.queue(media_id, episode_id || null, priority || 50);
                 res.json(result);
@@ -1082,15 +1415,17 @@ function setupApiRoutes() {
     });
 
     // TMDB enrichment endpoint
+    // continuous=true will process ALL items without needing multiple clicks
     router.post('/enrich', async (req, res) => {
         try {
-            const { type, limit } = req.body;
+            const { type, limit, continuous } = req.body;
             if (modules.tmdb) {
-                // Run in background
-                modules.tmdb.batchEnrichPosters(type || null, limit || 500).catch(err => {
+                // Run in background with continuous mode enabled by default
+                const isContinuous = continuous !== false; // Default to true
+                modules.tmdb.batchEnrichPosters(type || null, limit || 500, isContinuous).catch(err => {
                     logger.error('api', `Enrichment failed: ${err.message}`);
                 });
-                res.json({ message: 'Enrichment started' });
+                res.json({ message: 'Enrichment started', continuous: isContinuous });
             } else {
                 res.status(400).json({ error: 'TMDB module not loaded' });
             }
@@ -1140,13 +1475,24 @@ function setupApiRoutes() {
         try {
             const db = modules.db;
             const stats = {
+                // Items that haven't been attempted yet (delta - new items)
                 needsEnrichment: (await db.get(`
                     SELECT COUNT(*) as c FROM media
-                    WHERE poster IS NULL OR poster LIKE '%wikipedia%' OR poster LIKE '%stalker_portal%' OR poster LIKE '%icon-tmdb%'
+                    WHERE tmdb_id IS NULL
+                    AND enrichment_attempted IS NULL
+                    AND media_type IN ('movie', 'series')
                 `))?.c || 0,
+                // Items successfully enriched with TMDB
                 enriched: (await db.get(`
-                    SELECT COUNT(*) as c FROM media WHERE poster LIKE '%image.tmdb.org%'
-                `))?.c || 0
+                    SELECT COUNT(*) as c FROM media WHERE tmdb_id IS NOT NULL
+                `))?.c || 0,
+                // Items that were attempted but failed (can retry after 7 days)
+                attempted: (await db.get(`
+                    SELECT COUNT(*) as c FROM media
+                    WHERE tmdb_id IS NULL AND enrichment_attempted IS NOT NULL
+                `))?.c || 0,
+                // Total media items
+                total: (await db.get(`SELECT COUNT(*) as c FROM media WHERE media_type IN ('movie', 'series')`)?.c || 0)
             };
             res.json(stats);
         } catch (err) {
@@ -1243,7 +1589,7 @@ function setupApiRoutes() {
                     show_name,
                     COUNT(*) as episode_count,
                     COUNT(DISTINCT season_number) as season_count,
-                    GROUP_CONCAT(DISTINCT show_language) as languages,
+                    GROUP_CONCAT(DISTINCT COALESCE(show_language, language)) as languages,
                     MAX(poster) as poster,
                     MAX(rating) as rating,
                     MAX(year) as year,
@@ -1271,8 +1617,9 @@ function setupApiRoutes() {
             }
 
             if (language) {
-                sql += ' AND show_language = ?';
-                params.push(language);
+                // Check both show_language (from episodes) and language (from M3U sources)
+                sql += ' AND (show_language = ? OR (show_language IS NULL AND language = ?))';
+                params.push(language, language);
             }
 
             if (source) {
@@ -1339,8 +1686,8 @@ function setupApiRoutes() {
             let totalEpisodeCount = 0;
 
             for (const series of seriesEntries) {
-                // Extract language from series entry
-                const lang = series.show_language || 'Unknown';
+                // Extract language from series entry (M3U uses 'language', Xtream uses 'show_language')
+                const lang = series.show_language || series.language || 'Unknown';
                 if (!languageGroups[lang]) {
                     languageGroups[lang] = { seasons: {} };
                 }
@@ -1772,13 +2119,21 @@ function setupRadarrApi() {
         ]);
     });
 
-    // Root folders
+    // Root folders - returns both movie and series paths for Radarr/Sonarr compatibility
     router.get('/rootfolder', (req, res) => {
-        const downloadPath = settings.get('downloadPath') || '/downloads';
+        const moviePath = settings.get('movieDownloadPath') || settings.get('downloadPath') || '/downloads/movies';
+        const seriesPath = settings.get('seriesDownloadPath') || settings.get('downloadPath') || '/downloads/series';
         res.json([
             {
                 id: 1,
-                path: path.join(downloadPath, 'movies'),
+                path: moviePath,
+                accessible: true,
+                freeSpace: 100000000000,
+                unmappedFolders: []
+            },
+            {
+                id: 2,
+                path: seriesPath,
                 accessible: true,
                 freeSpace: 100000000000,
                 unmappedFolders: []

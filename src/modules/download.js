@@ -2,12 +2,14 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 const { Transform } = require('stream');
+const { execSync } = require('child_process');
 
 let logger = null;
 let db = null;
 let settings = null;
 let app = null;
 let plex = null;
+let transcoder = null;
 
 let activeDownloads = 0;
 let downloadInterval = null;
@@ -16,6 +18,104 @@ let downloadInterval = null;
 // 90 minutes for movies, 45 minutes for episodes
 const DEFAULT_MOVIE_DURATION = 90 * 60;
 const DEFAULT_EPISODE_DURATION = 45 * 60;
+
+// Convert SMB URLs to local mount paths
+// smb://server/share/path -> /Volumes/share/path (macOS)
+// Also handles smb://server._smb._tcp.local/share format
+function resolveSmbPath(urlOrPath) {
+    if (!urlOrPath) return urlOrPath;
+
+    // Check if it's an SMB URL
+    if (!urlOrPath.startsWith('smb://')) {
+        return urlOrPath;
+    }
+
+    try {
+        // Parse the SMB URL: smb://server/share/path
+        // Handle both smb://server/share and smb://server._smb._tcp.local/share
+        const url = new URL(urlOrPath);
+        const hostname = url.hostname; // e.g., "BASE._smb._tcp.local" or "BASE"
+        const pathname = url.pathname; // e.g., "/Movies/Shows"
+
+        // Extract share name (first path component) and remaining path
+        const pathParts = pathname.split('/').filter(p => p);
+        if (pathParts.length === 0) {
+            return urlOrPath; // Invalid path
+        }
+
+        const shareName = pathParts[0]; // e.g., "Movies"
+        const subPath = pathParts.slice(1).join('/'); // e.g., "Shows"
+
+        // On macOS, SMB shares are mounted under /Volumes/
+        // The mount point name is usually the share name
+        let mountPath = path.join('/Volumes', shareName);
+
+        // Check if the share is already mounted
+        if (fs.existsSync(mountPath)) {
+            const fullPath = subPath ? path.join(mountPath, subPath) : mountPath;
+            return fullPath;
+        }
+
+        // Try to mount the SMB share
+        // First, check if we can find it via a different mount name
+        const volumesDir = '/Volumes';
+        if (fs.existsSync(volumesDir)) {
+            const volumes = fs.readdirSync(volumesDir);
+            // Look for a volume that might be our SMB share
+            for (const vol of volumes) {
+                // Check if volume name matches share name (case-insensitive)
+                if (vol.toLowerCase() === shareName.toLowerCase()) {
+                    const fullPath = subPath ? path.join(volumesDir, vol, subPath) : path.join(volumesDir, vol);
+                    if (fs.existsSync(fullPath)) {
+                        return fullPath;
+                    }
+                }
+            }
+        }
+
+        // If not mounted, try to mount it using macOS's built-in mounting
+        // This uses the "mount_smbfs" command or "open" to trigger Finder mounting
+        const serverName = hostname.replace(/\._smb\._tcp\.local$/, '');
+        const mountUrl = `smb://${serverName}/${shareName}`;
+
+        try {
+            // Try to open/mount the share via AppleScript (triggers Finder mount)
+            execSync(`osascript -e 'tell application "Finder" to mount volume "${mountUrl}"'`, {
+                timeout: 30000,
+                stdio: 'ignore'
+            });
+
+            // Wait a moment for mount to complete
+            let attempts = 0;
+            while (attempts < 10 && !fs.existsSync(mountPath)) {
+                execSync('sleep 0.5');
+                attempts++;
+            }
+
+            if (fs.existsSync(mountPath)) {
+                const fullPath = subPath ? path.join(mountPath, subPath) : mountPath;
+                return fullPath;
+            }
+        } catch (mountErr) {
+            // Mount failed, log but continue
+            if (logger) {
+                logger.warn('download', `Failed to mount SMB share ${mountUrl}: ${mountErr.message}`);
+            }
+        }
+
+        // Return the expected mount path even if mount failed
+        // This allows the user to manually mount and retry
+        const fullPath = subPath ? path.join(mountPath, subPath) : mountPath;
+        return fullPath;
+
+    } catch (err) {
+        // URL parsing failed, return original
+        if (logger) {
+            logger.warn('download', `Failed to parse SMB URL ${urlOrPath}: ${err.message}`);
+        }
+        return urlOrPath;
+    }
+}
 
 // Throttled stream that limits download speed to simulate playback
 class ThrottledStream extends Transform {
@@ -103,16 +203,23 @@ class ThrottledStream extends Transform {
 async function getSourceSettings(mediaId) {
     // Get the source settings for this media item
     const media = await db.get(`
-        SELECT m.source_id, s.simulate_playback, s.playback_speed_multiplier, s.name as source_name
+        SELECT m.source_id, s.simulate_playback, s.playback_speed_multiplier, s.name as source_name,
+               s.spoofed_mac, s.spoofed_device_key
         FROM media m
         LEFT JOIN sources s ON m.source_id = s.id
         WHERE m.id = ?
     `, [mediaId]);
 
+    // Get MAC/device info - priority: source-specific > global settings > defaults
+    const spoofedMac = media?.spoofed_mac || settings.get('spoofedMac') || '77:f4:8b:a4:ed:10';
+    const spoofedDeviceKey = media?.spoofed_device_key || settings.get('spoofedDeviceKey') || '006453';
+
     return {
         simulatePlayback: media?.simulate_playback ?? 1,
         speedMultiplier: media?.playback_speed_multiplier ?? 1.5,
-        sourceName: media?.source_name || 'Unknown'
+        sourceName: media?.source_name || 'Unknown',
+        spoofedMac,
+        spoofedDeviceKey
     };
 }
 
@@ -137,7 +244,9 @@ async function processQueue() {
     if (activeDownloads >= maxConcurrent) return;
 
     const download = await db.get(`
-        SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id, e.stream_url as episode_url
+        SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id,
+               e.stream_url as episode_url, e.external_id as episode_external_id,
+               e.container as episode_container, e.title as episode_title
         FROM downloads d
         LEFT JOIN media m ON d.media_id = m.id
         LEFT JOIN episodes e ON d.episode_id = e.id
@@ -155,21 +264,71 @@ async function processQueue() {
 }
 
 async function processDownload(download) {
-    const streamUrl = download.episode_url || download.stream_url;
+    let streamUrl = (download.episode_url || download.stream_url || '').trim();
     if (!streamUrl) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', 'No stream URL', download.id]);
         return;
     }
 
+    // For episodes, build full URL ONLY if needed (Xtream API style base URLs)
+    // M3U sources already have complete episode URLs, don't modify them
+    if (download.episode_id && download.episode_external_id) {
+        // Check if URL already looks complete (don't modify M3U-style complete URLs)
+        const hasExtension = /\.(mkv|mp4|avi|ts|m3u8|flv|webm)(\?|$)/i.test(streamUrl);
+        const hasQueryParams = streamUrl.includes('?');
+        const endsWithNumber = /\/\d+\/?$/.test(streamUrl); // URLs like /live/123 or /stream/456
+        const looksComplete = hasExtension || hasQueryParams || endsWithNumber;
+
+        if (!looksComplete) {
+            // Build full episode URL for Xtream API sources: base_url/episode_id.extension
+            const ext = (download.episode_container || 'mkv').trim();
+            const baseUrl = streamUrl.replace(/[\s\/]+$/, ''); // Remove trailing slashes and whitespace
+            const episodeId = String(download.episode_external_id).trim();
+            streamUrl = `${baseUrl}/${episodeId}.${ext}`;
+            logger?.debug('download', `Built episode URL: ${streamUrl}`);
+        } else {
+            logger?.debug('download', `Using episode URL as-is (complete): ${streamUrl.substring(0, 80)}...`);
+        }
+    }
+
     const tempPath = settings.get('tempPath');
-    const downloadPath = settings.get('downloadPath');
-    const filename = sanitizeFilename(download.title || 'download') + path.extname(streamUrl).split('?')[0];
+
+    // Get type-specific download path, with fallback to legacy downloadPath
+    const isMovie = download.media_type === 'movie';
+    const isEpisode = !!download.episode_id;
+    let downloadPathSetting;
+
+    if (isMovie) {
+        downloadPathSetting = settings.get('movieDownloadPath') || settings.get('downloadPath');
+    } else if (isEpisode) {
+        downloadPathSetting = settings.get('seriesDownloadPath') || settings.get('downloadPath');
+    } else {
+        downloadPathSetting = settings.get('downloadPath');
+    }
+
+    // Resolve SMB paths to local mount points
+    const downloadPath = resolveSmbPath(downloadPathSetting);
+
+    if (downloadPath !== downloadPathSetting) {
+        logger?.info('download', `Resolved SMB path: ${downloadPathSetting} -> ${downloadPath}`);
+    }
+
+    const displayTitle = download.episode_title || download.title || 'download';
+    const filename = sanitizeFilename(displayTitle) + path.extname(streamUrl).split('?')[0];
     const tempFile = path.join(tempPath, `${download.id}_${filename}`);
 
     // Create directories if needed
     if (!fs.existsSync(tempPath)) fs.mkdirSync(tempPath, { recursive: true });
-    if (!fs.existsSync(downloadPath)) fs.mkdirSync(downloadPath, { recursive: true });
+    if (!fs.existsSync(downloadPath)) {
+        // For network paths, fail if not mounted rather than creating local folder
+        if (downloadPathSetting.startsWith('smb://')) {
+            await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
+                ['failed', `Network share not mounted: ${downloadPath}. Please mount the SMB share first.`, download.id]);
+            return;
+        }
+        fs.mkdirSync(downloadPath, { recursive: true });
+    }
 
     // Get source throttle settings
     const sourceSettings = await getSourceSettings(download.media_id);
@@ -201,34 +360,78 @@ async function processDownload(download) {
         }
 
         // Move to final destination
-        const finalDir = download.media_type === 'movie'
-            ? path.join(downloadPath, 'movies')
-            : path.join(downloadPath, 'series', sanitizeFilename(download.title));
+        // If using type-specific paths, don't add subdirectories
+        // If using legacy downloadPath, add movies/series subdirectories
+        const hasTypeSpecificPath = isMovie
+            ? !!settings.get('movieDownloadPath')
+            : isEpisode ? !!settings.get('seriesDownloadPath') : false;
+
+        let finalDir;
+        if (isMovie) {
+            finalDir = hasTypeSpecificPath ? downloadPath : path.join(downloadPath, 'movies');
+        } else if (isEpisode) {
+            // For series, always create show subfolder
+            finalDir = hasTypeSpecificPath
+                ? path.join(downloadPath, sanitizeFilename(download.title))
+                : path.join(downloadPath, 'series', sanitizeFilename(download.title));
+        } else {
+            finalDir = downloadPath;
+        }
 
         if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
 
         const finalPath = path.join(finalDir, filename);
-        fs.renameSync(tempFile, finalPath);
 
-        await db.run(`
-            UPDATE downloads SET status = ?, final_path = ?, progress = 100, completed_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        `, ['completed', finalPath, download.id]);
+        // Check if transcoding is enabled
+        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
 
-        logger.info('download', `Completed: ${download.title}`);
-        app?.emit('download:complete', { id: download.id, title: download.title, path: finalPath });
+        if (shouldTranscode) {
+            // Queue for transcoding - file stays in temp location
+            await transcoder.queue(download.id, tempFile, finalDir, filename, download.media_type);
 
-        // Trigger Plex scan
-        if (plex) {
-            const libraryId = download.media_type === 'movie'
-                ? settings.get('plexMovieLibraryId')
-                : settings.get('plexTvLibraryId');
+            // Update download status to 'transcoding'
+            await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', download.id]);
 
-            if (libraryId) {
-                try {
-                    await plex.scanLibrary(libraryId, finalDir);
-                } catch (err) {
-                    logger.warn('download', `Failed to trigger Plex scan: ${err.message}`);
+            logger.info('download', `Queued for transcoding: ${download.title}`);
+            app?.emit('download:transcoding', { id: download.id, title: download.title });
+
+            // Note: Plex scan and final completion happen after transcoding completes (in transcoder module)
+
+        } else {
+            // No transcoding - original behavior: move directly to final destination
+            try {
+                fs.renameSync(tempFile, finalPath);
+            } catch (renameErr) {
+                if (renameErr.code === 'EXDEV') {
+                    // Cross-device link: need to copy then delete
+                    logger.info('download', `Cross-device move detected, copying to ${finalPath}`);
+                    fs.copyFileSync(tempFile, finalPath);
+                    fs.unlinkSync(tempFile);
+                } else {
+                    throw renameErr;
+                }
+            }
+
+            await db.run(`
+                UPDATE downloads SET status = ?, final_path = ?, progress = 100, completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, ['completed', finalPath, download.id]);
+
+            logger.info('download', `Completed: ${download.title}`);
+            app?.emit('download:complete', { id: download.id, title: download.title, path: finalPath });
+
+            // Trigger Plex scan
+            if (plex) {
+                const libraryId = download.media_type === 'movie'
+                    ? settings.get('plexMovieLibraryId')
+                    : settings.get('plexTvLibraryId');
+
+                if (libraryId) {
+                    try {
+                        await plex.scanLibrary(libraryId, finalDir);
+                    } catch (err) {
+                        logger.warn('download', `Failed to trigger Plex scan: ${err.message}`);
+                    }
                 }
             }
         }
@@ -251,6 +454,10 @@ async function processDownload(download) {
 async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode) {
     const writer = fs.createWriteStream(destPath);
 
+    // Build headers mimicking IPTV player (IBU Player Pro style)
+    const spoofedMac = sourceSettings.spoofedMac || '77:f4:8b:a4:ed:10';
+    const spoofedDeviceKey = sourceSettings.spoofedDeviceKey || '006453';
+
     let response;
     try {
         response = await axios({
@@ -260,6 +467,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             timeout: 60000,
             headers: {
                 'User-Agent': userAgent,
+                'X-Device-MAC': spoofedMac,
+                'X-Forwarded-For': spoofedMac,
+                'X-Device-Key': spoofedDeviceKey,
+                'X-Device-ID': spoofedMac.replace(/:/g, ''),
                 'Accept': '*/*',
                 'Connection': 'keep-alive'
             },
@@ -413,6 +624,7 @@ module.exports = {
         settings = modules.settings;
         app = modules.app;
         plex = modules.plex;
+        transcoder = modules.transcoder;
 
         // Reset any downloads that were stuck in "downloading" status from a previous crash/restart
         const stuckDownloads = await db.all(
