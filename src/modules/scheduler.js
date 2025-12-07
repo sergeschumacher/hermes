@@ -379,12 +379,13 @@ async function startRecording(recordingId) {
             startTime: new Date()
         });
 
-        // Update database
+        // Update database with actual start time
+        const actualStartTime = new Date().toISOString();
         await db.run(`
             UPDATE scheduled_recordings
-            SET status = 'recording', output_path = ?, pid = ?
+            SET status = 'recording', output_path = ?, pid = ?, actual_start_time = ?
             WHERE id = ?
-        `, [outputPath, ffmpegProcess.pid, recordingId]);
+        `, [outputPath, ffmpegProcess.pid, actualStartTime, recordingId]);
 
         app?.emit('recording:started', {
             id: recordingId,
@@ -545,6 +546,9 @@ async function scheduleRecording(mediaId, title, startTime, endTime, options = {
         throw new Error('End time is in the past');
     }
 
+    // Check if show has already started (start time is in the past)
+    const alreadyStarted = start < now;
+
     // Create the recording
     const result = await db.run(`
         INSERT INTO scheduled_recordings (media_id, title, channel_name, start_time, end_time, recurrence, epg_program_id)
@@ -559,23 +563,33 @@ async function scheduleRecording(mediaId, title, startTime, endTime, options = {
         options.epgProgramId || null
     ]);
 
+    const recordingId = result.lastID;
+
     logger.info('scheduler', `Scheduled recording: ${title} on ${media.title} from ${start.toISOString()} to ${end.toISOString()}`);
 
     app?.emit('recording:scheduled', {
-        id: result.lastID,
+        id: recordingId,
         title,
         channel: media.title,
         startTime: start,
         endTime: end
     });
 
+    // If show has already started, start recording immediately
+    if (alreadyStarted) {
+        logger.info('scheduler', `Show already in progress, starting recording immediately: ${title}`);
+        // Start recording in next tick to allow the response to be sent first
+        setImmediate(() => startRecording(recordingId));
+    }
+
     return {
-        id: result.lastID,
+        id: recordingId,
         mediaId,
         title,
         channelName: media.title,
         startTime: start,
-        endTime: end
+        endTime: end,
+        startedImmediately: alreadyStarted
     };
 }
 

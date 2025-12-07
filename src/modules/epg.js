@@ -8,6 +8,7 @@ let logger = null;
 let db = null;
 let app = null;
 let settings = null;
+let llm = null;  // LLM module for AI channel matching
 
 // Base URL for globetvapp/epg repository
 const EPG_BASE_URL = 'https://raw.githubusercontent.com/globetvapp/epg/main';
@@ -30,6 +31,143 @@ const AVAILABLE_COUNTRIES = [
     'Turkey', 'UAE', 'Uganda', 'Ukraine', 'United Kingdom', 'Uruguay', 'USA',
     'Uzbekistan', 'Vietnam', 'Zambia'
 ];
+
+// Country to language mapping (ISO 639-1)
+const COUNTRY_TO_LANGUAGE = {
+    'Albania': 'sq',
+    'Argentina': 'es',
+    'Australia': 'en',
+    'Austria': 'de',
+    'Belgium': 'nl',
+    'Bolivia': 'es',
+    'Bosnia': 'bs',
+    'Brazil': 'pt',
+    'Bulgaria': 'bg',
+    'Canada': 'en',
+    'Caribbean': 'en',
+    'Chile': 'es',
+    'China': 'zh',
+    'Colombia': 'es',
+    'Costa Rica': 'es',
+    'Croatia': 'hr',
+    'Cyprus': 'el',
+    'Czech Republic': 'cs',
+    'Denmark': 'da',
+    'Dominican Republic': 'es',
+    'Ecuador': 'es',
+    'Egypt': 'ar',
+    'El Salvador': 'es',
+    'Estonia': 'et',
+    'Finland': 'fi',
+    'France': 'fr',
+    'Georgia': 'ka',
+    'Germany': 'de',
+    'Ghana': 'en',
+    'Greece': 'el',
+    'Guatemala': 'es',
+    'Honduras': 'es',
+    'Hong Kong': 'zh',
+    'Hungary': 'hu',
+    'Iceland': 'is',
+    'India': 'hi',
+    'Indonesia': 'id',
+    'Ireland': 'en',
+    'Israel': 'he',
+    'Italy': 'it',
+    'Ivory Coast': 'fr',
+    'Jamaica': 'en',
+    'Kenya': 'en',
+    'Korea': 'ko',
+    'Latvia': 'lv',
+    'Lithuania': 'lt',
+    'Luxembourg': 'de',
+    'Macau': 'zh',
+    'Madagascar': 'fr',
+    'Malawi': 'en',
+    'Malaysia': 'ms',
+    'Malta': 'mt',
+    'Mauritius': 'en',
+    'Mexico': 'es',
+    'Mongolia': 'mn',
+    'Montenegro': 'sr',
+    'Morocco': 'ar',
+    'Mozambique': 'pt',
+    'Namibia': 'en',
+    'Netherlands': 'nl',
+    'New Caledonia': 'fr',
+    'New Zealand': 'en',
+    'Nigeria': 'en',
+    'Norway': 'no',
+    'Pakistan': 'ur',
+    'Panama': 'es',
+    'Paraguay': 'es',
+    'Peru': 'es',
+    'Philippines': 'tl',
+    'Poland': 'pl',
+    'Portugal': 'pt',
+    'Puerto Rico': 'es',
+    'Qatar': 'ar',
+    'Romania': 'ro',
+    'Russia': 'ru',
+    'Saudi Arabia': 'ar',
+    'Scotland': 'en',
+    'Serbia': 'sr',
+    'Singapore': 'en',
+    'Slovakia': 'sk',
+    'Slovenia': 'sl',
+    'South Africa': 'en',
+    'Spain': 'es',
+    'Sports': 'en',  // Sports channels are typically multi-language
+    'Sweden': 'sv',
+    'Switzerland': 'de',
+    'Taiwan': 'zh',
+    'Thailand': 'th',
+    'Turkey': 'tr',
+    'UAE': 'ar',
+    'Uganda': 'en',
+    'Ukraine': 'uk',
+    'United Kingdom': 'en',
+    'Uruguay': 'es',
+    'USA': 'en',
+    'Uzbekistan': 'uz',
+    'Vietnam': 'vi',
+    'Zambia': 'en'
+};
+
+/**
+ * Simple Levenshtein similarity (0-1)
+ */
+function stringSimilarity(s1, s2) {
+    if (!s1 || !s2) return 0;
+    if (s1 === s2) return 1;
+
+    const longer = s1.length > s2.length ? s1 : s2;
+    const shorter = s1.length > s2.length ? s2 : s1;
+
+    if (longer.length === 0) return 1;
+
+    // Levenshtein distance
+    const costs = [];
+    for (let i = 0; i <= s1.length; i++) {
+        let lastValue = i;
+        for (let j = 0; j <= s2.length; j++) {
+            if (i === 0) {
+                costs[j] = j;
+            } else if (j > 0) {
+                let newValue = costs[j - 1];
+                if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
+                    newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
+                }
+                costs[j - 1] = lastValue;
+                lastValue = newValue;
+            }
+        }
+        if (i > 0) costs[s2.length] = lastValue;
+    }
+
+    const distance = costs[s2.length];
+    return (longer.length - distance) / longer.length;
+}
 
 // Simple streaming XML parser for XMLTV format
 // XMLTV format: https://wiki.xmltv.org/index.php/XMLTVFormat
@@ -370,17 +508,57 @@ async function syncGlobalEpg(countries = null) {
 
 /**
  * Normalize channel name for comparison
+ * Handles patterns like:
+ * - EPG: "3sat.de", "ARTE.de", "RTL Television.de"
+ * - IPTV: "DE - 3SAT HD", "DE - ARTE HD", "DE - RTL UHD"
  */
 function normalizeChannelName(name) {
     if (!name) return '';
     return name
         .toLowerCase()
-        .replace(/\s*(hd|sd|fhd|uhd|4k)\s*/gi, '')  // Remove quality indicators
-        .replace(/\s*\+\s*/g, ' plus ')              // Replace + with plus
-        .replace(/\.\w{2}$/i, '')                    // Remove country suffix like .de
-        .replace(/[^\w\s]/g, '')                     // Remove special chars
-        .replace(/\s+/g, ' ')                        // Normalize spaces
+        // Remove country prefix patterns (DE -, UK -, US -, etc.)
+        .replace(/^[a-z]{2}\s*[-:]\s*/i, '')
+        // Remove quality suffixes (HD, SD, FHD, UHD, 4K)
+        .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s*$/gi, '')
+        .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s+/gi, ' ')
+        // Replace + with plus
+        .replace(/\s*\+\s*/g, ' plus ')
+        // Remove country suffix like .de, .uk, .us
+        .replace(/\.\w{2}$/i, '')
+        // Remove common suffixes/additions
+        .replace(/\s*\(sky\)\s*/gi, '')
+        .replace(/\s*television\s*/gi, '')
+        .replace(/\s*channel\s*/gi, '')
+        .replace(/\s*tv\s*$/gi, '')
+        // Remove special chars but keep spaces
+        .replace(/[^\w\s]/g, ' ')
+        // Normalize multiple spaces
+        .replace(/\s+/g, ' ')
         .trim();
+}
+
+/**
+ * Extract core channel name (main identifier)
+ * For matching "ProSieben" with "DE - PROSIEBEN FUN UHD"
+ */
+function extractCoreChannelName(name) {
+    if (!name) return '';
+
+    // First normalize
+    let core = normalizeChannelName(name);
+
+    // For IPTV sources, extract main name before variant suffixes
+    // e.g., "prosieben fun" -> "prosieben", "rtl crime" -> "rtl"
+    const variants = ['fun', 'crime', 'passion', 'living', 'gold', 'nitro', 'super', 'maxx', 'neo', 'one', 'alpha', 'zwei', 'plus'];
+    for (const variant of variants) {
+        const idx = core.indexOf(` ${variant}`);
+        if (idx > 0) {
+            core = core.substring(0, idx);
+            break;
+        }
+    }
+
+    return core;
 }
 
 /**
@@ -562,12 +740,328 @@ async function getProgramById(programId) {
     return db.get('SELECT * FROM epg_programs WHERE id = ?', [programId]);
 }
 
+/**
+ * Match EPG channels to IPTV sources using AI
+ * @returns {Object} - { matched: number, skipped: boolean }
+ */
+async function matchChannelsWithAI() {
+    if (!llm?.isConfigured()) {
+        return { matched: 0, skipped: true };
+    }
+
+    logger?.info('epg', 'Starting AI channel matching...');
+
+    try {
+        // Get unmatched EPG channels (not already in channel_mappings)
+        const epgChannels = await db.all(`
+            SELECT DISTINCT channel_id FROM epg_programs
+            WHERE channel_id NOT IN (
+                SELECT epg_channel_id FROM channel_mappings
+            )
+            LIMIT 200
+        `);
+
+        if (epgChannels.length === 0) {
+            logger?.info('epg', 'No unmatched EPG channels found');
+            return { matched: 0, skipped: false };
+        }
+
+        // Get source channel names (live TV)
+        const sourceChannels = await db.all(`
+            SELECT DISTINCT title FROM media
+            WHERE (media_type = 'live' OR category LIKE '%LIVE%' OR category LIKE '%GENERAL%' OR category LIKE '%SPORT%')
+            AND title IS NOT NULL AND title != ''
+            LIMIT 500
+        `);
+
+        if (sourceChannels.length === 0) {
+            logger?.info('epg', 'No source channels found');
+            return { matched: 0, skipped: false };
+        }
+
+        logger?.info('epg', `Matching ${epgChannels.length} EPG channels against ${sourceChannels.length} sources`);
+
+        // Use LLM to match channels
+        const matches = await llm.matchChannels(
+            epgChannels.map(c => c.channel_id),
+            sourceChannels.map(c => c.title)
+        );
+
+        // Store mappings
+        let storedCount = 0;
+        for (const match of matches) {
+            try {
+                await db.run(`
+                    INSERT OR REPLACE INTO channel_mappings
+                    (epg_channel_id, source_channel_name, confidence)
+                    VALUES (?, ?, ?)
+                `, [match.epg, match.source, match.confidence]);
+                storedCount++;
+            } catch (err) {
+                logger?.warn('epg', `Failed to store mapping: ${err.message}`);
+            }
+        }
+
+        // Apply mappings to update media.tvg_id
+        await applyChannelMappings();
+
+        logger?.info('epg', `AI channel matching complete: ${storedCount} mappings stored`);
+        return { matched: storedCount, skipped: false };
+
+    } catch (err) {
+        logger?.error('epg', `AI channel matching failed: ${err.message}`);
+        throw err;
+    }
+}
+
+/**
+ * Apply stored channel mappings to update media.tvg_id
+ */
+async function applyChannelMappings() {
+    const mappings = await db.all('SELECT * FROM channel_mappings WHERE confidence >= 0.7');
+
+    let updated = 0;
+    for (const mapping of mappings) {
+        const result = await db.run(`
+            UPDATE media SET tvg_id = ?
+            WHERE title LIKE ? AND tvg_id IS NULL
+        `, [mapping.epg_channel_id, `%${mapping.source_channel_name}%`]);
+
+        if (result.changes > 0) {
+            updated += result.changes;
+        }
+    }
+
+    if (updated > 0) {
+        logger?.info('epg', `Applied channel mappings: ${updated} media items updated`);
+    }
+
+    return { updated };
+}
+
+/**
+ * Get all channel mappings
+ */
+async function getChannelMappings() {
+    return db.all('SELECT * FROM channel_mappings ORDER BY confidence DESC');
+}
+
+/**
+ * Find matching IPTV channels for an EPG channel using multiple strategies
+ * @param {string} epgChannelId - EPG channel ID (e.g., "rtl2.de")
+ * @returns {Array} - Matching media items
+ */
+async function findMatchingIptvChannels(epgChannelId) {
+    // Strategy 1: Direct tvg_id match
+    let matches = await db.all(`
+        SELECT id, title, stream_url, source_id FROM media
+        WHERE media_type = 'live' AND tvg_id = ?
+    `, [epgChannelId]);
+
+    if (matches.length > 0) return matches;
+
+    // Strategy 2: Check channel_mappings table (LLM-generated)
+    const mapping = await db.get(`
+        SELECT source_channel_name FROM channel_mappings
+        WHERE epg_channel_id = ? AND confidence >= 0.7
+    `, [epgChannelId]);
+
+    if (mapping) {
+        matches = await db.all(`
+            SELECT id, title, stream_url, source_id FROM media
+            WHERE media_type = 'live' AND title LIKE ?
+        `, [`%${mapping.source_channel_name}%`]);
+        if (matches.length > 0) return matches;
+    }
+
+    // Strategy 3: Improved string matching on normalized names
+    const normalizedEpg = normalizeChannelName(epgChannelId);
+    const coreEpg = extractCoreChannelName(epgChannelId);
+
+    // Get all live channels
+    const allLiveChannels = await db.all(`
+        SELECT id, title, stream_url, source_id FROM media
+        WHERE media_type = 'live' AND title IS NOT NULL
+        AND title NOT LIKE '####%' AND title NOT LIKE '====%'
+    `);
+
+    const fuzzyMatches = [];
+    for (const ch of allLiveChannels) {
+        const normalizedTitle = normalizeChannelName(ch.title);
+        const coreTitle = extractCoreChannelName(ch.title);
+
+        // Skip empty/invalid titles
+        if (!normalizedTitle || normalizedTitle.length < 2) continue;
+
+        // Check exact normalized match
+        if (normalizedEpg === normalizedTitle) {
+            fuzzyMatches.push({ ...ch, matchScore: 1.0 });
+            continue;
+        }
+
+        // Check core name exact match (e.g., "3sat" === "3sat")
+        if (coreEpg === coreTitle && coreEpg.length >= 3) {
+            fuzzyMatches.push({ ...ch, matchScore: 0.95 });
+            continue;
+        }
+
+        // Check if EPG core name is contained in IPTV title
+        // e.g., "arte" in "arte" (normalized)
+        if (coreEpg.length >= 3 && normalizedTitle.includes(coreEpg)) {
+            fuzzyMatches.push({ ...ch, matchScore: 0.9 });
+            continue;
+        }
+
+        // Check if IPTV core starts with EPG core
+        // e.g., "rtl" matches "rtl crime"
+        if (coreEpg.length >= 3 && coreTitle.startsWith(coreEpg)) {
+            fuzzyMatches.push({ ...ch, matchScore: 0.85 });
+            continue;
+        }
+
+        // Check string similarity on normalized names
+        const similarity = stringSimilarity(normalizedEpg, normalizedTitle);
+        if (similarity >= 0.8) {
+            fuzzyMatches.push({ ...ch, matchScore: similarity });
+            continue;
+        }
+
+        // Check similarity on core names
+        const coreSimilarity = stringSimilarity(coreEpg, coreTitle);
+        if (coreSimilarity >= 0.85) {
+            fuzzyMatches.push({ ...ch, matchScore: coreSimilarity * 0.9 });
+        }
+    }
+
+    // Sort by match score and return
+    return fuzzyMatches.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
+}
+
+/**
+ * Get filtered EPG channels (only preferred languages + have IPTV source)
+ * @returns {Array} - Filtered channels with IPTV availability info
+ */
+async function getFilteredEpgChannels() {
+    const preferredLanguages = settings?.get('preferredLanguages') || ['de', 'en'];
+
+    // Try to use cache first
+    const cachedChannels = await db.all(`
+        SELECT * FROM epg_channel_cache
+        WHERE has_iptv_source = 1
+        AND language IN (${preferredLanguages.map(() => '?').join(',')})
+        ORDER BY channel_id
+    `, preferredLanguages);
+
+    if (cachedChannels.length > 0) {
+        return cachedChannels.map(c => ({
+            channel_id: c.channel_id,
+            country: c.country,
+            language: c.language,
+            iptv_sources: JSON.parse(c.iptv_media_ids || '[]').length
+        }));
+    }
+
+    // No cache, build fresh (slower)
+    logger?.info('epg', 'Building filtered EPG channels (no cache)');
+    return await buildFilteredChannels(preferredLanguages);
+}
+
+/**
+ * Build filtered channels list (without cache)
+ */
+async function buildFilteredChannels(preferredLanguages) {
+    const epgChannels = await db.all(`
+        SELECT DISTINCT channel_id, country FROM epg_programs
+        WHERE source_id IS NULL
+    `);
+
+    const filteredChannels = [];
+
+    for (const ch of epgChannels) {
+        // Filter 1: Language check
+        const language = COUNTRY_TO_LANGUAGE[ch.country];
+        if (language && !preferredLanguages.includes(language)) {
+            continue;
+        }
+
+        // Filter 2: IPTV source check
+        const iptvMatches = await findMatchingIptvChannels(ch.channel_id);
+        if (iptvMatches.length === 0) {
+            continue;
+        }
+
+        filteredChannels.push({
+            channel_id: ch.channel_id,
+            country: ch.country,
+            language: language || 'unknown',
+            iptv_sources: iptvMatches.length,
+            iptv_media_ids: iptvMatches.map(m => m.id)
+        });
+    }
+
+    return filteredChannels;
+}
+
+/**
+ * Rebuild the EPG channel cache
+ * Call after EPG sync, IPTV refresh, or AI channel matching
+ */
+async function rebuildChannelCache() {
+    logger?.info('epg', 'Rebuilding EPG channel cache...');
+
+    const preferredLanguages = settings?.get('preferredLanguages') || ['de', 'en'];
+
+    // Get all EPG channels
+    const epgChannels = await db.all(`
+        SELECT DISTINCT channel_id, country FROM epg_programs
+        WHERE source_id IS NULL
+    `);
+
+    // Clear old cache
+    await db.run('DELETE FROM epg_channel_cache');
+
+    let cachedCount = 0;
+    let matchedCount = 0;
+
+    for (const ch of epgChannels) {
+        const language = COUNTRY_TO_LANGUAGE[ch.country] || 'unknown';
+        const iptvMatches = await findMatchingIptvChannels(ch.channel_id);
+        const hasSource = iptvMatches.length > 0;
+
+        await db.run(`
+            INSERT INTO epg_channel_cache (channel_id, country, language, has_iptv_source, iptv_media_ids)
+            VALUES (?, ?, ?, ?, ?)
+        `, [
+            ch.channel_id,
+            ch.country,
+            language,
+            hasSource ? 1 : 0,
+            JSON.stringify(iptvMatches.map(m => m.id))
+        ]);
+
+        cachedCount++;
+        if (hasSource) matchedCount++;
+    }
+
+    logger?.info('epg', `EPG cache rebuilt: ${cachedCount} channels, ${matchedCount} with IPTV sources`);
+
+    return { total: cachedCount, matched: matchedCount };
+}
+
+/**
+ * Get language for a country
+ */
+function getLanguageForCountry(country) {
+    return COUNTRY_TO_LANGUAGE[country] || null;
+}
+
 module.exports = {
     init: async (modules) => {
         logger = modules.logger;
         db = modules.db;
         app = modules.app;
         settings = modules.settings;
+        llm = modules.llm;  // LLM module for AI channel matching
     },
 
     // Global EPG sync
@@ -581,6 +1075,17 @@ module.exports = {
     getEpgForChannels,
     getChannelsWithEpg,
     getProgramById,
+
+    // AI Channel matching
+    matchChannelsWithAI,
+    applyChannelMappings,
+    getChannelMappings,
+
+    // Filtered EPG channels (language + IPTV availability)
+    getFilteredEpgChannels,
+    findMatchingIptvChannels,
+    rebuildChannelCache,
+    getLanguageForCountry,
 
     // Utilities
     parseXmltvContent,

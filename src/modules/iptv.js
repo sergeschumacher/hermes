@@ -119,6 +119,22 @@ function extractLanguageFromText(category, title) {
     return null;
 }
 
+// Check if detected language is in the user's preferred languages
+// Returns true if: no preferences set, no language detected, or language matches preferences
+function isLanguageAllowed(detectedLang) {
+    const preferredLangs = settings?.get('preferredLanguages') || [];
+
+    // If no preferences set, allow everything
+    if (!preferredLangs.length) return true;
+
+    // If no language detected, allow it (we can't filter what we can't detect)
+    if (!detectedLang) return true;
+
+    // Normalize to lowercase for comparison
+    const detected = detectedLang.toLowerCase();
+    return preferredLangs.some(lang => lang.toLowerCase() === detected);
+}
+
 async function fetchWithRetry(url, options = {}, retries = 3, source = null) {
     for (let i = 0; i < retries; i++) {
         try {
@@ -230,29 +246,40 @@ async function syncXtreamSource(source) {
     updateSyncStatus(source.id, { step: 'vod', message: `Saving ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
     app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
+    let vodSaved = 0, vodSkipped = 0;
     for (let i = 0; i < vodItems.length; i++) {
         const vod = vodItems[i];
+
+        // Extract language and check if allowed
+        const language = extractLanguageFromText(vod.category_name, vod.name);
+        if (!isLanguageAllowed(language)) {
+            vodSkipped++;
+            continue; // Skip content not in preferred languages
+        }
+
         const ext = vod.container_extension || 'mp4';
         const streamUrl = `${baseUrl}/movie/${cleanUsername}/${cleanPassword}/${vod.stream_id}.${ext}`;
         const quality = detectQuality(vod.name);
 
         await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id)
-            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language)
+            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             source.id, String(vod.stream_id), vod.name, vod.stream_icon, vod.category_name,
             streamUrl, ext, vod.rating || null, extractYear(vod.name), vod.plot || null,
-            vod.genre || null, quality, vod.tmdb || null
+            vod.genre || null, quality, vod.tmdb || null, language
         ]);
+        vodSaved++;
 
         // Emit progress every 100 items (42-70% = 28% range for VOD)
         if ((i + 1) % 100 === 0 || i === vodItems.length - 1) {
             const vodPercent = 42 + Math.round(((i + 1) / vodItems.length) * 28);
-            const msg = `Movies: ${i + 1}/${vodItems.length}`;
+            const msg = `Movies: ${vodSaved} saved, ${vodSkipped} filtered`;
             updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: i + 1, total: vodItems.length });
             app?.emit('sync:progress', { source: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
         }
     }
+    logger.info('iptv', `VOD: ${vodSaved} saved, ${vodSkipped} filtered by language`);
 
     // Sync Series (70-100%)
     updateSyncStatus(source.id, { step: 'series', message: 'Fetching series...', percent: 70 });
@@ -265,17 +292,34 @@ async function syncXtreamSource(source) {
     updateSyncStatus(source.id, { step: 'series', message: `Processing ${seriesList.length} series...`, percent: 72, total: seriesList.length });
     app?.emit('sync:progress', { source: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
+    let seriesSaved = 0, seriesSkipped = 0;
     for (let i = 0; i < seriesList.length; i++) {
         const series = seriesList[i];
+
+        // Extract language and check if allowed
+        const language = extractLanguageFromText(series.category_name, series.name);
+        if (!isLanguageAllowed(language)) {
+            seriesSkipped++;
+            // Emit progress even for skipped items
+            if ((i + 1) % 10 === 0 || i === seriesList.length - 1) {
+                const seriesPercent = 72 + Math.round(((i + 1) / seriesList.length) * 28);
+                const msg = `Series: ${seriesSaved} saved, ${seriesSkipped} filtered`;
+                updateSyncStatus(source.id, { step: 'series', message: msg, percent: seriesPercent, current: i + 1, total: seriesList.length });
+                app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
+            }
+            continue; // Skip content not in preferred languages
+        }
+
         const result = await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, backdrop, category, rating, year, plot, genres, tmdb_id)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `, [
             source.id, String(series.series_id), series.name, series.cover,
             series.backdrop_path?.[0] || null, series.category_name, series.rating || null,
             extractYear(series.releaseDate || series.name), series.plot || null,
-            series.genre || null, series.tmdb || null
+            series.genre || null, series.tmdb || null, language
         ]);
+        seriesSaved++;
 
         // Fetch episodes (with rate limiting)
         try {
@@ -307,11 +351,12 @@ async function syncXtreamSource(source) {
         // Emit progress every 10 series (72-100% = 28% range for series)
         if ((i + 1) % 10 === 0 || i === seriesList.length - 1) {
             const seriesPercent = 72 + Math.round(((i + 1) / seriesList.length) * 28);
-            const msg = `Series: ${i + 1}/${seriesList.length}`;
+            const msg = `Series: ${seriesSaved} saved, ${seriesSkipped} filtered`;
             updateSyncStatus(source.id, { step: 'series', message: msg, percent: seriesPercent, current: i + 1, total: seriesList.length });
             app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
         }
     }
+    logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language`);
 
     // Update last sync time
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
@@ -480,9 +525,26 @@ async function syncM3USource(source) {
     app?.emit('sync:progress', { source: source.id, step: 'save', message: `Saving ${totalItems} items...`, total: totalItems, percent: 20 });
 
     let processedCount = 0;
+    let savedCount = 0, skippedCount = 0;
 
     // First, save all series with their episodes
     for (const [key, series] of seriesMap) {
+        // Extract language from category or series name
+        const language = extractLanguageFromText(series.category, series.seriesName);
+
+        // Check if language is allowed
+        if (!isLanguageAllowed(language)) {
+            skippedCount++;
+            processedCount++;
+            if (processedCount % 50 === 0 || processedCount === totalItems) {
+                const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
+                const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
+                updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
+                app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
+            }
+            continue; // Skip content not in preferred languages
+        }
+
         // Calculate episode count per season
         const seasonEpisodeCounts = {};
         for (const ep of series.episodes) {
@@ -492,9 +554,6 @@ async function syncM3USource(source) {
 
         // Create a unique external_id for this series from this source
         const seriesExternalId = `m3u_series_${key.replace(/[^a-z0-9]/g, '_')}`;
-
-        // Extract language from category or series name
-        const language = extractLanguageFromText(series.category, series.seriesName);
 
         // Insert or update the parent series entry
         const result = await db.run(`
@@ -550,11 +609,12 @@ async function syncM3USource(source) {
             }
         }
 
+        savedCount++;
         processedCount++;
         if (processedCount % 50 === 0 || processedCount === totalItems) {
             // M3U save progress: 20-100% = 80% range
             const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-            const msg = `Items: ${processedCount}/${totalItems}`;
+            const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
             updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
             app?.emit('sync:progress', {
                 source: source.id,
@@ -567,7 +627,7 @@ async function syncM3USource(source) {
         }
     }
 
-    // Save non-episode channels
+    // Save non-episode channels (only movies and series, not live channels)
     for (let i = 0; i < nonEpisodeChannels.length; i++) {
         const channel = nonEpisodeChannels[i];
 
@@ -583,6 +643,19 @@ async function syncM3USource(source) {
         // Extract language from tvg-language attribute, or from category/title patterns
         const language = channel.language || extractLanguageFromText(channel.group, channel.name);
 
+        // Only filter movies and series by language (not live channels)
+        if (mediaType !== 'live' && !isLanguageAllowed(language)) {
+            skippedCount++;
+            processedCount++;
+            if (processedCount % 100 === 0 || processedCount === totalItems) {
+                const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
+                const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
+                updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
+                app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
+            }
+            continue; // Skip content not in preferred languages
+        }
+
         await db.run(`
             INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -597,11 +670,12 @@ async function syncM3USource(source) {
             language
         ]);
 
+        savedCount++;
         processedCount++;
         if (processedCount % 100 === 0 || processedCount === totalItems) {
             // M3U save progress: 20-100% = 80% range
             const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-            const msg = `Items: ${processedCount}/${totalItems}`;
+            const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
             updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
             app?.emit('sync:progress', {
                 source: source.id,
@@ -617,7 +691,7 @@ async function syncM3USource(source) {
     // Update last sync time
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
 
-    logger.info('iptv', `Sync complete for ${source.name}: ${seriesMap.size} series (${[...seriesMap.values()].reduce((sum, s) => sum + s.episodes.length, 0)} episodes), ${nonEpisodeChannels.length} other channels`);
+    logger.info('iptv', `Sync complete for ${source.name}: ${savedCount} saved, ${skippedCount} filtered by language`);
     clearSyncStatus(source.id);
     app?.emit('sync:complete', { source: source.id });
 }

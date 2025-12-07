@@ -288,18 +288,46 @@ function setupRoutes() {
 function setupApiRoutes() {
     const router = express.Router();
 
-    // Stats
+    // Stats - filtered by preferred languages
     router.get('/stats', async (req, res) => {
         try {
             const db = modules.db;
-            const stats = {
-                totalMovies: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['movie']))?.c || 0,
-                totalSeries: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['series']))?.c || 0,
-                totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['live']))?.c || 0,
-                totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
-                activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
-                totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
-            };
+            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+
+            let stats;
+            if (preferredLangs.length > 0) {
+                // Build language filter for SQL (matches 'de', 'en', etc.)
+                const langPlaceholders = preferredLangs.map(() => '?').join(',');
+                const langParams = preferredLangs;
+
+                stats = {
+                    totalMovies: (await db.get(`
+                        SELECT COUNT(*) as c FROM media
+                        WHERE media_type = 'movie' AND language IN (${langPlaceholders})
+                    `, langParams))?.c || 0,
+                    totalSeries: (await db.get(`
+                        SELECT COUNT(*) as c FROM media
+                        WHERE media_type = 'series' AND language IN (${langPlaceholders})
+                    `, langParams))?.c || 0,
+                    totalLiveTV: (await db.get(`
+                        SELECT COUNT(*) as c FROM media
+                        WHERE media_type = 'live' AND language IN (${langPlaceholders})
+                    `, langParams))?.c || 0,
+                    totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
+                    activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
+                    totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
+                };
+            } else {
+                // No language filter - show all
+                stats = {
+                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['movie']))?.c || 0,
+                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['series']))?.c || 0,
+                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['live']))?.c || 0,
+                    totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
+                    activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
+                    totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
+                };
+            }
             res.json(stats);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -357,11 +385,20 @@ function setupApiRoutes() {
             }
 
             // Sort languages alphabetically, but put EN first
-            const languages = Array.from(langSet).sort((a, b) => {
+            let languages = Array.from(langSet).sort((a, b) => {
                 if (a === 'EN') return -1;
                 if (b === 'EN') return 1;
                 return a.localeCompare(b);
             });
+
+            // Filter languages by preferred settings if configured
+            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            if (preferredLangs.length > 0) {
+                const preferredUpper = preferredLangs.map(l => l.toUpperCase());
+                languages = languages.filter(lang =>
+                    lang && preferredUpper.includes(lang.toUpperCase())
+                );
+            }
 
             // Get active sources
             const sources = await db.all('SELECT id, name FROM sources WHERE active = 1 ORDER BY name');
@@ -377,6 +414,114 @@ function setupApiRoutes() {
             res.json({ years, languages, sources, categories });
         } catch (err) {
             res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Stream proxy for CORS bypass - pipes IPTV streams through server
+    // For HLS streams (.m3u8), proxy directly
+    // For MPEG-TS streams, transcode to HLS on-the-fly with FFmpeg
+    router.get('/stream/proxy', async (req, res) => {
+        try {
+            const url = req.query.url;
+            if (!url) {
+                return res.status(400).json({ error: 'URL parameter required' });
+            }
+
+            const isHls = url.includes('.m3u8');
+            logger?.info('stream', `Proxying stream: ${url} (HLS: ${isHls})`);
+
+            // Set CORS headers
+            res.setHeader('Access-Control-Allow-Origin', '*');
+            res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+            res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Range');
+            res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+
+            // Handle OPTIONS preflight
+            if (req.method === 'OPTIONS') {
+                return res.status(204).end();
+            }
+
+            if (isHls) {
+                // Direct proxy for HLS streams
+                const headers = {};
+                if (req.headers.range) {
+                    headers['Range'] = req.headers.range;
+                }
+
+                const response = await axios({
+                    method: 'get',
+                    url: url,
+                    responseType: 'stream',
+                    headers: headers,
+                    timeout: 30000,
+                    maxRedirects: 5
+                });
+
+                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+                if (response.headers['content-length']) {
+                    res.setHeader('Content-Length', response.headers['content-length']);
+                }
+                res.status(response.status);
+                response.data.pipe(res);
+
+                response.data.on('error', (err) => {
+                    logger?.error('stream', `Stream error: ${err.message}`);
+                    if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+                });
+
+                req.on('close', () => response.data.destroy());
+            } else {
+                // For non-HLS streams, we need to transcode to browser-playable format
+                // Use FFmpeg to convert to fragmented MP4 which browsers can play directly
+                logger?.info('stream', 'Starting FFmpeg transcode to fMP4...');
+
+                res.setHeader('Content-Type', 'video/mp4');
+                res.setHeader('Transfer-Encoding', 'chunked');
+
+                // FFmpeg: input TS stream -> output fragmented MP4 for browser playback
+                const ffmpeg = spawn('ffmpeg', [
+                    '-re',                     // Read input at native frame rate
+                    '-i', url,
+                    '-c:v', 'copy',           // Copy video codec (no re-encode for speed)
+                    '-c:a', 'aac',            // Transcode audio to AAC (browser compatible)
+                    '-b:a', '128k',
+                    '-movflags', 'frag_keyframe+empty_moov+faststart',
+                    '-f', 'mp4',
+                    '-'                        // Output to stdout
+                ], { stdio: ['ignore', 'pipe', 'pipe'] });
+
+                ffmpeg.stdout.pipe(res);
+
+                ffmpeg.stderr.on('data', (data) => {
+                    // FFmpeg logs to stderr - only log errors
+                    const msg = data.toString();
+                    if (msg.includes('Error') || msg.includes('error')) {
+                        logger?.error('stream', `FFmpeg: ${msg}`);
+                    }
+                });
+
+                ffmpeg.on('error', (err) => {
+                    logger?.error('stream', `FFmpeg spawn error: ${err.message}`);
+                    if (!res.headersSent) res.status(500).json({ error: 'Transcoding error' });
+                });
+
+                ffmpeg.on('close', (code) => {
+                    if (code !== 0 && code !== null) {
+                        logger?.info('stream', `FFmpeg closed with code ${code}`);
+                    }
+                });
+
+                req.on('close', () => {
+                    logger?.info('stream', 'Client disconnected, killing FFmpeg');
+                    ffmpeg.kill('SIGTERM');
+                });
+            }
+
+        } catch (err) {
+            logger?.error('stream', `Proxy error: ${err.message}`);
+            if (!res.headersSent) {
+                res.status(500).json({ error: err.message });
+            }
         }
     });
 
@@ -906,13 +1051,34 @@ function setupApiRoutes() {
         res.json(modules.epg.getAvailableCountries());
     });
 
-    // Get EPG channels (distinct channels that have EPG data)
+    // Get EPG channels (filtered by language + IPTV availability by default)
     router.get('/epg/channels', async (req, res) => {
         try {
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-            const country = req.query.country || null;
-            const channels = await modules.epg.getChannelsWithEpg(country);
-            res.json(channels);
+
+            // By default, return filtered channels (only preferred languages + available in IPTV)
+            // Use ?all=true to get all channels (old behavior)
+            const showAll = req.query.all === 'true';
+
+            if (showAll) {
+                const country = req.query.country || null;
+                const channels = await modules.epg.getChannelsWithEpg(country);
+                res.json(channels);
+            } else {
+                const channels = await modules.epg.getFilteredEpgChannels();
+                res.json(channels);
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Rebuild EPG channel cache (after sync or IPTV refresh)
+    router.post('/epg/rebuild-cache', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const result = await modules.epg.rebuildChannelCache();
+            res.json(result);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -927,7 +1093,13 @@ function setupApiRoutes() {
             io?.emit('epg:start', { countries: countries || settings.get('epgCountries') });
 
             // Run sync in background
-            modules.epg.syncGlobalEpg(countries).then(result => {
+            modules.epg.syncGlobalEpg(countries).then(async result => {
+                // Rebuild channel cache after sync
+                try {
+                    await modules.epg.rebuildChannelCache();
+                } catch (err) {
+                    logger?.warn('app', `Failed to rebuild EPG cache: ${err.message}`);
+                }
                 io?.emit('epg:complete', result);
             }).catch(err => {
                 io?.emit('epg:error', { error: err.message });
@@ -962,6 +1134,64 @@ function setupApiRoutes() {
             const program = await modules.epg.getProgramById(parseInt(req.params.id));
             if (!program) return res.status(404).json({ error: 'Program not found' });
             res.json(program);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // AI Channel matching (EPG to IPTV sources)
+    router.post('/epg/match-channels', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const result = await modules.epg.matchChannelsWithAI();
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Rebuild EPG channel cache (for filtering by IPTV availability)
+    router.post('/epg/rebuild-cache', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            io?.emit('epg:progress', { message: 'Rebuilding channel cache...' });
+            const result = await modules.epg.rebuildChannelCache();
+            io?.emit('epg:progress', { message: `Cache rebuilt: ${result.matched} of ${result.total} channels matched` });
+            res.json({ success: true, ...result });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get channel mappings
+    router.get('/epg/mappings', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const mappings = await modules.epg.getChannelMappings();
+            res.json(mappings);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // LLM endpoints
+    router.post('/llm/test', async (req, res) => {
+        try {
+            if (!modules.llm) return res.status(500).json({ error: 'LLM module not loaded', success: false });
+            const result = await modules.llm.testConnection();
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message, success: false });
+        }
+    });
+
+    router.get('/llm/status', async (req, res) => {
+        try {
+            if (!modules.llm) return res.json({ configured: false, provider: 'none' });
+            res.json({
+                configured: modules.llm.isConfigured(),
+                provider: modules.llm.getProvider()
+            });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -1022,6 +1252,16 @@ function setupApiRoutes() {
         try {
             if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
             await modules.scheduler.cancelRecording(parseInt(req.params.id));
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    router.post('/recordings/:id/stop', async (req, res) => {
+        try {
+            if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
+            await modules.scheduler.stopRecording(parseInt(req.params.id));
             res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -1399,10 +1639,20 @@ function setupApiRoutes() {
             const categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
             const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
+            // Filter languages by preferred settings if configured
+            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            let filteredLanguages = languages.map(l => l.language);
+            if (preferredLangs.length > 0) {
+                const preferredUpper = preferredLangs.map(l => l.toUpperCase());
+                filteredLanguages = filteredLanguages.filter(lang =>
+                    lang && preferredUpper.includes(lang.toUpperCase())
+                );
+            }
+
             res.json({
                 years: years.map(y => y.year),
                 qualities: qualities.map(q => q.quality),
-                languages: languages.map(l => l.language),
+                languages: filteredLanguages,
                 categories: categories.map(c => c.category),
                 sources
             });
@@ -1539,6 +1789,128 @@ function setupApiRoutes() {
                 total: (await db.get(`SELECT COUNT(*) as c FROM media WHERE media_type IN ('movie', 'series')`)?.c || 0)
             };
             res.json(stats);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // ============================================
+    // ENRICHMENT QUEUE ENDPOINTS (Parallel Workers)
+    // ============================================
+
+    // Start background enrichment with worker pool
+    router.post('/enrich/start', async (req, res) => {
+        try {
+            const { type, limit, priority } = req.body;
+
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+
+            // Queue items for enrichment
+            const result = await modules.enrichment.queueUnenrichedMedia(type, limit);
+
+            // Start workers if not already running
+            if (!modules.enrichment.isRunning()) {
+                await modules.enrichment.startWorkers();
+            }
+
+            res.json({
+                message: 'Enrichment started',
+                queued: result.queued,
+                skipped: result.skipped,
+                workersRunning: modules.enrichment.isRunning()
+            });
+        } catch (err) {
+            logger.error('api', `Start enrichment failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Stop enrichment workers
+    router.post('/enrich/stop', async (req, res) => {
+        try {
+            if (modules.enrichment) {
+                await modules.enrichment.stopWorkers();
+            }
+            res.json({ message: 'Enrichment workers stopped' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get enrichment queue status
+    router.get('/enrich/queue', async (req, res) => {
+        try {
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+
+            const queue = await modules.enrichment.getQueueStatus();
+            const workers = modules.enrichment.getWorkerStatus();
+            const config = modules.enrichment.getConfig();
+
+            res.json({
+                queue,
+                workers,
+                config,
+                isRunning: modules.enrichment.isRunning()
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear completed/failed jobs from queue
+    router.post('/enrich/queue/clear', async (req, res) => {
+        try {
+            const { status } = req.body;  // 'completed', 'failed', or null for both
+            if (modules.enrichment) {
+                const result = await modules.enrichment.clearQueue(status);
+                res.json({ message: 'Queue cleared', ...result });
+            } else {
+                res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Retry failed jobs
+    router.post('/enrich/queue/retry', async (req, res) => {
+        try {
+            if (modules.enrichment) {
+                const result = await modules.enrichment.retryFailedJobs();
+                res.json({ message: 'Failed jobs retried', ...result });
+            } else {
+                res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get trailers for a media item
+    router.get('/media/:id/trailers', async (req, res) => {
+        try {
+            const trailers = await modules.db.all(`
+                SELECT
+                    youtube_key,
+                    'https://www.youtube.com/watch?v=' || youtube_key as youtube_url,
+                    'https://img.youtube.com/vi/' || youtube_key || '/hqdefault.jpg' as thumbnail_url,
+                    name, type, official, published_at
+                FROM media_trailers
+                WHERE media_id = ?
+                ORDER BY official DESC,
+                    CASE type
+                        WHEN 'Trailer' THEN 1
+                        WHEN 'Teaser' THEN 2
+                        ELSE 3
+                    END,
+                    published_at DESC
+            `, [req.params.id]);
+
+            res.json(trailers);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

@@ -65,16 +65,43 @@
                             <p class="text-sm text-white">Enrich Posters from TMDB</p>
                             <p class="text-xs text-dark-400" id="enrich-stats">Loading stats...</p>
                         </div>
-                        <button id="enrich-btn" onclick="startEnrichment()" class="btn btn-secondary btn-sm">Fetch Posters</button>
+                        <div class="flex gap-2">
+                            <button id="enrich-btn" onclick="startEnrichment()" class="btn btn-secondary btn-sm">Start</button>
+                            <button id="enrich-stop-btn" onclick="stopEnrichment()" class="btn btn-danger btn-sm hidden">Stop</button>
+                        </div>
                     </div>
-                    <!-- Enrichment Progress -->
-                    <div id="enrich-progress" class="hidden">
-                        <div class="flex items-center gap-2 mb-2">
-                            <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
-                            <span class="text-sm text-dark-300" id="enrich-status">Starting...</span>
+                    <!-- Enrichment Progress (Parallel Workers) -->
+                    <div id="enrich-progress" class="hidden space-y-3">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                                <span class="text-sm text-white font-medium" id="enrich-status">Starting...</span>
+                            </div>
+                            <span class="text-xs text-dark-400" id="enrich-rate"></span>
                         </div>
                         <div class="w-full bg-dark-700 rounded-full h-2">
                             <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="enrich-bar" style="width: 0%"></div>
+                        </div>
+                        <div class="grid grid-cols-4 gap-2 text-xs">
+                            <div class="text-center p-2 bg-dark-800 rounded">
+                                <div class="text-white font-medium" id="enrich-pending">0</div>
+                                <div class="text-dark-400">Pending</div>
+                            </div>
+                            <div class="text-center p-2 bg-dark-800 rounded">
+                                <div class="text-primary-400 font-medium" id="enrich-processing">0</div>
+                                <div class="text-dark-400">Processing</div>
+                            </div>
+                            <div class="text-center p-2 bg-dark-800 rounded">
+                                <div class="text-green-400 font-medium" id="enrich-completed">0</div>
+                                <div class="text-dark-400">Completed</div>
+                            </div>
+                            <div class="text-center p-2 bg-dark-800 rounded">
+                                <div class="text-red-400 font-medium" id="enrich-failed">0</div>
+                                <div class="text-dark-400">Failed</div>
+                            </div>
+                        </div>
+                        <div class="flex gap-1" id="enrich-workers">
+                            <!-- Worker indicators will be added here -->
                         </div>
                     </div>
                 </div>
@@ -220,6 +247,12 @@
                         <label for="setting-transcodeSkipCompatible" class="text-sm text-white">Skip already compatible files (H.264/H.265 in MP4)</label>
                     </div>
 
+                    <div class="flex items-center gap-3">
+                        <input type="checkbox" id="setting-lowPerformanceMode" class="w-4 h-4 text-primary-500 bg-dark-700 border-dark-600 rounded focus:ring-primary-500" />
+                        <label for="setting-lowPerformanceMode" class="text-sm text-white">Low Performance Mode</label>
+                        <span class="text-xs text-dark-400">(Wait for transcoding to complete before starting next download)</span>
+                    </div>
+
                     <!-- Hardware Status Display -->
                     <div id="hw-accel-status" class="p-3 bg-dark-800 rounded-lg text-sm">
                         <span class="text-dark-400">Detecting hardware acceleration...</span>
@@ -351,6 +384,83 @@
             </div>
         </div>
 
+        <!-- AI / LLM Configuration -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">AI / LLM Configuration</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <p class="text-sm text-dark-400">Use AI to translate non-English titles and match EPG channels</p>
+
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">LLM Provider</label>
+                    <select id="setting-llmProvider" class="select" onchange="updateLLMProviderUI()">
+                        <option value="none">Disabled</option>
+                        <option value="openai">OpenAI (ChatGPT)</option>
+                        <option value="ollama">Ollama (Local)</option>
+                    </select>
+                </div>
+
+                <!-- OpenAI Settings -->
+                <div id="openai-settings" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">OpenAI API Key</label>
+                        <input type="password" id="setting-openaiApiKey" class="input" placeholder="sk-..." />
+                        <p class="text-xs text-dark-500 mt-1">Get your key at <a href="https://platform.openai.com/api-keys" target="_blank" class="text-primary-400 hover:underline">platform.openai.com</a></p>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Model</label>
+                        <select id="setting-openaiModel" class="select">
+                            <option value="gpt-4o-mini">GPT-4o Mini (Recommended - $0.15/1M tokens)</option>
+                            <option value="gpt-4o">GPT-4o ($2.50/1M tokens)</option>
+                            <option value="gpt-3.5-turbo">GPT-3.5 Turbo ($0.50/1M tokens)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Ollama Settings -->
+                <div id="ollama-settings" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Ollama Server URL</label>
+                        <input type="text" id="setting-ollamaUrl" class="input" placeholder="http://localhost:11434" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Model</label>
+                        <input type="text" id="setting-ollamaModel" class="input" placeholder="llama3.2" />
+                        <p class="text-xs text-dark-500 mt-1">Run <code class="bg-dark-700 px-1 rounded">ollama list</code> to see available models</p>
+                    </div>
+                </div>
+
+                <!-- Test Connection Button -->
+                <div id="llm-test-section" class="hidden pt-2 border-t border-dark-700">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-white">Test LLM Connection</p>
+                            <p class="text-xs text-dark-400" id="llm-test-status">Click to verify your configuration</p>
+                        </div>
+                        <button onclick="testLLMConnection()" class="btn btn-secondary btn-sm" id="llm-test-btn">Test</button>
+                    </div>
+                </div>
+
+                <!-- AI Channel Matching -->
+                <div id="llm-channel-match-section" class="hidden pt-2 border-t border-dark-700">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-white">AI Channel Matching</p>
+                            <p class="text-xs text-dark-400">Match EPG channels to IPTV sources using AI</p>
+                        </div>
+                        <button onclick="matchChannelsWithAI()" class="btn btn-secondary btn-sm" id="channel-match-btn">Match Channels</button>
+                    </div>
+                    <div id="channel-match-progress" class="hidden mt-3">
+                        <div class="flex items-center gap-2">
+                            <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
+                            <span class="text-sm text-dark-300" id="channel-match-status">Matching channels...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Scheduler Status -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -454,8 +564,93 @@
 </div>
 
 <script>
-    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder'];
-    const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled'];
+    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel'];
+    const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'lowPerformanceMode'];
+
+    // LLM UI Functions
+    function updateLLMProviderUI() {
+        const provider = document.getElementById('setting-llmProvider').value;
+        const openaiSettings = document.getElementById('openai-settings');
+        const ollamaSettings = document.getElementById('ollama-settings');
+        const testSection = document.getElementById('llm-test-section');
+        const channelMatchSection = document.getElementById('llm-channel-match-section');
+
+        // Hide all provider-specific settings
+        openaiSettings.classList.add('hidden');
+        ollamaSettings.classList.add('hidden');
+
+        if (provider === 'none') {
+            testSection.classList.add('hidden');
+            channelMatchSection.classList.add('hidden');
+        } else {
+            testSection.classList.remove('hidden');
+            channelMatchSection.classList.remove('hidden');
+
+            if (provider === 'openai') {
+                openaiSettings.classList.remove('hidden');
+            } else if (provider === 'ollama') {
+                ollamaSettings.classList.remove('hidden');
+            }
+        }
+    }
+
+    async function testLLMConnection() {
+        const btn = document.getElementById('llm-test-btn');
+        const statusEl = document.getElementById('llm-test-status');
+
+        btn.disabled = true;
+        statusEl.textContent = 'Testing connection...';
+
+        try {
+            // First save settings
+            await saveSettings();
+
+            const response = await fetch('/api/llm/test', { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                statusEl.innerHTML = '<span class="text-green-400">Connected!</span> Provider: ' + result.provider + ', Model: ' + result.model;
+                if (window.showToast) showToast('LLM connection successful!', 'success');
+            } else {
+                statusEl.innerHTML = '<span class="text-red-400">Failed:</span> ' + (result.error || 'Unknown error');
+                if (window.showToast) showToast('LLM connection failed: ' + result.error, 'error');
+            }
+        } catch (err) {
+            statusEl.innerHTML = '<span class="text-red-400">Error:</span> ' + err.message;
+            if (window.showToast) showToast('LLM test failed: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    async function matchChannelsWithAI() {
+        const btn = document.getElementById('channel-match-btn');
+        const progressDiv = document.getElementById('channel-match-progress');
+        const statusEl = document.getElementById('channel-match-status');
+
+        btn.disabled = true;
+        progressDiv.classList.remove('hidden');
+        statusEl.textContent = 'Matching channels with AI...';
+
+        try {
+            const response = await fetch('/api/epg/match-channels', { method: 'POST' });
+            const result = await response.json();
+
+            if (result.skipped) {
+                statusEl.textContent = 'LLM not configured';
+                if (window.showToast) showToast('Please configure LLM first', 'warning');
+            } else {
+                statusEl.textContent = 'Matched ' + result.matched + ' channels';
+                if (window.showToast) showToast('Matched ' + result.matched + ' channels', 'success');
+            }
+        } catch (err) {
+            statusEl.textContent = 'Error: ' + err.message;
+            if (window.showToast) showToast('Channel matching failed: ' + err.message, 'error');
+        } finally {
+            btn.disabled = false;
+            setTimeout(() => progressDiv.classList.add('hidden'), 3000);
+        }
+    }
 
     // Common language codes
     const LANGUAGES = [
@@ -514,43 +709,108 @@
             if (window.showToast) showToast('EPG sync failed: ' + data.error, 'error');
         });
 
-        socket.on('enrich:start', (data) => {
-            activeEnrichment = data.source || 'tmdb';
-            const prefix = activeEnrichment === 'overseerr' ? 'overseerr-' : '';
-            const progressDiv = document.getElementById(prefix + 'enrich-progress');
-            const statusEl = document.getElementById(prefix + 'enrich-status');
-            const barEl = document.getElementById(prefix + 'enrich-bar');
+        // Enrichment queue events
+        socket.on('enrichment:queued', (data) => {
+            if (window.showToast) showToast('Queued ' + data.added + ' items for enrichment', 'info');
+        });
+
+        socket.on('enrichment:workers:started', (data) => {
+            const btn = document.getElementById('enrich-btn');
+            const stopBtn = document.getElementById('enrich-stop-btn');
+            const progressDiv = document.getElementById('enrich-progress');
+            if (btn) btn.classList.add('hidden');
+            if (stopBtn) stopBtn.classList.remove('hidden');
             if (progressDiv) progressDiv.classList.remove('hidden');
-            if (statusEl) statusEl.textContent = 'Starting... (0/' + data.total + ')';
-            if (barEl) barEl.style.width = '0%';
+            updateWorkerIndicators(data.count);
         });
 
-        socket.on('enrich:progress', (data) => {
-            const prefix = data.source === 'overseerr' ? 'overseerr-' : '';
-            const statusEl = document.getElementById(prefix + 'enrich-status');
-            const barEl = document.getElementById(prefix + 'enrich-bar');
-            if (statusEl) statusEl.textContent = data.message || (data.current + '/' + data.total + ' (' + data.success + ' success, ' + data.failed + ' failed)');
-            if (barEl) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+        socket.on('enrichment:progress', (data) => {
+            const progressDiv = document.getElementById('enrich-progress');
+            const statusEl = document.getElementById('enrich-status');
+            const barEl = document.getElementById('enrich-bar');
+            const rateEl = document.getElementById('enrich-rate');
+            const pendingEl = document.getElementById('enrich-pending');
+            const processingEl = document.getElementById('enrich-processing');
+            const completedEl = document.getElementById('enrich-completed');
+            const failedEl = document.getElementById('enrich-failed');
+
+            const q = data.queue || {};
+            const completed = (q.completed || 0) + (q.failed || 0);
+            const total = q.total || 1;
+
+            if (progressDiv) progressDiv.classList.remove('hidden');
+            if (statusEl) statusEl.textContent = 'Enriching... ' + completed + '/' + total;
+
+            const percent = Math.round((completed / total) * 100);
+            if (barEl) barEl.style.width = percent + '%';
+
+            // Calculate rate from workers
+            const workers = data.workers || [];
+            const totalProcessed = workers.reduce((sum, w) => sum + (w.processed || 0) + (w.failed || 0), 0);
+            if (rateEl) rateEl.textContent = workers.length + ' workers active';
+
+            if (pendingEl) pendingEl.textContent = q.pending || 0;
+            if (processingEl) processingEl.textContent = q.processing || 0;
+            if (completedEl) completedEl.textContent = q.completed || 0;
+            if (failedEl) failedEl.textContent = q.failed || 0;
         });
 
-        socket.on('enrich:complete', (data) => {
-            const prefix = data.source === 'overseerr' ? 'overseerr-' : '';
-            const progressDiv = document.getElementById(prefix + 'enrich-progress');
-            const statusEl = document.getElementById(prefix + 'enrich-status');
-            const btn = document.getElementById(prefix + 'enrich-btn');
-            if (statusEl) statusEl.textContent = 'Complete: ' + data.success + ' success, ' + data.failed + ' failed';
-            if (btn) btn.disabled = false;
+        socket.on('enrichment:workers:stopped', (data) => {
+            const btn = document.getElementById('enrich-btn');
+            const stopBtn = document.getElementById('enrich-stop-btn');
+            const progressDiv = document.getElementById('enrich-progress');
+            const statusEl = document.getElementById('enrich-status');
+
+            if (btn) btn.classList.remove('hidden');
+            if (stopBtn) stopBtn.classList.add('hidden');
+            if (statusEl) statusEl.textContent = 'Completed';
+
             setTimeout(() => {
                 if (progressDiv) progressDiv.classList.add('hidden');
                 loadEnrichStats();
             }, 3000);
-            activeEnrichment = null;
+        });
+
+        // Legacy enrich events (for Overseerr)
+        socket.on('enrich:start', (data) => {
+            if (data.source === 'overseerr') {
+                const progressDiv = document.getElementById('overseerr-enrich-progress');
+                const statusEl = document.getElementById('overseerr-enrich-status');
+                const barEl = document.getElementById('overseerr-enrich-bar');
+                if (progressDiv) progressDiv.classList.remove('hidden');
+                if (statusEl) statusEl.textContent = 'Starting... (0/' + data.total + ')';
+                if (barEl) barEl.style.width = '0%';
+            }
+        });
+
+        socket.on('enrich:progress', (data) => {
+            if (data.source === 'overseerr') {
+                const statusEl = document.getElementById('overseerr-enrich-status');
+                const barEl = document.getElementById('overseerr-enrich-bar');
+                if (statusEl) statusEl.textContent = data.current + '/' + data.total + ' (' + data.success + ' success, ' + data.failed + ' failed)';
+                if (barEl) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+            }
+        });
+
+        socket.on('enrich:complete', (data) => {
+            if (data.source === 'overseerr') {
+                const progressDiv = document.getElementById('overseerr-enrich-progress');
+                const statusEl = document.getElementById('overseerr-enrich-status');
+                const btn = document.getElementById('overseerr-enrich-btn');
+                if (statusEl) statusEl.textContent = 'Complete: ' + data.success + ' success, ' + data.failed + ' failed';
+                if (btn) btn.disabled = false;
+                setTimeout(() => {
+                    if (progressDiv) progressDiv.classList.add('hidden');
+                    loadEnrichStats();
+                }, 3000);
+            }
         });
 
         // Initialize settings
         loadSettings();
         loadSources();
         loadEnrichStats();
+        loadEnrichmentQueueStatus();
         loadEpgCountries();
         loadSchedulerStatus();
         checkFfmpeg();
@@ -837,6 +1097,9 @@
             // Update transcode options visibility
             updateTranscodeOptionsVisibility();
             updateWatchFolderOptionsVisibility();
+
+            // Update LLM provider UI
+            updateLLMProviderUI();
         } catch (err) {
             console.error('Failed to load settings:', err);
         }
@@ -1215,20 +1478,104 @@
         }
     }
 
+    function updateWorkerIndicators(count) {
+        const container = document.getElementById('enrich-workers');
+        if (!container) return;
+        container.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const dot = document.createElement('div');
+            dot.className = 'w-3 h-3 rounded-full bg-primary-500 animate-pulse';
+            dot.title = 'Worker ' + (i + 1);
+            container.appendChild(dot);
+        }
+    }
+
+    async function loadEnrichmentQueueStatus() {
+        try {
+            const response = await fetch('/api/enrich/queue');
+            const result = await response.json();
+
+            if (result.isRunning) {
+                // Workers are running, show progress UI
+                const btn = document.getElementById('enrich-btn');
+                const stopBtn = document.getElementById('enrich-stop-btn');
+                const progressDiv = document.getElementById('enrich-progress');
+                const statusEl = document.getElementById('enrich-status');
+                const rateEl = document.getElementById('enrich-rate');
+                const pendingEl = document.getElementById('enrich-pending');
+                const processingEl = document.getElementById('enrich-processing');
+                const completedEl = document.getElementById('enrich-completed');
+                const failedEl = document.getElementById('enrich-failed');
+                const barEl = document.getElementById('enrich-bar');
+
+                if (btn) btn.classList.add('hidden');
+                if (stopBtn) stopBtn.classList.remove('hidden');
+                if (progressDiv) progressDiv.classList.remove('hidden');
+
+                const q = result.queue || {};
+                const total = q.total || 1;
+                const completed = (q.completed || 0) + (q.failed || 0);
+
+                if (statusEl) statusEl.textContent = 'Enriching... ' + completed + '/' + total;
+                if (rateEl) rateEl.textContent = (result.workers?.length || 4) + ' workers active';
+                if (pendingEl) pendingEl.textContent = q.pending || 0;
+                if (processingEl) processingEl.textContent = q.processing || 0;
+                if (completedEl) completedEl.textContent = q.completed || 0;
+                if (failedEl) failedEl.textContent = q.failed || 0;
+
+                if (barEl && total > 0) {
+                    barEl.style.width = Math.round((completed / total) * 100) + '%';
+                }
+
+                updateWorkerIndicators(result.workers?.length || 4);
+            } else {
+                // Workers not running, show start button
+                const btn = document.getElementById('enrich-btn');
+                const stopBtn = document.getElementById('enrich-stop-btn');
+                const progressDiv = document.getElementById('enrich-progress');
+
+                if (btn) btn.classList.remove('hidden');
+                if (stopBtn) stopBtn.classList.add('hidden');
+                if (progressDiv) progressDiv.classList.add('hidden');
+            }
+        } catch (err) {
+            console.error('Failed to load enrichment queue status:', err);
+        }
+    }
+
     async function startEnrichment() {
         try {
             const btn = document.getElementById('enrich-btn');
-            if (btn) btn.disabled = true;
-            await fetch('/api/enrich', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ limit: 500 })
-            });
+            const stopBtn = document.getElementById('enrich-stop-btn');
+            if (btn) btn.classList.add('hidden');
+            if (stopBtn) stopBtn.classList.remove('hidden');
+
+            const response = await fetch('/api/enrich/start', { method: 'POST' });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to start enrichment');
+            }
         } catch (err) {
             console.error('Failed to start enrichment:', err);
-            alert('Failed to start enrichment: ' + err.message);
+            if (window.showToast) showToast('Failed to start enrichment: ' + err.message, 'error');
             const btn = document.getElementById('enrich-btn');
-            if (btn) btn.disabled = false;
+            const stopBtn = document.getElementById('enrich-stop-btn');
+            if (btn) btn.classList.remove('hidden');
+            if (stopBtn) stopBtn.classList.add('hidden');
+        }
+    }
+
+    async function stopEnrichment() {
+        try {
+            const response = await fetch('/api/enrich/stop', { method: 'POST' });
+            const result = await response.json();
+            if (!response.ok) {
+                throw new Error(result.error || 'Failed to stop enrichment');
+            }
+            if (window.showToast) showToast('Enrichment stopped', 'info');
+        } catch (err) {
+            console.error('Failed to stop enrichment:', err);
+            if (window.showToast) showToast('Failed to stop enrichment: ' + err.message, 'error');
         }
     }
 

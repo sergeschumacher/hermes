@@ -86,6 +86,30 @@
         </div>
     </div>
 
+    <!-- Scheduled Recordings -->
+    <div class="card mb-8">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <h2 class="text-lg font-semibold text-white">Recordings</h2>
+            <a href="/epg" class="section-link">
+                View EPG
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                </svg>
+            </a>
+        </div>
+        <div class="p-5" id="dashboard-recordings">
+            <div class="empty-state py-8">
+                <div class="empty-state-icon">
+                    <svg class="w-8 h-8 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                        <circle cx="10" cy="10" r="6" />
+                    </svg>
+                </div>
+                <p class="empty-state-title">No scheduled recordings</p>
+                <p class="empty-state-text">Schedule recordings from the EPG guide</p>
+            </div>
+        </div>
+    </div>
+
     <!-- Active Downloads -->
     <div class="card mb-8">
         <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
@@ -110,61 +134,6 @@
         </div>
     </div>
 
-    <!-- Quick Actions Grid -->
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Browse Content -->
-        <div class="card p-6 card-hover">
-            <div class="flex items-center gap-4 mb-4">
-                <div class="w-10 h-10 rounded-xl bg-primary-500/10 flex items-center justify-center">
-                    <svg class="w-5 h-5 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375" />
-                    </svg>
-                </div>
-                <h3 class="text-lg font-semibold text-white">Browse Movies</h3>
-            </div>
-            <p class="text-gray-400 text-sm mb-4">Explore the movie library and find new content to watch</p>
-            <a href="/movies" class="btn btn-secondary w-full">
-                Browse Movies
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3" />
-                </svg>
-            </a>
-        </div>
-
-        <!-- IPTV Sources -->
-        <div class="card p-6 card-hover">
-            <div class="flex items-center gap-4 mb-4">
-                <div class="w-10 h-10 rounded-xl bg-success-500/10 flex items-center justify-center">
-                    <svg class="w-5 h-5 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.737 5.1a3.375 3.375 0 012.7-1.35h7.126c1.062 0 2.062.5 2.7 1.35l2.587 3.45a4.5 4.5 0 01.9 2.7m0 0a3 3 0 01-3 3m0 3h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008zm-3 6h.008v.008h-.008v-.008zm0-6h.008v.008h-.008v-.008z" />
-                    </svg>
-                </div>
-                <h3 class="text-lg font-semibold text-white">IPTV Sources</h3>
-            </div>
-            <p class="text-gray-400 text-sm mb-4"><span id="stat-sources">0</span> sources configured and ready to use</p>
-            <a href="/settings" class="btn btn-secondary w-full">
-                Manage Sources
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-            </a>
-        </div>
-
-        <!-- Recent Activity -->
-        <div class="card p-6 card-hover">
-            <div class="flex items-center gap-4 mb-4">
-                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
-                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                </div>
-                <h3 class="text-lg font-semibold text-white">Recent Activity</h3>
-            </div>
-            <div class="space-y-3" id="recent-activity">
-                <p class="text-gray-500 text-sm">No recent activity</p>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script>
@@ -178,7 +147,6 @@
             document.getElementById('stat-series').textContent = stats.totalSeries?.toLocaleString() || '0';
             document.getElementById('stat-livetv').textContent = stats.totalLiveTV?.toLocaleString() || '0';
             document.getElementById('stat-downloads').textContent = stats.totalDownloads?.toLocaleString() || '0';
-            document.getElementById('stat-sources').textContent = stats.totalSources || '0';
 
             if (stats.activeDownloads > 0) {
                 document.getElementById('download-badge').textContent = stats.activeDownloads;
@@ -195,5 +163,158 @@
             window.location.href = '/movies?search=' + encodeURIComponent(e.target.value);
         }
     });
+
+    // Load recordings
+    async function loadDashboardRecordings() {
+        try {
+            const resp = await fetch('/api/recordings?upcoming=true');
+            const recordings = await resp.json();
+
+            const container = document.getElementById('dashboard-recordings');
+            if (!recordings || recordings.length === 0) {
+                container.innerHTML = \`
+                    <div class="empty-state py-8">
+                        <div class="empty-state-icon">
+                            <svg class="w-8 h-8 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
+                                <circle cx="10" cy="10" r="6" />
+                            </svg>
+                        </div>
+                        <p class="empty-state-title">No scheduled recordings</p>
+                        <p class="empty-state-text">Schedule recordings from the EPG guide</p>
+                    </div>
+                \`;
+                return;
+            }
+
+            container.innerHTML = \`<div class="space-y-3">\` + recordings.map(rec => {
+                const endTime = new Date(rec.end_time);
+                const endTimeStr = endTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const isRecording = rec.status === 'recording';
+                const isScheduled = rec.status === 'scheduled';
+
+                let durationHtml = '';
+                if (isRecording && rec.actual_start_time) {
+                    durationHtml = \`<span class="recording-duration text-white text-sm font-mono" data-start="\${rec.actual_start_time}">0:00</span>\`;
+                }
+
+                // Action buttons based on status
+                let actionsHtml = \`<div class="flex items-center gap-1">\`;
+                if (isRecording) {
+                    // Stop button for active recordings
+                    actionsHtml += \`
+                        <button onclick="stopRecording(\${rec.id})" class="p-1.5 rounded hover:bg-gray-700 text-yellow-400 hover:text-yellow-300" title="Stop Recording">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                                <rect x="6" y="6" width="8" height="8" rx="1"/>
+                            </svg>
+                        </button>\`;
+                } else if (isScheduled) {
+                    // Cancel button for scheduled recordings
+                    actionsHtml += \`
+                        <button onclick="cancelRecording(\${rec.id})" class="p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white" title="Cancel">
+                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>\`;
+                }
+                // Delete button for all
+                actionsHtml += \`
+                    <button onclick="deleteRecording(\${rec.id})" class="p-1.5 rounded hover:bg-gray-700 text-red-400 hover:text-red-300" title="Delete">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                    </button>\`;
+                actionsHtml += \`</div>\`;
+
+                return \`
+                    <div class="flex items-center gap-4 p-3 rounded-lg \${isRecording ? 'border border-red-500/30' : ''}" style="background-color: #1f2937;">
+                        <div class="w-3 h-3 rounded-full flex-shrink-0 \${isRecording ? 'bg-red-500 animate-pulse' : 'bg-blue-500'}"></div>
+                        <div class="flex-1 min-w-0">
+                            <h4 class="text-white text-sm font-medium truncate">\${rec.title}</h4>
+                            <p class="text-gray-400 text-xs">\${rec.channel_name || 'Channel'} &bull; ends \${endTimeStr}</p>
+                        </div>
+                        \${durationHtml}
+                        <span class="px-2 py-1 rounded text-xs font-medium flex-shrink-0 \${isRecording ? 'bg-red-500/20 text-red-400' : 'bg-blue-500/20 text-blue-400'}">\${rec.status}</span>
+                        \${actionsHtml}
+                    </div>
+                \`;
+            }).join('') + \`</div>\`;
+        } catch (err) {
+            console.error('Failed to load recordings:', err);
+        }
+    }
+
+    // Update recording durations
+    function updateDashboardDurations() {
+        document.querySelectorAll('.recording-duration').forEach(el => {
+            const startTime = new Date(el.dataset.start);
+            const elapsed = Math.floor((Date.now() - startTime.getTime()) / 1000);
+            const hours = Math.floor(elapsed / 3600);
+            const mins = Math.floor((elapsed % 3600) / 60);
+            const secs = elapsed % 60;
+
+            if (hours > 0) {
+                el.textContent = \`\${hours}:\${mins.toString().padStart(2, '0')}:\${secs.toString().padStart(2, '0')}\`;
+            } else {
+                el.textContent = \`\${mins}:\${secs.toString().padStart(2, '0')}\`;
+            }
+        });
+    }
+
+    // Load recordings on page load and refresh periodically
+    loadDashboardRecordings();
+    setInterval(loadDashboardRecordings, 30000);
+    setInterval(updateDashboardDurations, 1000);
+
+    // Recording actions
+    async function stopRecording(id) {
+        if (!confirm('Stop this recording?')) return;
+        try {
+            const resp = await fetch('/api/recordings/' + id + '/stop', { method: 'POST' });
+            if (resp.ok) {
+                if (window.showToast) showToast('Recording stopped', 'success');
+                loadDashboardRecordings();
+            } else {
+                const data = await resp.json();
+                throw new Error(data.error || 'Failed to stop');
+            }
+        } catch (err) {
+            console.error('Failed to stop recording:', err);
+            if (window.showToast) showToast('Failed to stop recording: ' + err.message, 'error');
+        }
+    }
+
+    async function cancelRecording(id) {
+        if (!confirm('Cancel this scheduled recording?')) return;
+        try {
+            const resp = await fetch('/api/recordings/' + id + '/cancel', { method: 'POST' });
+            if (resp.ok) {
+                if (window.showToast) showToast('Recording cancelled', 'success');
+                loadDashboardRecordings();
+            } else {
+                const data = await resp.json();
+                throw new Error(data.error || 'Failed to cancel');
+            }
+        } catch (err) {
+            console.error('Failed to cancel recording:', err);
+            if (window.showToast) showToast('Failed to cancel recording: ' + err.message, 'error');
+        }
+    }
+
+    async function deleteRecording(id) {
+        if (!confirm('Delete this recording? This will also delete the recorded file.')) return;
+        try {
+            const resp = await fetch('/api/recordings/' + id + '?deleteFile=true', { method: 'DELETE' });
+            if (resp.ok) {
+                if (window.showToast) showToast('Recording deleted', 'success');
+                loadDashboardRecordings();
+            } else {
+                const data = await resp.json();
+                throw new Error(data.error || 'Failed to delete');
+            }
+        } catch (err) {
+            console.error('Failed to delete recording:', err);
+            if (window.showToast) showToast('Failed to delete recording: ' + err.message, 'error');
+        }
+    }
 </script>
 ` }) %>

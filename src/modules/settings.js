@@ -55,6 +55,14 @@ const defaults = {
     transcodeWatchEnabled: false,     // Enable watch folder for manual transcoding
     transcodeWatchFolder: '',         // Input folder to watch for files to transcode
     transcodeOutputFolder: '',        // Output folder for transcoded files
+    lowPerformanceMode: false,        // If true, wait for transcode to complete before starting next download
+
+    // LLM settings
+    llmProvider: 'none',                    // 'none', 'openai', 'ollama'
+    openaiApiKey: '',                       // OpenAI API key
+    openaiModel: 'gpt-4o-mini',             // OpenAI model to use
+    ollamaUrl: 'http://localhost:11434',    // Ollama server URL
+    ollamaModel: 'llama3.2',                // Ollama model to use
 
     // User agents for rotation
     userAgents: [

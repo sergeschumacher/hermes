@@ -64,15 +64,47 @@ async function cleanExpiredCache() {
     }
 }
 
+// Language prefix to TMDB language code mapping
+const LANG_PREFIX_MAP = {
+    'EN': 'en',
+    'LAT': 'es',
+    'LATINO': 'es',
+    'ES': 'es',
+    'DE': 'de',
+    'FR': 'fr',
+    'IT': 'it',
+    'PT': 'pt',
+    'BR': 'pt',
+    'NL': 'nl',
+    'PL': 'pl',
+    'RU': 'ru',
+    'TR': 'tr',
+    'AR': 'ar',
+    'JP': 'ja',
+    'KR': 'ko',
+    'CN': 'zh'
+};
+
+// Get allowed languages from settings (or use full map if not configured)
+function getAllowedLanguages() {
+    const preferred = settings?.get('preferredLanguages') || [];
+    if (preferred.length === 0) return null; // No restriction
+    return preferred;
+}
+
+// Known short but valid movie/show titles
+const SHORT_TITLE_WHITELIST = ['up', 'it', 'us', 'io', 'pi', 'if', 'ai', 'go', 'em', 'elf', 'her', 'him', 'air', 'jfk', 'ali', 'ray', 'ted', 'kin', 'ice', 'run', 'raw'];
+
 // Extract clean title from 24/7 channel names
 function extractCleanTitle(title) {
     if (!title) return null;
 
     let clean = title;
+    let language = null;
 
     // Skip category headers (items with multiple # signs)
     if (/^#{2,}|#{2,}$/.test(clean)) {
-        return { title: null, year: null, skip: true };
+        return { title: null, year: null, language: null, skip: true };
     }
 
     // Remove everything after tvg-logo or group-title (M3U metadata)
@@ -85,9 +117,19 @@ function extractCleanTitle(title) {
     clean = clean.replace(/^24\/7\s+/i, '');
     clean = clean.replace(/^\d+\/\d+\s*/i, '');
 
-    // Remove country/language prefixes like "UK:", "DE:", "IT|", "PRIME:", "EN -", "NL -"
-    clean = clean.replace(/^[A-Z]{2,5}[:|]\s*/i, '');
-    clean = clean.replace(/^[A-Z]{2}\s*-\s*/i, '');
+    // Extract and remove country/language prefixes like "UK:", "DE:", "IT|", "PRIME:", "EN -", "LAT -"
+    // Capture the language hint before removing (only if in preferred languages)
+    const langPrefixMatch = clean.match(/^([A-Z]{2,6})\s*[-:|]\s*/i);
+    if (langPrefixMatch) {
+        const prefix = langPrefixMatch[1].toUpperCase();
+        const mappedLang = LANG_PREFIX_MAP[prefix];
+        const allowedLangs = getAllowedLanguages();
+        // Only use language hint if it's in preferred languages (or no restriction)
+        if (mappedLang && (!allowedLangs || allowedLangs.includes(mappedLang))) {
+            language = mappedLang;
+        }
+        clean = clean.replace(/^[A-Z]{2,6}\s*[-:|]\s*/i, '');
+    }
 
     // Remove quality indicators
     clean = clean.replace(/\s*(HD|4K|FHD|UHD|SD|\d{3,4}p)\s*/gi, ' ');
@@ -98,9 +140,9 @@ function extractCleanTitle(title) {
     clean = clean.replace(/\s*[-_]\s*$/g, '');
 
     // Remove year in parentheses but capture it
-    const yearMatch = clean.match(/\((\d{4})\)/);
+    const yearMatch = clean.match(/\((\d{4})\)?/);
     const year = yearMatch ? parseInt(yearMatch[1]) : null;
-    clean = clean.replace(/\s*\(\d{4}\)\s*/g, ' ');
+    clean = clean.replace(/\s*\(\d{4}\)?\s*/g, ' ');
 
     // Clean up whitespace
     clean = clean.replace(/\s+/g, ' ').trim();
@@ -108,23 +150,53 @@ function extractCleanTitle(title) {
     // Skip if the result is a generic channel name (not a movie/series title)
     const genericPatterns = [
         /^sky\s+(cinema|movies?|atlantic|showcase)/i,
-        /^(hbo|cinemax|showtime|starz|encore)\s*(max|hits|family|edge|comedy|action)?$/i,
+        /^(hbo|cinemax|showtime|starz|encore)\s*(max|hits|family|edge|comedy|action|\d+)?$/i,
         /^(netflix|disney\+?|amazon|prime|apple\s*tv)\s*(action|comedy|drama|romance|horror|sci-?fi|documentary|kids)?$/i,
         /^(cinema|movie|film|kino)\s*(action|comedy|drama|romance|horror|sci-?fi|documentary|kids|\d+)?$/i,
         /^(channel|kanal)\s*\d+$/i,
         /^(bbc|itv|channel|e4|sky)\s*\d*$/i,
         /^(mix|info|box\s*office|ppv|event)/i,
-        /^\d+$/,  // Just numbers
-        /^.{0,2}$/  // Too short
+        /^(canal\+?|orange|ocs|polsat|axn)\s*(cinema|film|seriale|go|now|premium)?\s*(aventure|\d+)?/i,
+        /^a\s*la\s*carte\s*\d+$/i,
+        /^comedy\s*central/i,
+        /^\d$/  // Only single digit numbers (allows movie titles like 65, 300, 1917, 2001)
     ];
 
     for (const pattern of genericPatterns) {
         if (pattern.test(clean)) {
-            return { title: null, year: null, skip: true };
+            return { title: null, year: null, language: null, skip: true };
         }
     }
 
-    return { title: clean, year, skip: false };
+    // Handle short titles - allow known valid ones
+    if (clean.length <= 2 && !SHORT_TITLE_WHITELIST.includes(clean.toLowerCase())) {
+        return { title: null, year: null, language: null, skip: true };
+    }
+
+    return { title: clean, year, language, skip: false };
+}
+
+// Extract YouTube trailer URLs from TMDB videos response
+function extractTrailers(videos) {
+    if (!videos || !Array.isArray(videos)) return [];
+
+    return videos
+        .filter(v => v.site === 'YouTube' && v.key)
+        .map(v => ({
+            youtube_key: v.key,
+            youtube_url: `https://www.youtube.com/watch?v=${v.key}`,
+            name: v.name,
+            type: v.type,  // Trailer, Teaser, Clip, Featurette
+            official: v.official ? 1 : 0,
+            published_at: v.published_at
+        }))
+        // Prioritize: Official Trailers > Trailers > Teasers > Others
+        .sort((a, b) => {
+            const typeOrder = { 'Trailer': 0, 'Teaser': 1, 'Clip': 2, 'Featurette': 3 };
+            const aScore = (a.official ? 0 : 10) + (typeOrder[a.type] ?? 5);
+            const bScore = (b.official ? 0 : 10) + (typeOrder[b.type] ?? 5);
+            return aScore - bScore;
+        });
 }
 
 async function request(endpoint, params = {}) {
@@ -169,14 +241,15 @@ module.exports = {
         return data;
     },
 
-    // Search for a movie by title and year
-    searchMovie: async (title, year = null) => {
-        const cacheKey = `search_movie:${title}:${year || ''}`;
+    // Search for a movie by title, year, and optional language
+    searchMovie: async (title, year = null, language = null) => {
+        const cacheKey = `search_movie:${title}:${year || ''}:${language || ''}`;
         const cached = await getCached(cacheKey, 'search_movie');
         if (cached) return cached;
 
         const params = { query: title };
         if (year) params.year = year;
+        if (language) params.language = language;
 
         const data = await request('/search/movie', params);
         const results = data.results || [];
@@ -185,14 +258,15 @@ module.exports = {
         return results;
     },
 
-    // Search for a TV show by title
-    searchTv: async (title, year = null) => {
-        const cacheKey = `search_tv:${title}:${year || ''}`;
+    // Search for a TV show by title, year, and optional language
+    searchTv: async (title, year = null, language = null) => {
+        const cacheKey = `search_tv:${title}:${year || ''}:${language || ''}`;
         const cached = await getCached(cacheKey, 'search_tv');
         if (cached) return cached;
 
         const params = { query: title };
         if (year) params.first_air_date_year = year;
+        if (language) params.language = language;
 
         const data = await request('/search/tv', params);
         const results = data.results || [];
@@ -234,6 +308,7 @@ module.exports = {
             genres: data.genres?.map(g => g.name).join(', '),
             imdb_id: data.imdb_id,
             videos: data.videos?.results || [],
+            trailers: extractTrailers(data.videos?.results),
             releases: data.releases,
             cast: data.credits?.cast?.slice(0, 20).map(p => ({
                 id: p.id,
@@ -290,6 +365,7 @@ module.exports = {
             number_of_seasons: data.number_of_seasons,
             number_of_episodes: data.number_of_episodes,
             videos: data.videos?.results || [],
+            trailers: extractTrailers(data.videos?.results),
             content_ratings: data.content_ratings,
             seasons: data.seasons?.map(s => ({
                 id: s.id,
@@ -404,6 +480,7 @@ module.exports = {
             await db.run(`
                 UPDATE media SET
                     tmdb_id = ?,
+                    tagline = ?,
                     plot = COALESCE(?, plot),
                     poster = COALESCE(?, poster),
                     backdrop = COALESCE(?, backdrop),
@@ -415,10 +492,28 @@ module.exports = {
                     last_updated = CURRENT_TIMESTAMP
                 WHERE id = ?
             `, [
-                tmdbData.id, tmdbData.overview, tmdbData.poster_path, tmdbData.backdrop_path,
+                tmdbData.id, tmdbData.tagline, tmdbData.overview, tmdbData.poster_path, tmdbData.backdrop_path,
                 tmdbData.vote_average, tmdbData.genres, tmdbData.imdb_id, tmdbData.year,
                 tmdbData.runtime, mediaId
             ]);
+
+            // Store trailers
+            if (tmdbData.trailers && tmdbData.trailers.length > 0) {
+                for (const trailer of tmdbData.trailers.slice(0, 5)) {  // Max 5 trailers per item
+                    try {
+                        await db.run(`
+                            INSERT OR IGNORE INTO media_trailers
+                            (media_id, youtube_key, name, type, official, published_at)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        `, [
+                            mediaId, trailer.youtube_key, trailer.name,
+                            trailer.type, trailer.official, trailer.published_at
+                        ]);
+                    } catch (err) {
+                        // Ignore duplicate trailers
+                    }
+                }
+            }
 
             // Add cast/crew to people and media_people
             for (const person of [...tmdbData.cast, ...tmdbData.crew]) {
@@ -708,6 +803,7 @@ module.exports = {
                     await db.run(`
                         UPDATE media SET
                             tmdb_id = ?,
+                            tagline = ?,
                             original_title = COALESCE(?, original_title),
                             plot = COALESCE(?, plot),
                             poster = COALESCE(?, poster),
@@ -720,11 +816,29 @@ module.exports = {
                             last_updated = CURRENT_TIMESTAMP
                         WHERE id = ?
                     `, [
-                        tmdbData.id, tmdbData.original_title, tmdbData.overview,
+                        tmdbData.id, tmdbData.tagline, tmdbData.original_title, tmdbData.overview,
                         tmdbData.poster_path, tmdbData.backdrop_path, tmdbData.vote_average,
                         tmdbData.genres, tmdbData.imdb_id, tmdbData.year, tmdbData.runtime,
                         item.id
                     ]);
+
+                    // Store trailers
+                    if (tmdbData.trailers && tmdbData.trailers.length > 0) {
+                        for (const trailer of tmdbData.trailers.slice(0, 5)) {
+                            try {
+                                await db.run(`
+                                    INSERT OR IGNORE INTO media_trailers
+                                    (media_id, youtube_key, name, type, official, published_at)
+                                    VALUES (?, ?, ?, ?, ?, ?)
+                                `, [
+                                    item.id, trailer.youtube_key, trailer.name,
+                                    trailer.type, trailer.official, trailer.published_at
+                                ]);
+                            } catch (err) {
+                                // Ignore duplicate trailers
+                            }
+                        }
+                    }
 
                     success++;
                     logger.debug('tmdb', `Deep enriched: "${item.title}" -> TMDB ID ${tmdbData.id}`);

@@ -243,6 +243,16 @@ async function processQueue() {
 
     if (activeDownloads >= maxConcurrent) return;
 
+    // Low performance mode: don't start new downloads while transcoding is active
+    const lowPerfMode = settings.get('lowPerformanceMode');
+    if (lowPerfMode && transcoder) {
+        const transcoderStatus = transcoder.getStatus();
+        if (transcoderStatus.isProcessing) {
+            // Transcoding in progress, skip starting new downloads
+            return;
+        }
+    }
+
     const download = await db.get(`
         SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id,
                e.stream_url as episode_url, e.external_id as episode_external_id,
