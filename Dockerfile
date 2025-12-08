@@ -1,9 +1,27 @@
+# Build stage - includes dev dependencies for building CSS
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install ALL dependencies (including dev for tailwindcss)
+RUN npm ci
+
+# Copy application files
+COPY . .
+
+# Build Tailwind CSS
+RUN npm run build:css
+
+# Production stage
 FROM node:20-alpine
 
 LABEL maintainer="Hermes"
 LABEL description="IPTV Media Manager"
 
-# Install build dependencies
+# Install runtime dependencies
 RUN apk add --no-cache python3 make g++ sqlite
 
 WORKDIR /app
@@ -11,14 +29,12 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
+# Install production dependencies only
 RUN npm ci --only=production
 
-# Copy application files
+# Copy application files from builder (includes built CSS)
+COPY --from=builder /app/web/static/css/output.css ./web/static/css/output.css
 COPY . .
-
-# Build Tailwind CSS
-RUN npm run build:css
 
 # Create data directory
 RUN mkdir -p /data/config /data/cache /data/temp /data/downloads
