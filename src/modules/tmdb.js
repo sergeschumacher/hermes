@@ -205,10 +205,23 @@ async function request(endpoint, params = {}) {
         throw new Error('TMDB API key not configured');
     }
 
-    const response = await axios.get(`${TMDB_BASE_URL}${endpoint}`, {
-        params: { api_key: apiKey, ...params },
+    // Check if it's a Bearer token (JWT) or a v3 API key
+    const isBearer = apiKey.startsWith('eyJ');
+
+    const config = {
         timeout: 10000
-    });
+    };
+
+    if (isBearer) {
+        // Use v4 API with Bearer token in header
+        config.headers = { Authorization: `Bearer ${apiKey}` };
+        config.params = params;
+    } else {
+        // Use v3 API with api_key param
+        config.params = { api_key: apiKey, ...params };
+    }
+
+    const response = await axios.get(`${TMDB_BASE_URL}${endpoint}`, config);
 
     return response.data;
 }

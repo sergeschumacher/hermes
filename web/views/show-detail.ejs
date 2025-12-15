@@ -251,6 +251,126 @@
         font-size: 0.75rem;
         color: rgba(156, 163, 175, 1);
     }
+    /* Trailer Button */
+    .btn-trailer {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.625rem 1rem;
+        background: rgba(255, 255, 255, 0.1);
+        color: white;
+        border-radius: 9999px;
+        font-weight: 600;
+        font-size: 0.875rem;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .btn-trailer:hover {
+        background: rgba(255, 255, 255, 0.15);
+    }
+    /* Trailer Preview */
+    .trailer-preview {
+        position: relative;
+        cursor: pointer;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        max-width: 320px;
+        margin-top: 1.5rem;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+    }
+    .trailer-preview img {
+        width: 100%;
+        display: block;
+    }
+    .trailer-play-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.4);
+        transition: background 0.2s;
+    }
+    .trailer-preview:hover .trailer-play-overlay {
+        background: rgba(0, 0, 0, 0.6);
+    }
+    .trailer-play-btn {
+        width: 4rem;
+        height: 4rem;
+        background: rgba(255, 0, 0, 0.9);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform 0.2s, background 0.2s;
+    }
+    .trailer-preview:hover .trailer-play-btn {
+        transform: scale(1.1);
+        background: rgba(255, 0, 0, 1);
+    }
+    .trailer-play-btn svg {
+        width: 1.5rem;
+        height: 1.5rem;
+        fill: white;
+        margin-left: 4px;
+    }
+    .trailer-label {
+        color: white;
+        font-weight: 600;
+        margin-top: 0.75rem;
+        font-size: 0.875rem;
+        text-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
+    }
+    /* Trailer Modal */
+    .trailer-modal {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.9);
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s, visibility 0.3s;
+    }
+    .trailer-modal.active {
+        opacity: 1;
+        visibility: visible;
+    }
+    .trailer-modal-close {
+        position: absolute;
+        top: 1rem;
+        right: 1rem;
+        width: 2.5rem;
+        height: 2.5rem;
+        background: rgba(255, 255, 255, 0.1);
+        border: none;
+        border-radius: 50%;
+        color: white;
+        font-size: 1.5rem;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: background 0.2s;
+    }
+    .trailer-modal-close:hover {
+        background: rgba(255, 255, 255, 0.2);
+    }
+    .trailer-modal-content {
+        width: 90%;
+        max-width: 960px;
+        aspect-ratio: 16/9;
+    }
+    .trailer-modal-content iframe {
+        width: 100%;
+        height: 100%;
+        border: none;
+        border-radius: 0.5rem;
+    }
 </style>
 
 <div id="show-container">
@@ -263,21 +383,28 @@
     const showName = '<%= showName %>';
     let showData = null;
     let tmdbData = null;
+    let storedTrailers = []; // Trailers from database
     let expandedSeasons = new Set();
     let seasonEpisodeCache = {};
     let selectedLanguage = null; // null = show all languages merged
 
     async function loadShow() {
         try {
-            const [showResponse, tmdbResponse] = await Promise.all([
+            const [showResponse, tmdbResponse, trailersResponse] = await Promise.all([
                 fetch('/api/shows/' + encodeURIComponent(showName)),
-                fetch('/api/shows/' + encodeURIComponent(showName) + '/tmdb').catch(() => null)
+                fetch('/api/shows/' + encodeURIComponent(showName) + '/tmdb').catch(() => null),
+                fetch('/api/shows/' + encodeURIComponent(showName) + '/trailers').catch(() => null)
             ]);
 
             showData = await showResponse.json();
 
             if (tmdbResponse && tmdbResponse.ok) {
                 tmdbData = await tmdbResponse.json();
+            }
+
+            // Parse stored trailers from database
+            if (trailersResponse && trailersResponse.ok) {
+                storedTrailers = await trailersResponse.json();
             }
 
             renderShow();
@@ -334,6 +461,13 @@
                              tmdbData?.content_ratings?.results?.find(r => r.iso_3166_1 === 'DE')?.rating || '';
         const externalIds = tmdbData?.external_ids || {};
 
+        // Trailer - prefer TMDB videos (direct array), fall back to stored trailers from database
+        const tmdbTrailer = tmdbData?.videos?.find?.(v => v.type === 'Trailer' && v.site === 'YouTube')
+                        || tmdbData?.videos?.find?.(v => v.type === 'Teaser' && v.site === 'YouTube');
+        // Stored trailers have youtube_key instead of key
+        const storedTrailer = storedTrailers.find(t => t.type === 'Trailer') || storedTrailers[0];
+        const trailer = tmdbTrailer ? { key: tmdbTrailer.key } : (storedTrailer ? { key: storedTrailer.youtube_key } : null);
+
         container.innerHTML = `
             <!-- Media Page with Backdrop -->
             <div class="media-page">
@@ -363,6 +497,19 @@
 
                     <!-- Actions -->
                     <div class="media-actions">
+                        ${trailer ? `
+                            <button onclick="openTrailerModal('${trailer.key}')" class="btn-trailer">
+                                <svg style="width: 1.25rem; height: 1.25rem;" fill="currentColor" viewBox="0 0 20 20">
+                                    <path d="M6.3 2.841A1.5 1.5 0 004 4.11V15.89a1.5 1.5 0 002.3 1.269l9.344-5.89a1.5 1.5 0 000-2.538L6.3 2.84z" />
+                                </svg>
+                                Trailer
+                            </button>
+                        ` : ''}
+                        <button onclick="enrichShow()" class="btn-icon" title="Enrich with TMDB" id="enrich-btn">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
                         <button class="btn-icon" title="External links">
                             <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -381,6 +528,19 @@
                         <h2 style="font-size: 1.125rem; font-weight: 600; margin-bottom: 0.75rem;">Overview</h2>
                         <p style="color: rgba(209, 213, 219, 1); line-height: 1.625;">${plot || 'No overview available.'}</p>
                     </div>
+
+                    <!-- Trailer Thumbnail -->
+                    ${trailer ? `
+                        <div class="trailer-preview" onclick="openTrailerModal('${trailer.key}')">
+                            <img src="https://img.youtube.com/vi/${trailer.key}/hqdefault.jpg" alt="Watch Trailer" />
+                            <div class="trailer-play-overlay">
+                                <div class="trailer-play-btn">
+                                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                </div>
+                                <span class="trailer-label">Watch Trailer</span>
+                            </div>
+                        </div>
+                    ` : ''}
 
                     <!-- Creators -->
                     ${creators.length > 0 ? `
@@ -518,6 +678,14 @@
                             ` : ''}
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Trailer Modal -->
+            <div id="trailer-modal" class="trailer-modal" onclick="if(event.target === this) closeTrailerModal()">
+                <button class="trailer-modal-close" onclick="closeTrailerModal()">&times;</button>
+                <div class="trailer-modal-content">
+                    <iframe id="trailer-iframe" src="" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
                 </div>
             </div>
         `;
@@ -864,6 +1032,80 @@
             alert('Failed to add to queue');
         }
     }
+
+    async function enrichShow() {
+        const btn = document.getElementById('enrich-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin" style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+        }
+
+        try {
+            const response = await fetch('/api/shows/' + encodeURIComponent(showName) + '/enrich', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                if (window.showToast) {
+                    showToast('Enrichment started for ' + result.mediaCount + ' entries! Refreshing...', 'success');
+                }
+                // Wait a bit for enrichment to complete, then reload the page
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+            } else {
+                if (window.showToast) {
+                    showToast(result.error || 'Failed to start enrichment', 'error');
+                } else {
+                    alert(result.error || 'Failed to start enrichment');
+                }
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>';
+                }
+            }
+        } catch (err) {
+            if (window.showToast) {
+                showToast('Failed to enrich: ' + err.message, 'error');
+            } else {
+                alert('Failed to enrich: ' + err.message);
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>';
+            }
+        }
+    }
+
+    // Trailer modal functions
+    function openTrailerModal(videoKey) {
+        const modal = document.getElementById('trailer-modal');
+        const iframe = document.getElementById('trailer-iframe');
+        if (modal && iframe) {
+            iframe.src = `https://www.youtube.com/embed/${videoKey}?autoplay=1&rel=0`;
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        }
+    }
+
+    function closeTrailerModal() {
+        const modal = document.getElementById('trailer-modal');
+        const iframe = document.getElementById('trailer-iframe');
+        if (modal && iframe) {
+            iframe.src = '';  // Stop the video
+            modal.classList.remove('active');
+            document.body.style.overflow = '';
+        }
+    }
+
+    // Close modal on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeTrailerModal();
+        }
+    });
 
     loadShow();
 </script>

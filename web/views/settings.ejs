@@ -1310,9 +1310,9 @@
             document.getElementById('source-devicekey').value = source.spoofed_device_key || '';
             // Player simulation settings (defaults if not set)
             const simulatePlayback = source.simulate_playback !== undefined ? source.simulate_playback : 1;
-            const speedMultiplier = source.playback_speed_multiplier !== undefined ? source.playback_speed_multiplier : 1.5;
+            const speedMultiplier = source.playback_speed_multiplier != null ? source.playback_speed_multiplier : 1.5;
             document.getElementById('source-simulate-playback').checked = simulatePlayback === 1;
-            document.getElementById('source-playback-speed').value = speedMultiplier.toString();
+            document.getElementById('source-playback-speed').value = String(speedMultiplier);
             document.getElementById('playback-speed-container').style.display = simulatePlayback === 1 ? 'block' : 'none';
             document.getElementById('xtream-fields').style.display = source.type === 'xtream' ? 'block' : 'none';
             document.getElementById('source-modal').classList.remove('hidden');
@@ -1648,17 +1648,46 @@
             const statusEl = document.getElementById('sync-status-' + data.sourceId);
             const barEl = document.getElementById('sync-bar-' + data.sourceId);
             if (progressEl) progressEl.classList.remove('hidden');
-            if (statusEl) statusEl.textContent = data.message || ('Syncing... ' + data.current + '/' + data.total);
-            if (barEl && data.total) barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+
+            // Build status message with optional stats
+            let msg = data.message || ('Syncing... ' + data.current + '/' + data.total);
+            if (statusEl) statusEl.textContent = msg;
+
+            // Use percent if available, otherwise calculate from current/total
+            if (barEl) {
+                if (data.percent !== undefined) {
+                    barEl.style.width = data.percent + '%';
+                } else if (data.total) {
+                    barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+                }
+            }
         });
 
         socket.on('sync:source:complete', (data) => {
             const progressEl = document.getElementById('sync-progress-' + data.sourceId);
+            const statusEl = document.getElementById('sync-status-' + data.sourceId);
+            const barEl = document.getElementById('sync-bar-' + data.sourceId);
             const btnEl = document.getElementById('sync-btn-' + data.sourceId);
-            if (progressEl) progressEl.classList.add('hidden');
+
+            // Show sync summary with stats if available
+            if (data.stats && statusEl) {
+                const s = data.stats;
+                statusEl.textContent = 'Done: +' + s.added + ' new, ~' + s.updated + ' updated, -' + s.removed + ' removed';
+                if (barEl) barEl.style.width = '100%';
+
+                // Keep the summary visible for a few seconds
+                setTimeout(() => {
+                    if (progressEl) progressEl.classList.add('hidden');
+                    loadSourceStats(data.sourceId);
+                    loadSources();
+                }, 4000);
+            } else {
+                if (progressEl) progressEl.classList.add('hidden');
+                loadSourceStats(data.sourceId);
+                loadSources();
+            }
+
             if (btnEl) btnEl.disabled = false;
-            loadSourceStats(data.sourceId);
-            loadSources();
         });
 
         // Per-source enrichment progress

@@ -475,6 +475,7 @@
     const mediaId = '<%= mediaId %>';
     let mediaData = null;
     let tmdbData = null;
+    let storedTrailers = []; // Trailers from database
     let mediaVersions = []; // All language versions of this movie
     let selectedVersionId = null; // Currently selected version for download
 
@@ -520,10 +521,11 @@
 
     async function loadMedia() {
         try {
-            // Fetch media data and versions in parallel
-            const [mediaResponse, versionsResponse] = await Promise.all([
+            // Fetch media data, versions, and stored trailers in parallel
+            const [mediaResponse, versionsResponse, trailersResponse] = await Promise.all([
                 fetch('/api/media/' + mediaId),
-                fetch('/api/media/' + mediaId + '/versions').catch(() => null)
+                fetch('/api/media/' + mediaId + '/versions').catch(() => null),
+                fetch('/api/media/' + mediaId + '/trailers').catch(() => null)
             ]);
 
             mediaData = await mediaResponse.json();
@@ -533,6 +535,11 @@
                 mediaVersions = await versionsResponse.json();
             } else {
                 mediaVersions = [mediaData]; // Fallback to just the current media
+            }
+
+            // Parse stored trailers from database
+            if (trailersResponse && trailersResponse.ok) {
+                storedTrailers = await trailersResponse.json();
             }
 
             // Try to fetch TMDB data if we have a tmdb_id
@@ -638,8 +645,12 @@
         // Cast data
         const cast = tmdbData?.credits?.cast || [];
 
-        // Trailer
-        const trailer = tmdbData?.videos?.results?.find(v => v.type === 'Trailer' && v.site === 'YouTube');
+        // Trailer - prefer TMDB videos (direct array), fall back to stored trailers from database
+        const tmdbTrailer = tmdbData?.videos?.find?.(v => v.type === 'Trailer' && v.site === 'YouTube')
+                        || tmdbData?.videos?.find?.(v => v.type === 'Teaser' && v.site === 'YouTube');
+        // Stored trailers have youtube_key instead of key
+        const storedTrailer = storedTrailers.find(t => t.type === 'Trailer') || storedTrailers[0];
+        const trailer = tmdbTrailer ? { key: tmdbTrailer.key } : (storedTrailer ? { key: storedTrailer.youtube_key } : null);
 
         // Rating display
         const ratingPercent = rating ? Math.round(rating * 10) : 0;
@@ -683,6 +694,11 @@
                         ` : ''}
                         <!-- Language Selector -->
                         <div id="language-selector-container"></div>
+                        <button onclick="enrichMedia(${media.id})" class="btn-icon" title="Enrich with TMDB" id="enrich-btn">
+                            <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                        </button>
                         <button onclick="downloadMedia(selectedVersionId)" class="btn-request">
                             <svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1008,6 +1024,52 @@
                 showToast('Failed to add to queue', 'error');
             } else {
                 alert('Failed to add to queue');
+            }
+        }
+    }
+
+    async function enrichMedia(mediaId) {
+        const btn = document.getElementById('enrich-btn');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerHTML = '<svg class="animate-spin" style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+        }
+
+        try {
+            const response = await fetch('/api/media/' + mediaId + '/enrich', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                if (window.showToast) {
+                    showToast('Enrichment started! Refreshing...', 'success');
+                }
+                // Wait a bit for enrichment to complete, then reload the page
+                setTimeout(() => {
+                    window.location.reload();
+                }, 3000);
+            } else {
+                if (window.showToast) {
+                    showToast(result.error || 'Enrichment failed', 'error');
+                } else {
+                    alert(result.error || 'Enrichment failed');
+                }
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>';
+                }
+            }
+        } catch (err) {
+            if (window.showToast) {
+                showToast('Failed to start enrichment', 'error');
+            } else {
+                alert('Failed to start enrichment');
+            }
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg style="width: 1.25rem; height: 1.25rem;" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>';
             }
         }
     }

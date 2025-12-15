@@ -528,7 +528,7 @@ function setupApiRoutes() {
     // Media endpoints
     router.get('/media', async (req, res) => {
         try {
-            const { type, search, year, quality, language, genre, category, source, sort, order, limit, offset, dedupe } = req.query;
+            const { type, search, year, quality, language, genre, category, source, platform, sort, order, limit, offset, dedupe, recently_added, include_inactive } = req.query;
 
             // For movies, deduplicate by normalized title (keeping best version with TMDB poster)
             const shouldDedupe = dedupe !== 'false' && (type === 'movie');
@@ -618,6 +618,21 @@ function setupApiRoutes() {
                 sql += ' AND source_id = ?';
                 params.push(parseInt(source));
             }
+            if (platform) {
+                sql += ' AND platform = ?';
+                params.push(platform);
+            }
+
+            // Filter by recently added (last 2 weeks by default, or custom days)
+            if (recently_added) {
+                const days = parseInt(recently_added) || 14;
+                sql += ` AND created_at >= datetime('now', '-${days} days')`;
+            }
+
+            // Filter out inactive items unless explicitly requested
+            if (include_inactive !== 'true') {
+                sql += ' AND (is_active = 1 OR is_active IS NULL)';
+            }
 
             // Close the subquery and filter for dedupe
             if (shouldDedupe) {
@@ -637,15 +652,28 @@ function setupApiRoutes() {
                 sql += ` ORDER BY ${sortField} ${sortOrder}`;
             }
 
+            // Build count query before adding pagination
+            // We need to count without the LIMIT/OFFSET
+            let countSql = sql.replace(/SELECT \* FROM/, 'SELECT COUNT(*) as total FROM');
+            if (shouldDedupe) {
+                // For dedupe queries, wrap in subquery to count unique results
+                countSql = `SELECT COUNT(*) as total FROM (${sql}) as deduped`;
+            }
+            const countParams = [...params];
+
             // Pagination
             const limitNum = Math.min(parseInt(limit) || 50, 100);
             const offsetNum = parseInt(offset) || 0;
             sql += ' LIMIT ? OFFSET ?';
             params.push(limitNum, offsetNum);
 
-            const media = await modules.db.all(sql, params);
+            const [media, countResult] = await Promise.all([
+                modules.db.all(sql, params),
+                modules.db.get(countSql, countParams)
+            ]);
+            const totalCount = countResult?.total || 0;
 
-            // Add source name to each media item
+            // Add source name and is_new flag to each media item
             if (media.length > 0) {
                 const sourceIds = [...new Set(media.filter(m => m.source_id).map(m => m.source_id))];
                 if (sourceIds.length > 0) {
@@ -662,9 +690,30 @@ function setupApiRoutes() {
                         m.source_name = sourceMap[m.source_id] || null;
                     }
                 }
+
+                // Add is_new flag for items created in the last 14 days
+                const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+                for (const m of media) {
+                    m.is_new = m.created_at && m.created_at >= twoWeeksAgo;
+                }
+
+                // Add has_trailer flag for items with trailers
+                const mediaIds = media.map(m => m.id);
+                if (mediaIds.length > 0) {
+                    const placeholders = mediaIds.map(() => '?').join(',');
+                    const trailerMedia = await modules.db.all(
+                        `SELECT DISTINCT media_id FROM media_trailers WHERE media_id IN (${placeholders})`,
+                        mediaIds
+                    );
+                    const trailerSet = new Set(trailerMedia.map(t => t.media_id));
+                    for (const m of media) {
+                        m.has_trailer = trailerSet.has(m.id) ? 1 : 0;
+                    }
+                }
             }
 
-            res.json(media);
+            // Return with total count for proper pagination display
+            res.json({ items: media, total: totalCount });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -1728,6 +1777,43 @@ function setupApiRoutes() {
         }
     });
 
+    // Enrich a single media item by ID
+    router.post('/media/:id/enrich', async (req, res) => {
+        try {
+            const mediaId = parseInt(req.params.id);
+            const db = modules.db;
+
+            // Get the media item
+            const media = await db.get('SELECT * FROM media WHERE id = ?', [mediaId]);
+            if (!media) {
+                return res.status(404).json({ error: 'Media not found' });
+            }
+
+            // Reset enrichment_attempted to allow re-enrichment
+            await db.run('UPDATE media SET enrichment_attempted = NULL, tmdb_id = NULL WHERE id = ?', [mediaId]);
+
+            // Queue it for enrichment with high priority
+            if (modules.enrichment) {
+                await modules.enrichment.queueMediaForEnrichment([mediaId], 100);
+
+                // Start workers if not running
+                if (!modules.enrichment.isRunning()) {
+                    await modules.enrichment.startWorkers();
+                }
+
+                res.json({
+                    success: true,
+                    message: `Queued "${media.title}" for enrichment`,
+                    mediaId: mediaId
+                });
+            } else {
+                res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Deep enrichment - re-enriches media with TMDB posters but no tmdb_id
     router.post('/enrich/deep', async (req, res) => {
         try {
@@ -1997,9 +2083,55 @@ function setupApiRoutes() {
     // Get grouped shows (for Netflix-style series view)
     router.get('/shows', async (req, res) => {
         try {
-            const { search, quality, year, language, source, sort, order, limit, offset } = req.query;
+            const { search, quality, year, language, source, platform, sort, order, limit, offset, recently_added, include_inactive } = req.query;
             const db = modules.db;
 
+            // Build WHERE clause separately for reuse in count query
+            let whereClause = `WHERE media_type = 'series' AND show_name IS NOT NULL AND show_name != ''`;
+            const params = [];
+
+            // Filter out inactive items unless explicitly requested
+            if (include_inactive !== 'true') {
+                whereClause += ' AND (is_active = 1 OR is_active IS NULL)';
+            }
+
+            if (search) {
+                whereClause += ' AND show_name LIKE ?';
+                params.push(`%${search}%`);
+            }
+
+            if (quality) {
+                whereClause += ' AND quality = ?';
+                params.push(quality);
+            }
+
+            if (year) {
+                whereClause += ' AND (year = ? OR title LIKE ?)';
+                params.push(parseInt(year), `%(${year})%`);
+            }
+
+            if (language) {
+                // Check both show_language (from episodes) and language (from M3U sources)
+                whereClause += ' AND (show_language = ? OR (show_language IS NULL AND language = ?))';
+                params.push(language, language);
+            }
+
+            if (source) {
+                whereClause += ' AND source_id = ?';
+                params.push(parseInt(source));
+            }
+            if (platform) {
+                whereClause += ' AND platform = ?';
+                params.push(platform);
+            }
+
+            // Filter by recently added (last N days)
+            if (recently_added) {
+                const days = parseInt(recently_added) || 14;
+                whereClause += ` AND created_at >= datetime('now', '-${days} days')`;
+            }
+
+            // Build main query with SELECT and GROUP BY
             let sql = `
                 SELECT
                     show_name,
@@ -2009,44 +2141,21 @@ function setupApiRoutes() {
                     MAX(poster) as poster,
                     MAX(rating) as rating,
                     MAX(year) as year,
-                    MAX(quality) as quality
+                    MAX(quality) as quality,
+                    MAX(created_at) as created_at,
+                    MAX(CASE WHEN EXISTS(
+                        SELECT 1 FROM media_trailers mt WHERE mt.media_id = media.id
+                    ) THEN 1 ELSE 0 END) as has_trailer
                 FROM media
-                WHERE media_type = 'series'
-                  AND show_name IS NOT NULL
-                  AND show_name != ''
-            `;
-            const params = [];
+                ${whereClause}
+                GROUP BY show_name`;
 
-            if (search) {
-                sql += ' AND show_name LIKE ?';
-                params.push(`%${search}%`);
-            }
-
-            if (quality) {
-                sql += ' AND quality = ?';
-                params.push(quality);
-            }
-
-            if (year) {
-                sql += ' AND (year = ? OR title LIKE ?)';
-                params.push(parseInt(year), `%(${year})%`);
-            }
-
-            if (language) {
-                // Check both show_language (from episodes) and language (from M3U sources)
-                sql += ' AND (show_language = ? OR (show_language IS NULL AND language = ?))';
-                params.push(language, language);
-            }
-
-            if (source) {
-                sql += ' AND source_id = ?';
-                params.push(parseInt(source));
-            }
-
-            sql += ' GROUP BY show_name';
+            // Build count query using same WHERE clause
+            const countSql = `SELECT COUNT(DISTINCT show_name) as total FROM media ${whereClause}`;
+            const countParams = [...params];
 
             // Sorting
-            const sortField = ['show_name', 'year', 'rating', 'episode_count'].includes(sort) ? sort : 'show_name';
+            const sortField = ['show_name', 'year', 'rating', 'episode_count', 'created_at'].includes(sort) ? sort : 'show_name';
             const sortOrder = order === 'desc' ? 'DESC' : 'ASC';
 
             if (sortField === 'show_name') {
@@ -2063,8 +2172,99 @@ function setupApiRoutes() {
             sql += ' LIMIT ? OFFSET ?';
             params.push(limitNum, offsetNum);
 
-            const shows = await db.all(sql, params);
-            res.json(shows);
+            const [shows, countResult] = await Promise.all([
+                db.all(sql, params),
+                db.get(countSql, countParams)
+            ]);
+            const totalCount = countResult?.total || 0;
+
+            // Add is_new flag for items created in the last 14 days
+            const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000).toISOString();
+            for (const show of shows) {
+                show.is_new = show.created_at && show.created_at >= twoWeeksAgo;
+            }
+
+            res.json({ items: shows, total: totalCount });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get available platforms for filter dropdown
+    router.get('/platforms', async (req, res) => {
+        try {
+            const db = modules.db;
+            const { type } = req.query;
+
+            let sql = `
+                SELECT platform, COUNT(*) as count
+                FROM media
+                WHERE platform IS NOT NULL
+            `;
+            const params = [];
+
+            if (type) {
+                sql += ' AND media_type = ?';
+                params.push(type);
+            }
+
+            sql += ' GROUP BY platform ORDER BY count DESC';
+
+            const platforms = await db.all(sql, params);
+            res.json(platforms);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Debug endpoint to check media classification and platform distribution
+    router.get('/debug/media-stats', async (req, res) => {
+        try {
+            const db = modules.db;
+
+            // Get media type and is_active breakdown
+            const typeStats = await db.all(`
+                SELECT media_type, is_active, COUNT(*) as count
+                FROM media
+                GROUP BY media_type, is_active
+                ORDER BY media_type, is_active
+            `);
+
+            // Get platform distribution
+            const platformStats = await db.all(`
+                SELECT platform, media_type, COUNT(*) as count
+                FROM media
+                WHERE platform IS NOT NULL
+                GROUP BY platform, media_type
+                ORDER BY count DESC
+            `);
+
+            // Get category samples for debugging classification
+            const categorySamples = await db.all(`
+                SELECT media_type, category, COUNT(*) as count
+                FROM media
+                WHERE category IS NOT NULL
+                GROUP BY media_type, category
+                ORDER BY count DESC
+                LIMIT 50
+            `);
+
+            res.json({
+                type_breakdown: typeStats,
+                platform_breakdown: platformStats,
+                top_categories: categorySamples
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Activate all media items (useful after migration fixes)
+    router.post('/debug/activate-all', async (req, res) => {
+        try {
+            const db = modules.db;
+            const result = await db.run('UPDATE media SET is_active = 1 WHERE is_active = 0 OR is_active IS NULL');
+            res.json({ success: true, updated: result.changes });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -2213,6 +2413,96 @@ function setupApiRoutes() {
             const tmdbData = await modules.tmdb.getTv(searchResults[0].id);
 
             res.json(tmdbData);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get trailers for a show by name (from stored database trailers)
+    router.get('/shows/:name/trailers', async (req, res) => {
+        try {
+            const db = modules.db;
+            const showName = decodeURIComponent(req.params.name);
+
+            // Find a media entry for this show to get its trailers
+            const seriesEntry = await db.get(`
+                SELECT id FROM media
+                WHERE media_type = 'series'
+                  AND show_name = ?
+                LIMIT 1
+            `, [showName]);
+
+            if (!seriesEntry) {
+                return res.json([]);
+            }
+
+            // Get trailers for this media (same format as /media/:id/trailers)
+            const trailers = await db.all(`
+                SELECT
+                    youtube_key,
+                    'https://www.youtube.com/watch?v=' || youtube_key as youtube_url,
+                    'https://img.youtube.com/vi/' || youtube_key || '/hqdefault.jpg' as thumbnail_url,
+                    name, type, official, published_at
+                FROM media_trailers
+                WHERE media_id = ?
+                ORDER BY official DESC,
+                    CASE type
+                        WHEN 'Trailer' THEN 1
+                        WHEN 'Teaser' THEN 2
+                        ELSE 3
+                    END,
+                    published_at DESC
+            `, [seriesEntry.id]);
+
+            res.json(trailers);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Enrich a show by name (all media items for that show)
+    router.post('/shows/:name/enrich', async (req, res) => {
+        try {
+            const db = modules.db;
+            const showName = decodeURIComponent(req.params.name);
+
+            // Get all series entries for this show
+            const seriesEntries = await db.all(`
+                SELECT id, title FROM media
+                WHERE media_type = 'series'
+                  AND show_name = ?
+            `, [showName]);
+
+            if (seriesEntries.length === 0) {
+                return res.status(404).json({ error: 'Show not found' });
+            }
+
+            // Reset enrichment_attempted for all media items of this show
+            const mediaIds = seriesEntries.map(s => s.id);
+            await db.run(`
+                UPDATE media
+                SET enrichment_attempted = NULL, tmdb_id = NULL
+                WHERE id IN (${mediaIds.map(() => '?').join(',')})
+            `, mediaIds);
+
+            // Queue all for enrichment with high priority
+            if (modules.enrichment) {
+                await modules.enrichment.queueMediaForEnrichment(mediaIds, 100);
+
+                // Start workers if not running
+                if (!modules.enrichment.isRunning()) {
+                    await modules.enrichment.startWorkers();
+                }
+
+                res.json({
+                    success: true,
+                    message: `Queued "${showName}" (${mediaIds.length} entries) for enrichment`,
+                    showName: showName,
+                    mediaCount: mediaIds.length
+                });
+            } else {
+                res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

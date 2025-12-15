@@ -40,13 +40,30 @@ function getDefaultHeaders(userAgent = 'IBOPlayer', source = null) {
     // Priority: source-specific > global settings > defaults
     const spoofedMac = source?.spoofed_mac || settings?.get('spoofedMac') || DEFAULT_SPOOFED_MAC;
     const spoofedDeviceKey = source?.spoofed_device_key || settings?.get('spoofedDeviceKey') || DEFAULT_SPOOFED_DEVICE_KEY;
+
+    // Normalize MAC address format (uppercase, colon-separated)
+    const normalizedMac = spoofedMac.toUpperCase();
+    const macNoColons = normalizedMac.replace(/:/g, '');
+
+    // Log headers being used for debugging
+    if (logger) {
+        logger.debug('iptv', `Using MAC: ${normalizedMac}, Device Key: ${spoofedDeviceKey}`);
+    }
+
     return {
         'User-Agent': userAgent,
-        'X-Device-MAC': spoofedMac,
-        'X-Forwarded-For': spoofedMac,
+        // Standard MAC headers used by various IPTV players
+        'X-Device-MAC': normalizedMac,
+        'X-Forwarded-For': normalizedMac,
         'X-Device-Key': spoofedDeviceKey,
-        'X-Device-ID': spoofedMac.replace(/:/g, ''),
+        'X-Device-ID': macNoColons,
+        // Additional headers some providers may require
+        'X-Real-IP': normalizedMac,
+        'X-Client-MAC': normalizedMac,
+        'MAC': normalizedMac,
+        'Cookie': `mac=${normalizedMac}; device_key=${spoofedDeviceKey}`,
         'Accept': '*/*',
+        'Accept-Language': 'en-US,en;q=0.9',
         'Connection': 'keep-alive'
     };
 }
@@ -135,21 +152,70 @@ function isLanguageAllowed(detectedLang) {
     return preferredLangs.some(lang => lang.toLowerCase() === detected);
 }
 
+// Extract streaming platform from category name
+function extractPlatform(category) {
+    if (!category) return null;
+
+    const platforms = {
+        'NETFLIX': /NETFLIX/i,
+        'AMAZON': /PRIME\+?|AMAZON/i,
+        'DISNEY+': /DISNEY\+?/i,
+        'HBO': /HBO/i,
+        'APPLE TV': /APPLE\s*TV?\+?/i,
+        'PARAMOUNT+': /PARAMOUNT\+?/i,
+        'HULU': /HULU/i,
+        'CANAL+': /CANAL\+/i,
+        'MOVISTAR+': /MOVISTAR\+?/i,
+        'SKY': /\bSKY\b/i,
+        'DAZN': /DAZN/i
+    };
+
+    for (const [name, pattern] of Object.entries(platforms)) {
+        if (pattern.test(category)) return name;
+    }
+    return null;
+}
+
 async function fetchWithRetry(url, options = {}, retries = 3, source = null) {
+    let lastError = null;
+
     for (let i = 0; i < retries; i++) {
         try {
+            const headers = {
+                ...getDefaultHeaders(options.headers?.['User-Agent'], source),
+                ...options.headers
+            };
+
+            if (logger && i === 0) {
+                logger.debug('iptv', `Fetching: ${url.substring(0, 100)}... with headers: ${JSON.stringify(Object.keys(headers))}`);
+            }
+
             const response = await axios({
                 url,
                 timeout: 30000,
                 ...options,
-                headers: {
-                    ...getDefaultHeaders(options.headers?.['User-Agent'], source),
-                    ...options.headers
-                }
+                headers
             });
             return response;
         } catch (err) {
-            if (i === retries - 1) throw err;
+            lastError = err;
+            const status = err.response?.status || 'unknown';
+            const statusText = err.response?.statusText || err.message;
+
+            if (logger) {
+                logger.warn('iptv', `Fetch attempt ${i + 1}/${retries} failed: HTTP ${status} - ${statusText}`);
+            }
+
+            // Don't retry on certain errors
+            if (status === 401 || status === 403 || status === 884) {
+                // Authentication/authorization errors - no point retrying
+                const errorMsg = `HTTP ${status}: ${statusText}. Check MAC address and credentials.`;
+                throw new Error(errorMsg);
+            }
+
+            if (i === retries - 1) {
+                throw new Error(`Failed after ${retries} attempts: HTTP ${status} - ${statusText}`);
+            }
             await new Promise(r => setTimeout(r, 1000 * (i + 1)));
         }
     }
@@ -164,9 +230,15 @@ async function syncXtreamSource(source) {
     const cleanUsername = (source.username || '').replace(/[\x00-\x1F\x7F]/g, '');
     const cleanPassword = (source.password || '').replace(/[\x00-\x1F\x7F]/g, '');
 
+    // Track sync start time for marking inactive items
+    const syncStartTime = new Date().toISOString();
+
+    // Track sync statistics
+    const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
+
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
-    updateSyncStatus(source.id, { step: 'auth', message: 'Authenticating...', percent: 0, syncing: true, sourceType: 'xtream' });
+    updateSyncStatus(source.id, { step: 'auth', message: 'Authenticating...', percent: 0, syncing: true, sourceType: 'xtream', stats });
 
     // Test connection first
     app?.emit('sync:progress', { source: source.id, step: 'auth', message: 'Authenticating...', percent: 0 });
@@ -219,10 +291,34 @@ async function syncXtreamSource(source) {
         else if (mediaType === 'series') seriesCount++;
         else liveCount++;
 
-        await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        // Check if item exists and track changes
+        const existing = await db.get(
+            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
+            [source.id, String(channel.stream_id)]
+        );
+
+        const result = await db.run(`
+            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, is_active, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(source_id, external_id) DO UPDATE SET
+                media_type = excluded.media_type,
+                title = excluded.title,
+                poster = COALESCE(media.poster, excluded.poster),
+                category = excluded.category,
+                stream_url = excluded.stream_url,
+                language = COALESCE(media.language, excluded.language),
+                is_active = 1,
+                last_seen_at = CURRENT_TIMESTAMP
         `, [source.id, String(channel.stream_id), mediaType, channel.name, channel.stream_icon, categoryName, streamUrl, channel.lang]);
+
+        // Track statistics
+        if (!existing) {
+            stats.added++;
+        } else if (existing.title !== channel.name || existing.stream_url !== streamUrl) {
+            stats.updated++;
+        } else {
+            stats.unchanged++;
+        }
 
         // Emit progress every 100 items (12-40% = 28% range for live channels)
         if ((i + 1) % 100 === 0 || i === liveChannels.length - 1) {
@@ -261,14 +357,39 @@ async function syncXtreamSource(source) {
         const streamUrl = `${baseUrl}/movie/${cleanUsername}/${cleanPassword}/${vod.stream_id}.${ext}`;
         const quality = detectQuality(vod.name);
 
+        // Check if item exists and track changes
+        const existing = await db.get(
+            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
+            [source.id, String(vod.stream_id)]
+        );
+
         await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language)
-            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language, is_active, last_seen_at)
+            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(source_id, external_id) DO UPDATE SET
+                title = excluded.title,
+                poster = COALESCE(media.poster, excluded.poster),
+                category = excluded.category,
+                stream_url = excluded.stream_url,
+                container = excluded.container,
+                quality = COALESCE(excluded.quality, media.quality),
+                language = COALESCE(media.language, excluded.language),
+                is_active = 1,
+                last_seen_at = CURRENT_TIMESTAMP
         `, [
             source.id, String(vod.stream_id), vod.name, vod.stream_icon, vod.category_name,
             streamUrl, ext, vod.rating || null, extractYear(vod.name), vod.plot || null,
             vod.genre || null, quality, vod.tmdb || null, language
         ]);
+
+        // Track statistics
+        if (!existing) {
+            stats.added++;
+        } else if (existing.title !== vod.name || existing.stream_url !== streamUrl) {
+            stats.updated++;
+        } else {
+            stats.unchanged++;
+        }
         vodSaved++;
 
         // Emit progress every 100 items (42-70% = 28% range for VOD)
@@ -310,15 +431,38 @@ async function syncXtreamSource(source) {
             continue; // Skip content not in preferred languages
         }
 
+        // Check if item exists and track changes
+        const existing = await db.get(
+            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
+            [source.id, String(series.series_id)]
+        );
+
         const result = await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, is_active, last_seen_at)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(source_id, external_id) DO UPDATE SET
+                title = excluded.title,
+                poster = COALESCE(media.poster, excluded.poster),
+                backdrop = COALESCE(media.backdrop, excluded.backdrop),
+                category = excluded.category,
+                language = COALESCE(media.language, excluded.language),
+                is_active = 1,
+                last_seen_at = CURRENT_TIMESTAMP
         `, [
             source.id, String(series.series_id), series.name, series.cover,
             series.backdrop_path?.[0] || null, series.category_name, series.rating || null,
             extractYear(series.releaseDate || series.name), series.plot || null,
             series.genre || null, series.tmdb || null, language
         ]);
+
+        // Track statistics
+        if (!existing) {
+            stats.added++;
+        } else if (existing.title !== series.name) {
+            stats.updated++;
+        } else {
+            stats.unchanged++;
+        }
         seriesSaved++;
 
         // Fetch episodes (with rate limiting)
@@ -328,16 +472,34 @@ async function syncXtreamSource(source) {
             const episodesResponse = await fetchWithRetry(episodesUrl, { headers }, 3, source);
             const episodesData = episodesResponse.data?.episodes || {};
 
+            // Get media_id - use lastID if it was an insert, otherwise look it up
+            let mediaId = result.lastID;
+            if (!mediaId || result.changes === 0) {
+                const existingMedia = await db.get(
+                    'SELECT id FROM media WHERE source_id = ? AND external_id = ?',
+                    [source.id, String(series.series_id)]
+                );
+                mediaId = existingMedia?.id;
+            }
+
             for (const [season, episodes] of Object.entries(episodesData)) {
                 for (const ep of episodes) {
                     const ext = ep.container_extension || 'mkv';
                     const streamUrl = `${baseUrl}/series/${cleanUsername}/${cleanPassword}/${ep.id}.${ext}`;
 
                     await db.run(`
-                        INSERT OR REPLACE INTO episodes (media_id, external_id, season, episode, title, plot, air_date, runtime, stream_url, container)
+                        INSERT INTO episodes (media_id, external_id, season, episode, title, plot, air_date, runtime, stream_url, container)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(media_id, season, episode) DO UPDATE SET
+                            external_id = excluded.external_id,
+                            title = COALESCE(excluded.title, episodes.title),
+                            plot = COALESCE(episodes.plot, excluded.plot),
+                            air_date = COALESCE(episodes.air_date, excluded.air_date),
+                            runtime = COALESCE(episodes.runtime, excluded.runtime),
+                            stream_url = excluded.stream_url,
+                            container = excluded.container
                     `, [
-                        result.lastID, String(ep.id), parseInt(season), ep.episode_num,
+                        mediaId, String(ep.id), parseInt(season), ep.episode_num,
                         ep.title, ep.info?.plot || null, ep.info?.air_date || null,
                         ep.info?.duration_secs ? Math.floor(ep.info.duration_secs / 60) : null,
                         streamUrl, ext
@@ -358,21 +520,37 @@ async function syncXtreamSource(source) {
     }
     logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language`);
 
+    // Mark items not seen in this sync as inactive
+    updateSyncStatus(source.id, { step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+    app?.emit('sync:progress', { source: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+
+    const inactiveResult = await db.run(`
+        UPDATE media SET is_active = 0
+        WHERE source_id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)
+    `, [source.id, syncStartTime]);
+    stats.removed = inactiveResult.changes || 0;
+
     // Update last sync time
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
 
-    logger.info('iptv', `Sync complete for ${source.name}`);
+    logger.info('iptv', `Sync complete for ${source.name}: +${stats.added} added, ~${stats.updated} updated, =${stats.unchanged} unchanged, -${stats.removed} removed`);
     clearSyncStatus(source.id);
-    app?.emit('sync:complete', { source: source.id });
+    app?.emit('sync:complete', { source: source.id, stats });
 }
 
 async function syncM3USource(source) {
     logger.info('iptv', `Syncing M3U source: ${source.name}`);
     const headers = getDefaultHeaders(source.user_agent || 'IBOPlayer', source);
 
+    // Track sync start time for marking inactive items
+    const syncStartTime = new Date().toISOString();
+
+    // Track sync statistics
+    const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
+
     // Emit start event
     app?.emit('sync:start', { source: source.id, sourceName: source.name });
-    updateSyncStatus(source.id, { step: 'fetch', message: 'Checking for cached M3U...', percent: 0, syncing: true, sourceType: 'm3u' });
+    updateSyncStatus(source.id, { step: 'fetch', message: 'Checking for cached M3U...', percent: 0, syncing: true, sourceType: 'm3u', stats });
     app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Checking for cached M3U...', percent: 0 });
 
     let m3uContent = null;
@@ -380,7 +558,7 @@ async function syncM3USource(source) {
 
     // First, check for recent cached M3U file (within last 24 hours)
     try {
-        const cacheDir = path.join(process.cwd(), 'data', 'cache', 'm3u');
+        const cacheDir = path.join(PATHS.data, 'cache', 'm3u');
         const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
         const files = await fs.readdir(cacheDir);
 
@@ -414,8 +592,50 @@ async function syncM3USource(source) {
     if (!m3uContent) {
         updateSyncStatus(source.id, { step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
         app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
-        const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
-        m3uContent = response.data;
+
+        try {
+            const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
+            m3uContent = response.data;
+        } catch (fetchErr) {
+            // If fetch failed, try to use any available cached M3U as fallback
+            logger.warn('iptv', `Fetch failed: ${fetchErr.message}. Looking for cached M3U fallback...`);
+
+            try {
+                const cacheDir = path.join(PATHS.data, 'cache', 'm3u');
+                const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+                const files = await fs.readdir(cacheDir);
+
+                // Find most recent cache file for this source (regardless of age)
+                const sourceFiles = files
+                    .filter(f => f.startsWith(safeName) && f.endsWith('.m3u'))
+                    .sort()
+                    .reverse();
+
+                if (sourceFiles.length > 0) {
+                    const latestFile = sourceFiles[0];
+                    const filePath = path.join(cacheDir, latestFile);
+                    const fileStats = await fs.stat(filePath);
+                    const ageHours = (Date.now() - fileStats.mtime.getTime()) / (1000 * 60 * 60);
+                    const ageDays = Math.floor(ageHours / 24);
+
+                    logger.info('iptv', `Using fallback cached M3U: ${latestFile} (${ageDays} days old)`);
+                    updateSyncStatus(source.id, { step: 'fetch', message: `Using cached M3U (${ageDays}d old, provider unavailable)...`, percent: 5 });
+                    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: `Using cached M3U (${ageDays}d old)...`, percent: 5 });
+
+                    m3uContent = await fs.readFile(filePath, 'utf8');
+                    usedCache = true;
+                } else {
+                    // No cache available, re-throw original error
+                    throw fetchErr;
+                }
+            } catch (cacheErr) {
+                if (cacheErr === fetchErr) {
+                    throw fetchErr;
+                }
+                logger.error('iptv', `Failed to read cached M3U: ${cacheErr.message}`);
+                throw new Error(`Provider unavailable (${fetchErr.message}) and no cached M3U available`);
+            }
+        }
     }
 
     if (!m3uContent || typeof m3uContent !== 'string') {
@@ -454,7 +674,7 @@ async function syncM3USource(source) {
 
         // Also save M3U backup to cache folder
         try {
-            const cacheDir = path.join(process.cwd(), 'data', 'cache', 'm3u');
+            const cacheDir = path.join(PATHS.data, 'cache', 'm3u');
             await fs.mkdir(cacheDir, { recursive: true });
             const date = new Date().toISOString().split('T')[0];
             const safeName = source.name.replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
@@ -532,6 +752,9 @@ async function syncM3USource(source) {
         // Extract language from category or series name
         const language = extractLanguageFromText(series.category, series.seriesName);
 
+        // Extract streaming platform (Netflix, Amazon, Disney+, etc.)
+        const platform = extractPlatform(series.category);
+
         // Check if language is allowed
         if (!isLanguageAllowed(language)) {
             skippedCount++;
@@ -555,17 +778,26 @@ async function syncM3USource(source) {
         // Create a unique external_id for this series from this source
         const seriesExternalId = `m3u_series_${key.replace(/[^a-z0-9]/g, '_')}`;
 
+        // Check if item exists and track changes
+        const existing = await db.get(
+            'SELECT id, title FROM media WHERE source_id = ? AND external_id = ?',
+            [source.id, seriesExternalId]
+        );
+
         // Insert or update the parent series entry
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language, platform, is_active, last_seen_at)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = excluded.title,
                 show_name = excluded.show_name,
-                poster = COALESCE(excluded.poster, media.poster),
+                poster = COALESCE(media.poster, excluded.poster),
                 category = COALESCE(excluded.category, media.category),
                 episode_count = excluded.episode_count,
-                language = COALESCE(excluded.language, media.language)
+                language = COALESCE(media.language, excluded.language),
+                platform = COALESCE(excluded.platform, media.platform),
+                is_active = 1,
+                last_seen_at = CURRENT_TIMESTAMP
         `, [
             source.id,
             seriesExternalId,
@@ -574,8 +806,18 @@ async function syncM3USource(source) {
             series.logo,
             series.category,
             totalEpisodes,
-            language
+            language,
+            platform
         ]);
+
+        // Track statistics
+        if (!existing) {
+            stats.added++;
+        } else if (existing.title !== series.seriesName) {
+            stats.updated++;
+        } else {
+            stats.unchanged++;
+        }
 
         // Get the media_id (either from insert or existing)
         let mediaId = result.lastID;
@@ -627,21 +869,35 @@ async function syncM3USource(source) {
         }
     }
 
-    // Save non-episode channels (only movies and series, not live channels)
+    // Track classification stats
+    const classificationStats = { live: 0, movie: 0, series: 0 };
+
+    // Save non-episode channels (movies, series, and live channels)
     for (let i = 0; i < nonEpisodeChannels.length; i++) {
         const channel = nonEpisodeChannels[i];
 
-        // Determine media type from group or default to live
-        let mediaType = 'live';
-        const groupLower = (channel.group || '').toLowerCase();
-        if (groupLower.includes('vod') || groupLower.includes('movie') || groupLower.includes('film')) {
-            mediaType = 'movie';
-        } else if (groupLower.includes('series') || groupLower.includes('show') || groupLower.startsWith('srs')) {
-            mediaType = 'series';
+        // Use the contentType already detected during M3U parsing (this is the key fix!)
+        // The parseM3U function already detected content type using sophisticated regex patterns
+        let mediaType = channel.contentType || 'live';
+
+        // Fallback detection if contentType wasn't set
+        if (!channel.contentType) {
+            const groupLower = (channel.group || '').toLowerCase();
+            if (groupLower.includes('vod') || groupLower.includes('movie') || groupLower.includes('film')) {
+                mediaType = 'movie';
+            } else if (groupLower.includes('series') || groupLower.includes('show') || groupLower.startsWith('srs')) {
+                mediaType = 'series';
+            }
         }
+
+        // Track classification
+        classificationStats[mediaType] = (classificationStats[mediaType] || 0) + 1;
 
         // Extract language from tvg-language attribute, or from category/title patterns
         const language = channel.language || extractLanguageFromText(channel.group, channel.name);
+
+        // Extract streaming platform (Netflix, Amazon, Disney+, etc.)
+        const platform = extractPlatform(channel.group);
 
         // Only filter movies and series by language (not live channels)
         if (mediaType !== 'live' && !isLanguageAllowed(language)) {
@@ -656,19 +912,47 @@ async function syncM3USource(source) {
             continue; // Skip content not in preferred languages
         }
 
+        const externalId = channel.id || String(i);
+
+        // Check if item exists and track changes
+        const existing = await db.get(
+            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
+            [source.id, externalId]
+        );
+
         await db.run(`
-            INSERT OR REPLACE INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, platform, is_active, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            ON CONFLICT(source_id, external_id) DO UPDATE SET
+                media_type = excluded.media_type,
+                title = excluded.title,
+                poster = COALESCE(media.poster, excluded.poster),
+                category = excluded.category,
+                stream_url = excluded.stream_url,
+                language = COALESCE(media.language, excluded.language),
+                platform = COALESCE(excluded.platform, media.platform),
+                is_active = 1,
+                last_seen_at = CURRENT_TIMESTAMP
         `, [
             source.id,
-            channel.id || String(i),
+            externalId,
             mediaType,
             channel.name,
             channel.logo,
             channel.group,
             channel.url,
-            language
+            language,
+            platform
         ]);
+
+        // Track statistics
+        if (!existing) {
+            stats.added++;
+        } else if (existing.title !== channel.name || existing.stream_url !== channel.url) {
+            stats.updated++;
+        } else {
+            stats.unchanged++;
+        }
 
         savedCount++;
         processedCount++;
@@ -688,12 +972,25 @@ async function syncM3USource(source) {
         }
     }
 
+    // Log classification breakdown
+    logger.info('iptv', `Categorized: ${classificationStats.live} live, ${classificationStats.movie} movies, ${classificationStats.series} series`);
+
+    // Mark items not seen in this sync as inactive
+    updateSyncStatus(source.id, { step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+    app?.emit('sync:progress', { source: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+
+    const inactiveResult = await db.run(`
+        UPDATE media SET is_active = 0
+        WHERE source_id = ? AND (last_seen_at IS NULL OR last_seen_at < ?)
+    `, [source.id, syncStartTime]);
+    stats.removed = inactiveResult.changes || 0;
+
     // Update last sync time
     await db.run('UPDATE sources SET last_sync = CURRENT_TIMESTAMP WHERE id = ?', [source.id]);
 
-    logger.info('iptv', `Sync complete for ${source.name}: ${savedCount} saved, ${skippedCount} filtered by language`);
+    logger.info('iptv', `Sync complete for ${source.name}: +${stats.added} added, ~${stats.updated} updated, =${stats.unchanged} unchanged, -${stats.removed} removed`);
     clearSyncStatus(source.id);
-    app?.emit('sync:complete', { source: source.id });
+    app?.emit('sync:complete', { source: source.id, stats });
 }
 
 // Default parser config for standard M3U format
@@ -722,10 +1019,14 @@ const DEFAULT_PARSER_CONFIG = {
     },
     // Content type detection patterns (matched against group-title)
     // Use pipe-separated keywords for OR matching
+    // NOTE: Order matters - series patterns are checked first, then movies, then livetv
     contentTypePatterns: {
-        livetv: 'LIVE|NEWS|SPORT|24\\/7|CHANNEL|TV\\s|\\sTV|RADIO',
-        movies: 'MOVIE|FILM|VOD|CINEMA|KINO',
-        series: 'SERIE|SHOW|SEASON|S\\d+E\\d+'
+        // Series - SRS prefix (common in IPTV) and standard keywords
+        series: '^SRS\\s*-|SERIE|SERIEN|SERIALE|SHOW|SHOWS|SEASON|S\\d+E\\d+|SOROZAT|TVSHOW',
+        // Movies - VOD prefix (common in IPTV) and standard keywords
+        movies: '^VOD\\s*-|MOVIE|FILM|FILME|FILMA|FILMES|FILMI|FILMOVI|VOD|CINEMA|KINO|CINE|BIOSCOOP',
+        // Live TV - pipe-delimited country codes and standard keywords
+        livetv: '^\\|[A-Z]{2}\\||LIVE|NEWS|SPORT|24\\/7|CHANNEL|TV\\s|\\sTV|RADIO|PPV'
     },
     // How to extract the display name from after the comma in EXTINF line
     nameExtraction: 'afterComma' // 'afterComma' | 'tvgName' | 'custom'

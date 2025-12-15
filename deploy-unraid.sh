@@ -8,9 +8,9 @@ set -e
 # =============================================================================
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
-UNRAID_HOST="192.168.178.201"     # Your Unraid IP address
+UNRAID_HOST="192.168.1.XXX"       # Your Unraid IP address
 UNRAID_USER="root"                # Unraid SSH user (usually root)
-UNRAID_PASS="lx1dv2002"                    # Unraid SSH password (leave empty to prompt)
+UNRAID_PASS=""                    # Unraid SSH password (leave empty to prompt)
 CONTAINER_NAME="hermes"           # Container name on Unraid
 IMAGE_NAME="hermes:latest"        # Docker image name
 HOST_PATH="/mnt/disks/Movies"     # Host path on Unraid
@@ -34,7 +34,7 @@ echo -e "${GREEN}╚════════════════════
 echo ""
 
 # Check if IP is configured
-if [[ "$UNRAID_HOST" == "192.168.178.XXX" ]]; then
+if [[ "$UNRAID_HOST" == "192.168.1.XXX" ]]; then
     echo -e "${RED}ERROR: Please edit this script and set UNRAID_HOST to your Unraid IP address${NC}"
     exit 1
 fi
