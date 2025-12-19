@@ -1,34 +1,46 @@
-version: '3.8'
-
 services:
   hermes:
-    build: .
+    # Use pre-built image from Docker Hub
+    image: seslab/hermes:latest
+    # Or build from source:
+    # build: .
     container_name: hermes
     restart: unless-stopped
     ports:
       - "3000:3000"
     volumes:
-      # Persistent data (database, config, cache, temp, transcode folders)
-      - /mnt/disks/Movies/:/hermesdata
-      # Optional: Mount Plex media directories for direct access
-      # - /path/to/plex/movies:/media/movies
-      # - /path/to/plex/tv:/media/tv
+      # Persistent data (database, config, cache)
+      - ./data:/data
+      # Downloads folder (optional, for DVR/recording features)
+      - ./downloads:/downloads
     environment:
       - NODE_ENV=production
-      - DATA_PATH=/hermesdata/data
-      # Optional: Set these in .env file instead
+      - TZ=Europe/Amsterdam
+      # Optional: Set your TMDB API key for metadata enrichment
       # - TMDB_API_KEY=your_tmdb_api_key
+      # Optional: Plex integration
       # - PLEX_URL=http://192.168.1.100:32400
       # - PLEX_TOKEN=your_plex_token
+    # GPU support for hardware transcoding (uncomment for NVIDIA)
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+    # Intel QuickSync (uncomment for Intel iGPU)
+    # devices:
+    #   - /dev/dri:/dev/dri
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     networks:
-      - media
+      - hermes
 
 networks:
-  media:
+  hermes:
     driver: bridge
-
-# Example with external network to connect to existing Plex/Overseerr:
-# networks:
-#   media:
-#     external: true
-#     name: your_existing_network

@@ -3,22 +3,25 @@ FROM node:20-alpine
 LABEL maintainer="Hermes"
 LABEL description="IPTV Media Manager"
 
-# Install build dependencies
-RUN apk add --no-cache python3 make g++ sqlite
+# Install build dependencies and runtime tools
+RUN apk add --no-cache python3 make g++ sqlite ffmpeg
 
 WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all dependencies (including dev for build step)
+RUN npm ci
 
 # Copy application files
 COPY . .
 
 # Build Tailwind CSS
 RUN npm run build:css
+
+# Remove dev dependencies to reduce image size
+RUN npm prune --production
 
 # Create data directory
 RUN mkdir -p /data/config /data/cache /data/temp /data/downloads

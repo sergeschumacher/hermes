@@ -39,6 +39,85 @@ let progressInterval = null;
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
 /**
+ * Generate cache key for enrichment lookup
+ * Normalizes title to lowercase alphanumeric for fuzzy matching
+ */
+function generateCacheKey(title, year, mediaType) {
+    const normalizedTitle = title?.toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .substring(0, 100) || '';
+    return `${normalizedTitle}|${year || ''}|${mediaType}`;
+}
+
+/**
+ * Lookup enrichment data from cache
+ */
+async function lookupEnrichmentCache(title, year, mediaType) {
+    const cacheKey = generateCacheKey(title, year, mediaType);
+
+    // Try exact match first
+    let cached = await db.get(
+        'SELECT * FROM enrichment_cache WHERE cache_key = ?',
+        [cacheKey]
+    );
+
+    // If no exact match and we have a year, try without year
+    if (!cached && year) {
+        const noYearKey = generateCacheKey(title, null, mediaType);
+        cached = await db.get(
+            'SELECT * FROM enrichment_cache WHERE cache_key = ?',
+            [noYearKey]
+        );
+    }
+
+    // Also try lookup by tmdb_id if title matches closely
+    if (!cached) {
+        const normalizedTitle = title?.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 100) || '';
+        cached = await db.get(`
+            SELECT * FROM enrichment_cache
+            WHERE cache_key LIKE ? || '|%'
+            AND media_type = ?
+            LIMIT 1
+        `, [normalizedTitle, mediaType]);
+    }
+
+    return cached;
+}
+
+/**
+ * Save enrichment data to cache for future provider changes
+ */
+async function saveToEnrichmentCache(title, year, mediaType, data) {
+    const cacheKey = generateCacheKey(title, year, mediaType);
+
+    try {
+        await db.run(`
+            INSERT OR REPLACE INTO enrichment_cache
+            (cache_key, media_type, title, year, tmdb_id, poster, backdrop, rating, plot, tagline, genres, runtime, imdb_id, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `, [
+            cacheKey,
+            mediaType,
+            title,
+            year || null,
+            data.tmdb_id || data.id,
+            data.poster || data.poster_path,
+            data.backdrop || data.backdrop_path,
+            data.rating || data.vote_average,
+            data.plot || data.overview,
+            data.tagline,
+            typeof data.genres === 'string' ? data.genres : JSON.stringify(data.genres || []),
+            data.runtime,
+            data.imdb_id
+        ]);
+
+        logger?.debug('enrichment', `Cached enrichment for: ${title} (${year || 'no year'})`);
+    } catch (err) {
+        logger?.warn('enrichment', `Failed to cache enrichment for ${title}: ${err.message}`);
+    }
+}
+
+/**
  * Token Bucket Rate Limiter
  * Allows bursts while respecting overall rate limits
  */
@@ -340,6 +419,64 @@ async function processMediaItem(media, options = {}) {
     const { title: cleanTitle, year: extractedYear, language } = extracted;
     const year = media.year || extractedYear;
 
+    // CHECK CACHE FIRST - avoid TMDB API call if we have cached enrichment data
+    const cachedEnrichment = await lookupEnrichmentCache(cleanTitle, year, media.media_type);
+    if (cachedEnrichment && cachedEnrichment.tmdb_id) {
+        logger?.info('enrichment', `Cache hit for: ${cleanTitle} (TMDB: ${cachedEnrichment.tmdb_id})`);
+
+        // Apply cached data to media record
+        await db.run(`
+            UPDATE media SET
+                tmdb_id = ?,
+                poster = COALESCE(?, poster),
+                backdrop = COALESCE(?, backdrop),
+                rating = COALESCE(?, rating),
+                plot = COALESCE(?, plot),
+                tagline = COALESCE(?, tagline),
+                genres = COALESCE(?, genres),
+                year = COALESCE(?, year),
+                runtime = COALESCE(?, runtime),
+                imdb_id = COALESCE(?, imdb_id),
+                enrichment_attempted = CURRENT_TIMESTAMP,
+                last_updated = CURRENT_TIMESTAMP
+            WHERE id = ?
+        `, [
+            cachedEnrichment.tmdb_id,
+            cachedEnrichment.poster,
+            cachedEnrichment.backdrop,
+            cachedEnrichment.rating,
+            cachedEnrichment.plot,
+            cachedEnrichment.tagline,
+            cachedEnrichment.genres,
+            cachedEnrichment.year,
+            cachedEnrichment.runtime,
+            cachedEnrichment.imdb_id,
+            media.id
+        ]);
+
+        // Propagate to other entries with same show_name (for series)
+        if (CONFIG.propagateTmdbId && media.media_type === 'series' && media.show_name) {
+            await db.run(`
+                UPDATE media SET
+                    tmdb_id = ?,
+                    poster = COALESCE(?, poster),
+                    backdrop = COALESCE(?, backdrop),
+                    rating = COALESCE(?, rating),
+                    enrichment_attempted = CURRENT_TIMESTAMP
+                WHERE show_name = ? AND id != ? AND tmdb_id IS NULL
+            `, [cachedEnrichment.tmdb_id, cachedEnrichment.poster, cachedEnrichment.backdrop,
+                cachedEnrichment.rating, media.show_name, media.id]);
+        }
+
+        return {
+            tmdbId: cachedEnrichment.tmdb_id,
+            fromCache: true,
+            trailerCount: 0,
+            seasonCount: 0,
+            episodeCount: 0
+        };
+    }
+
     // Mark as attempted
     await db.run('UPDATE media SET enrichment_attempted = CURRENT_TIMESTAMP WHERE id = ?', [media.id]);
 
@@ -587,6 +724,19 @@ async function processMediaItem(media, options = {}) {
         }
     }
 
+    // SAVE TO ENRICHMENT CACHE for future provider changes
+    await saveToEnrichmentCache(cleanTitle, year, media.media_type, {
+        id: details.id,
+        poster: posterPath,
+        backdrop: backdropPath,
+        rating: details.vote_average,
+        plot: details.overview,
+        tagline: details.tagline,
+        genres: details.genres,
+        runtime: details.runtime,
+        imdb_id: details.imdb_id
+    });
+
     return { tmdbId: details.id, trailerCount, seasonCount, episodeCount };
 }
 
@@ -664,7 +814,8 @@ async function runWorker(workerId) {
 }
 
 /**
- * Progress reporter - emits queue status periodically and auto-queues more items
+ * Progress reporter - emits queue status periodically
+ * NOTE: Auto-queue is DISABLED - enrichment is now on-demand only
  */
 function startProgressReporter() {
     if (progressInterval) return;
@@ -686,13 +837,10 @@ function startProgressReporter() {
                 rateLimit: rateLimiter?.getStatus()
             });
 
-            // AUTO-QUEUE: When pending items drop below 100, queue more
-            if (status.pending < 100) {
-                const result = await queueUnenrichedMedia(null, CONFIG.batchSize);
-                if (result.queued > 0) {
-                    logger?.info('enrichment', `Auto-queued ${result.queued} more items (pending was ${status.pending})`);
-                }
-            }
+            // AUTO-QUEUE DISABLED: Enrichment is now on-demand only
+            // Items are queued when:
+            // 1. User views a page (thumbnail enrichment)
+            // 2. User opens detail page (full enrichment)
         } catch (err) {
             logger?.warn('enrichment', `Progress reporter error: ${err.message}`);
         }
@@ -848,6 +996,210 @@ async function getStats() {
     };
 }
 
+/**
+ * Enrich a single item synchronously (for on-demand enrichment)
+ * Returns the enriched data immediately without using the queue
+ */
+async function enrichItemSync(mediaId, options = {}) {
+    const { highPriority = false } = options;
+
+    const media = await db.get('SELECT * FROM media WHERE id = ?', [mediaId]);
+    if (!media) {
+        throw new Error('Media not found');
+    }
+
+    // Skip if already enriched (unless force refresh)
+    if (media.tmdb_id && !options.forceRefresh) {
+        return {
+            success: true,
+            skipped: true,
+            tmdbId: media.tmdb_id,
+            poster: media.poster,
+            backdrop: media.backdrop,
+            rating: media.rating,
+            year: media.year,
+            plot: media.plot
+        };
+    }
+
+    // Create a simple rate limiter for sync requests if not exists
+    if (!rateLimiter) {
+        rateLimiter = new RateLimiter(CONFIG.rateLimit, CONFIG.rateLimitWindow);
+    }
+
+    try {
+        const result = await processMediaItem(media, { highPriority });
+
+        // Fetch the updated media record
+        const updated = await db.get('SELECT * FROM media WHERE id = ?', [mediaId]);
+
+        return {
+            success: true,
+            tmdbId: result.tmdbId,
+            poster: updated.poster,
+            backdrop: updated.backdrop,
+            rating: updated.rating,
+            year: updated.year,
+            plot: updated.plot,
+            trailerCount: result.trailerCount,
+            seasonCount: result.seasonCount
+        };
+    } catch (err) {
+        logger?.warn('enrichment', `Sync enrichment failed for ${media.title}: ${err.message}`);
+        return {
+            success: false,
+            error: err.message
+        };
+    }
+}
+
+/**
+ * Batch enrich multiple items (for visible page enrichment)
+ * Processes items in parallel with rate limiting
+ */
+async function enrichBatch(mediaIds, options = {}) {
+    const { highPriority = false, concurrency = 4 } = options;
+    const results = [];
+
+    // Create rate limiter if not exists
+    if (!rateLimiter) {
+        rateLimiter = new RateLimiter(CONFIG.rateLimit, CONFIG.rateLimitWindow);
+    }
+
+    // Filter out already enriched items
+    const items = await db.all(`
+        SELECT id, title, tmdb_id, poster, rating
+        FROM media
+        WHERE id IN (${mediaIds.map(() => '?').join(',')})
+    `, mediaIds);
+
+    const needsEnrichment = items.filter(i => !i.tmdb_id);
+    const alreadyEnriched = items.filter(i => i.tmdb_id);
+
+    // Add already enriched to results (include poster/rating for UI updates)
+    for (const item of alreadyEnriched) {
+        results.push({
+            mediaId: item.id,
+            success: true,
+            skipped: true,
+            poster: item.poster,
+            rating: item.rating
+        });
+    }
+
+    // Process in batches with concurrency limit
+    for (let i = 0; i < needsEnrichment.length; i += concurrency) {
+        const batch = needsEnrichment.slice(i, i + concurrency);
+        const batchPromises = batch.map(async (item) => {
+            try {
+                const result = await enrichItemSync(item.id, { highPriority });
+                return { mediaId: item.id, ...result };
+            } catch (err) {
+                return { mediaId: item.id, success: false, error: err.message };
+            }
+        });
+
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+
+        // Emit progress
+        emit('enrichment:batch:progress', {
+            processed: results.length,
+            total: mediaIds.length,
+            current: batch.map(b => b.title)
+        });
+    }
+
+    return {
+        total: mediaIds.length,
+        enriched: results.filter(r => r.success && !r.skipped).length,
+        skipped: results.filter(r => r.skipped).length,
+        failed: results.filter(r => !r.success).length,
+        results
+    };
+}
+
+/**
+ * Populate enrichment cache from existing enriched media
+ * This backups current enrichment data so it persists across provider changes
+ */
+async function populateEnrichmentCache() {
+    logger?.info('enrichment', 'Populating enrichment cache from existing data...');
+
+    // Get all enriched media
+    const enrichedMedia = await db.all(`
+        SELECT DISTINCT
+            title, year, media_type, tmdb_id, poster, backdrop,
+            rating, plot, tagline, genres, runtime, imdb_id
+        FROM media
+        WHERE tmdb_id IS NOT NULL
+        AND media_type IN ('movie', 'series')
+    `);
+
+    let saved = 0;
+    let skipped = 0;
+
+    for (const media of enrichedMedia) {
+        try {
+            // Extract clean title
+            const extracted = tmdb.extractCleanTitle(media.title);
+            const cleanTitle = extracted?.title || media.title;
+            const year = media.year || extracted?.year;
+
+            // Check if already in cache
+            const cacheKey = generateCacheKey(cleanTitle, year, media.media_type);
+            const existing = await db.get(
+                'SELECT id FROM enrichment_cache WHERE cache_key = ?',
+                [cacheKey]
+            );
+
+            if (existing) {
+                skipped++;
+                continue;
+            }
+
+            // Save to cache
+            await saveToEnrichmentCache(cleanTitle, year, media.media_type, {
+                id: media.tmdb_id,
+                poster: media.poster,
+                backdrop: media.backdrop,
+                rating: media.rating,
+                plot: media.plot,
+                tagline: media.tagline,
+                genres: media.genres,
+                runtime: media.runtime,
+                imdb_id: media.imdb_id
+            });
+            saved++;
+
+        } catch (err) {
+            logger?.warn('enrichment', `Failed to cache ${media.title}: ${err.message}`);
+        }
+    }
+
+    logger?.info('enrichment', `Cache populated: ${saved} saved, ${skipped} already cached`);
+    return { saved, skipped, total: enrichedMedia.length };
+}
+
+/**
+ * Get enrichment cache statistics
+ */
+async function getCacheStats() {
+    const stats = await db.get(`
+        SELECT
+            COUNT(*) as total,
+            SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END) as movies,
+            SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END) as series
+        FROM enrichment_cache
+    `);
+
+    return {
+        total: stats?.total || 0,
+        movies: stats?.movies || 0,
+        series: stats?.series || 0
+    };
+}
+
 module.exports = {
     init: async (modules) => {
         logger = modules.logger;
@@ -864,22 +1216,53 @@ module.exports = {
             WHERE status = 'processing'
         `);
 
-        logger?.info('enrichment', 'Enrichment module initialized');
+        // Auto-populate enrichment cache on startup (runs in background)
+        setTimeout(async () => {
+            try {
+                const cacheStats = await getCacheStats();
+                if (cacheStats.total === 0) {
+                    logger?.info('enrichment', 'First run: populating enrichment cache from existing data');
+                    await populateEnrichmentCache();
+                }
+            } catch (err) {
+                logger?.warn('enrichment', `Failed to auto-populate cache: ${err.message}`);
+            }
+        }, 5000);
 
-        // Auto-resume: start workers if there are pending jobs
-        const pending = await db.get('SELECT COUNT(*) as count FROM enrichment_queue WHERE status = "pending"');
-        if (pending?.count > 0) {
-            logger?.info('enrichment', `Auto-resuming: ${pending.count} pending jobs found`);
-            // Delay start to ensure app module is loaded (for Socket.io)
-            setTimeout(() => {
-                startWorkers().catch(err => {
-                    logger?.error('enrichment', `Auto-resume failed: ${err.message}`);
+        logger?.info('enrichment', 'Enrichment module initialized (auto-enrich after sync)');
+
+        // Listen for sync:complete events to auto-enrich
+        const setupSyncListener = () => {
+            const app = allModules?.app;
+            if (app?.on) {
+                app.on('sync:complete', async ({ source, stats }) => {
+                    logger?.info('enrichment', `Sync complete for source ${source}, starting auto-enrichment...`);
+                    try {
+                        // Queue unenriched items (movies and series)
+                        const queued = await queueUnenrichedMedia(null, 5000);
+                        if (queued > 0) {
+                            logger?.info('enrichment', `Queued ${queued} items for enrichment`);
+                            // Start workers if not already running
+                            if (!isRunning) {
+                                await startWorkers();
+                            }
+                        } else {
+                            logger?.info('enrichment', 'No items to enrich');
+                        }
+                    } catch (err) {
+                        logger?.error('enrichment', `Auto-enrichment failed: ${err.message}`);
+                    }
                 });
-            }, 2000);
-        }
+                logger?.info('enrichment', 'Auto-enrichment listener registered');
+            } else {
+                // App not ready yet, retry in 1 second
+                setTimeout(setupSyncListener, 1000);
+            }
+        };
+        setTimeout(setupSyncListener, 2000);
     },
 
-    // Public API
+    // Public API - Queue-based (background)
     queueMediaForEnrichment,
     queueUnenrichedMedia,
     startWorkers,
@@ -890,9 +1273,19 @@ module.exports = {
     retryFailedJobs,
     getStats,
 
+    // Public API - On-demand (synchronous)
+    enrichItemSync,
+    enrichBatch,
+    processMediaItem,
+
     // Check if workers are running
     isRunning: () => isRunning,
 
     // Get config
-    getConfig: () => ({ ...CONFIG })
+    getConfig: () => ({ ...CONFIG }),
+
+    // Enrichment cache management
+    populateEnrichmentCache,
+    getCacheStats,
+    lookupEnrichmentCache
 };

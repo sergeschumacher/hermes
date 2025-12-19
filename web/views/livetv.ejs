@@ -1,146 +1,147 @@
 <%- include('layouts/main', { title: 'Live TV', body: `
-<div class="p-6 lg:p-8">
-    <!-- Header -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-        <div>
-            <h1 class="text-3xl font-bold text-white">Live TV</h1>
-            <p class="text-gray-400 mt-1" id="page-subtitle">Select a category to browse channels</p>
-        </div>
-        <div class="flex items-center gap-3">
-            <button id="back-btn" class="btn btn-secondary hidden">
-                <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Categories
-            </button>
-            <span class="text-gray-400 text-sm"><span id="results-count" class="text-white font-semibold">0</span> <span id="results-label">categories</span></span>
-        </div>
+<!-- Mini Hero -->
+<section class="mini-hero" id="mini-hero">
+    <div class="mini-hero-bg" style="background-image: url('/static/images/livetv-hero.jpg');"></div>
+    <div class="mini-hero-gradient"></div>
+    <div class="mini-hero-content">
+        <h1 class="text-4xl font-bold mb-2">Live TV</h1>
+        <p class="text-text-muted" id="page-subtitle">Select a category to browse channels</p>
     </div>
+</section>
 
-    <!-- Search Bar and Country Filter -->
-    <div class="card p-4 mb-6">
-        <div class="flex flex-wrap gap-4">
-            <div class="flex-1 relative">
-                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+<div class="content-container">
+    <!-- Filter Bar -->
+    <div class="filter-bar">
+        <div class="filter-bar-inner">
+            <!-- Search -->
+            <div class="filter-search">
+                <svg class="filter-search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input type="text" id="search-input" placeholder="Search channels or categories..." class="input input-search" />
+                <input type="text" id="search-input" placeholder="Search channels or categories..." class="filter-search-input" />
             </div>
-            <select id="country-filter" class="input w-auto min-w-[180px]">
+
+            <!-- Country Filter -->
+            <select id="country-filter" class="filter-select" style="min-width: 160px;">
                 <option value="">All Countries</option>
             </select>
+
+            <!-- Back Button (when viewing channels) -->
+            <button id="back-btn" class="btn-hero-secondary hidden">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                </svg>
+                Back
+            </button>
+
+            <!-- Count -->
+            <div class="filter-actions">
+                <span class="result-count">
+                    <span id="results-count">0</span> <span id="results-label">categories</span>
+                </span>
+            </div>
         </div>
     </div>
 
-    <!-- Categories Grid (initial view) -->
-    <div id="categories-view">
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4" id="categories-grid">
-        </div>
-    </div>
+    <!-- Categories View (initial, shows horizontal rows by region) -->
+    <div id="categories-view" class="rows-view"></div>
 
-    <!-- Channels Grid (shown when category selected) -->
+    <!-- Channels View (when category selected) -->
     <div id="channels-view" class="hidden">
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-8 gap-4" id="channels-grid">
-        </div>
+        <div class="media-grid" id="channels-grid"></div>
         <div class="mt-8 text-center">
-            <button id="load-more" class="btn btn-secondary hidden">Load More</button>
+            <button id="load-more" class="btn-hero-secondary hidden">Load More Channels</button>
         </div>
     </div>
 
     <!-- Empty State -->
     <div class="empty-state hidden" id="empty-state">
         <div class="empty-state-icon">
-            <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+            <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
             </svg>
         </div>
         <p class="empty-state-title">No channels found</p>
         <p class="empty-state-text">Try a different search term</p>
     </div>
+</div>
 
-    <!-- Context Menu -->
-    <div id="context-menu" class="fixed rounded-lg shadow-2xl py-2 z-50 hidden min-w-[180px]" style="background-color: #111827; border: 1px solid #374151;">
-        <button id="ctx-play" class="ctx-menu-item w-full px-4 py-2 text-left text-white flex items-center gap-3" style="background: transparent;">
-            <svg class="w-4 h-4" style="color: #60a5fa;" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M8 5v14l11-7z"/>
-            </svg>
-            Play in VLC
-        </button>
-        <button id="ctx-record" class="ctx-menu-item w-full px-4 py-2 text-left text-white flex items-center gap-3" style="background: transparent;">
-            <svg class="w-4 h-4" style="color: #f87171;" fill="currentColor" viewBox="0 0 20 20">
-                <circle cx="10" cy="10" r="6"/>
-            </svg>
-            Record...
-        </button>
-        <div style="border-top: 1px solid #374151; margin: 4px 0;"></div>
-        <button id="ctx-copy" class="ctx-menu-item w-full px-4 py-2 text-left text-white flex items-center gap-3" style="background: transparent;">
-            <svg class="w-4 h-4" style="color: #9ca3af;" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-            </svg>
-            Copy Stream URL
-        </button>
-    </div>
-    <style>
-        .ctx-menu-item:hover {
-            background-color: #374151 !important;
-        }
-    </style>
+<!-- Context Menu -->
+<div id="context-menu" class="fixed bg-dark-card border border-dark-border rounded-lg shadow-2xl py-2 z-50 hidden min-w-[180px]">
+    <button id="ctx-play" class="w-full px-4 py-2.5 text-left text-white flex items-center gap-3 hover:bg-dark-surface transition-colors">
+        <svg class="w-4 h-4 text-primary-500" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z"/>
+        </svg>
+        Play in VLC
+    </button>
+    <button id="ctx-record" class="w-full px-4 py-2.5 text-left text-white flex items-center gap-3 hover:bg-dark-surface transition-colors">
+        <svg class="w-4 h-4 text-danger-500" fill="currentColor" viewBox="0 0 20 20">
+            <circle cx="10" cy="10" r="6"/>
+        </svg>
+        Record...
+    </button>
+    <div class="border-t border-dark-border my-1"></div>
+    <button id="ctx-copy" class="w-full px-4 py-2.5 text-left text-white flex items-center gap-3 hover:bg-dark-surface transition-colors">
+        <svg class="w-4 h-4 text-text-muted" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+        </svg>
+        Copy Stream URL
+    </button>
+</div>
 
-    <!-- Recording Modal -->
-    <div id="record-modal" class="fixed inset-0 z-50 hidden flex items-center justify-center" style="background-color: rgba(0, 0, 0, 0.85);">
-        <div class="rounded-xl p-6 w-full max-w-md mx-4" style="background-color: #1f2937; border: 1px solid #374151;">
-            <div class="flex items-center justify-between mb-6">
-                <h3 class="text-xl font-bold text-white">Schedule Recording</h3>
-                <button onclick="closeRecordModal()" class="text-gray-400 hover:text-white">
-                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                </button>
-            </div>
+<!-- Recording Modal -->
+<div id="record-modal" class="fixed inset-0 z-modal hidden flex items-center justify-center bg-black/90">
+    <div class="bg-dark-card border border-dark-border rounded-xl p-6 w-full max-w-md mx-4">
+        <div class="flex items-center justify-between mb-6">
+            <h3 class="text-xl font-bold text-white">Schedule Recording</h3>
+            <button onclick="closeRecordModal()" class="text-text-muted hover:text-white transition-colors">
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
 
-            <!-- Channel Info -->
-            <div class="flex items-center gap-4 mb-6 p-4 rounded-lg" style="background-color: #111827;">
-                <img id="record-channel-logo" src="/static/img/no-logo.png" class="w-12 h-12 rounded-lg object-contain" style="background-color: #374151;" onerror="this.src='/static/img/no-logo.png'" />
-                <div class="flex-1 min-w-0">
-                    <h4 id="record-channel-name" class="text-white font-medium truncate"></h4>
-                    <p id="record-channel-category" class="text-gray-400 text-sm truncate"></p>
-                </div>
-            </div>
-
-            <!-- Duration Selection -->
-            <div class="mb-6">
-                <label class="block text-gray-300 text-sm font-medium mb-3">Recording Duration</label>
-                <div class="grid grid-cols-4 gap-2 mb-4">
-                    <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="30">30 min</button>
-                    <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="60">1 hour</button>
-                    <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="90">1.5 hours</button>
-                    <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="120">2 hours</button>
-                </div>
-                <div class="flex items-center gap-4">
-                    <div class="flex-1">
-                        <label class="block text-gray-400 text-xs mb-1">Or set end time</label>
-                        <input type="time" id="record-end-time" class="input w-full" />
-                    </div>
-                    <div class="flex-1">
-                        <label class="block text-gray-400 text-xs mb-1">Calculated end</label>
-                        <p id="record-end-display" class="text-white font-medium py-2">--:--</p>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Actions -->
-            <div class="flex gap-3">
-                <button onclick="closeRecordModal()" class="btn btn-secondary flex-1">Cancel</button>
-                <button onclick="startRecording()" class="btn btn-primary flex-1 bg-red-600 hover:bg-red-700 border-red-600">
-                    <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
-                        <circle cx="10" cy="10" r="6"/>
-                    </svg>
-                    Start Recording
-                </button>
+        <!-- Channel Info -->
+        <div class="flex items-center gap-4 mb-6 p-4 rounded-lg bg-dark-surface">
+            <img id="record-channel-logo" src="/static/img/no-logo.png" class="w-12 h-12 rounded-lg object-contain bg-dark-border" onerror="this.src='/static/img/no-logo.png'" />
+            <div class="flex-1 min-w-0">
+                <h4 id="record-channel-name" class="text-white font-medium truncate"></h4>
+                <p id="record-channel-category" class="text-text-muted text-sm truncate"></p>
             </div>
         </div>
-    </div>
 
+        <!-- Duration Selection -->
+        <div class="mb-6">
+            <label class="block text-text-secondary text-sm font-medium mb-3">Recording Duration</label>
+            <div class="grid grid-cols-4 gap-2 mb-4">
+                <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="30">30 min</button>
+                <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="60">1 hour</button>
+                <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="90">1.5 hr</button>
+                <button type="button" class="duration-btn btn btn-secondary py-2 text-sm" data-minutes="120">2 hours</button>
+            </div>
+            <div class="flex items-center gap-4">
+                <div class="flex-1">
+                    <label class="block text-text-muted text-xs mb-1">Or set end time</label>
+                    <input type="time" id="record-end-time" class="input w-full" />
+                </div>
+                <div class="flex-1">
+                    <label class="block text-text-muted text-xs mb-1">Calculated end</label>
+                    <p id="record-end-display" class="text-white font-medium py-2">--:--</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="flex gap-3">
+            <button onclick="closeRecordModal()" class="btn btn-secondary flex-1">Cancel</button>
+            <button onclick="startRecording()" class="btn btn-danger flex-1">
+                <svg class="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <circle cx="10" cy="10" r="6"/>
+                </svg>
+                Start Recording
+            </button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -150,9 +151,8 @@
     let currentCategory = null;
     let allCategories = [];
     let currentCountry = '';
-    let preferredLanguages = []; // From settings
+    let preferredLanguages = [];
 
-    // Country names for display
     const countryNames = {
         'DE': 'Germany', 'US': 'United States', 'UK': 'United Kingdom', 'FR': 'France',
         'ES': 'Spain', 'IT': 'Italy', 'NL': 'Netherlands', 'PL': 'Poland',
@@ -169,50 +169,36 @@
         'IE': 'Ireland', 'OTHER': 'Other'
     };
 
-    // Extract a friendly display name from category
+    const countryFlags = {
+        'DE': '\u{1F1E9}\u{1F1EA}', 'US': '\u{1F1FA}\u{1F1F8}', 'UK': '\u{1F1EC}\u{1F1E7}', 'FR': '\u{1F1EB}\u{1F1F7}',
+        'ES': '\u{1F1EA}\u{1F1F8}', 'IT': '\u{1F1EE}\u{1F1F9}', 'NL': '\u{1F1F3}\u{1F1F1}', 'PL': '\u{1F1F5}\u{1F1F1}',
+        'TR': '\u{1F1F9}\u{1F1F7}', 'PT': '\u{1F1F5}\u{1F1F9}', 'GR': '\u{1F1EC}\u{1F1F7}', 'RU': '\u{1F1F7}\u{1F1FA}',
+        'AT': '\u{1F1E6}\u{1F1F9}', 'CH': '\u{1F1E8}\u{1F1ED}', 'BE': '\u{1F1E7}\u{1F1EA}', 'CA': '\u{1F1E8}\u{1F1E6}',
+        'AU': '\u{1F1E6}\u{1F1FA}', 'BR': '\u{1F1E7}\u{1F1F7}', 'MX': '\u{1F1F2}\u{1F1FD}', 'AR': '\u{1F1E6}\u{1F1F7}',
+        'IN': '\u{1F1EE}\u{1F1F3}', 'JP': '\u{1F1EF}\u{1F1F5}', 'KR': '\u{1F1F0}\u{1F1F7}', 'CN': '\u{1F1E8}\u{1F1F3}',
+        'SE': '\u{1F1F8}\u{1F1EA}', 'NO': '\u{1F1F3}\u{1F1F4}', 'DK': '\u{1F1E9}\u{1F1F0}', 'FI': '\u{1F1EB}\u{1F1EE}'
+    };
+
     function getCategoryDisplayName(category) {
         if (!category) return 'Uncategorized';
-        // Remove common prefixes like |DE|, DE|, etc.
         let name = category.replace(/^\\|?[A-Z]{2}\\|\\s*/i, '');
-        // Clean up special characters
         name = name.replace(/[|#]+/g, ' ').trim();
         return name || category;
     }
 
-    // Get country code from category for flag display
     function getCategoryCountry(category) {
         if (!category) return null;
         const match = category.match(/\\|?([A-Z]{2})\\|/i) || category.match(/^([A-Z]{2})\\s/i);
         return match ? match[1].toUpperCase() : null;
     }
 
-    // Get a representative icon for the category
     function getCategoryIcon(category) {
         const country = getCategoryCountry(category);
-        if (country) {
-            // Return flag emoji based on country code
-            const flags = {
-                'DE': '\u{1F1E9}\u{1F1EA}', 'US': '\u{1F1FA}\u{1F1F8}', 'UK': '\u{1F1EC}\u{1F1E7}', 'FR': '\u{1F1EB}\u{1F1F7}',
-                'ES': '\u{1F1EA}\u{1F1F8}', 'IT': '\u{1F1EE}\u{1F1F9}', 'NL': '\u{1F1F3}\u{1F1F1}', 'PL': '\u{1F1F5}\u{1F1F1}',
-                'TR': '\u{1F1F9}\u{1F1F7}', 'PT': '\u{1F1F5}\u{1F1F9}', 'GR': '\u{1F1EC}\u{1F1F7}', 'RU': '\u{1F1F7}\u{1F1FA}',
-                'AT': '\u{1F1E6}\u{1F1F9}', 'CH': '\u{1F1E8}\u{1F1ED}', 'BE': '\u{1F1E7}\u{1F1EA}', 'CA': '\u{1F1E8}\u{1F1E6}',
-                'AU': '\u{1F1E6}\u{1F1FA}', 'BR': '\u{1F1E7}\u{1F1F7}', 'MX': '\u{1F1F2}\u{1F1FD}', 'AR': '\u{1F1E6}\u{1F1F7}',
-                'IN': '\u{1F1EE}\u{1F1F3}', 'JP': '\u{1F1EF}\u{1F1F5}', 'KR': '\u{1F1F0}\u{1F1F7}', 'CN': '\u{1F1E8}\u{1F1F3}',
-                'SE': '\u{1F1F8}\u{1F1EA}', 'NO': '\u{1F1F3}\u{1F1F4}', 'DK': '\u{1F1E9}\u{1F1F0}', 'FI': '\u{1F1EB}\u{1F1EE}',
-                'RO': '\u{1F1F7}\u{1F1F4}', 'HU': '\u{1F1ED}\u{1F1FA}', 'CZ': '\u{1F1E8}\u{1F1FF}', 'SK': '\u{1F1F8}\u{1F1F0}',
-                'HR': '\u{1F1ED}\u{1F1F7}', 'RS': '\u{1F1F7}\u{1F1F8}', 'BG': '\u{1F1E7}\u{1F1EC}', 'UA': '\u{1F1FA}\u{1F1E6}',
-                'AL': '\u{1F1E6}\u{1F1F1}', 'IR': '\u{1F1EE}\u{1F1F7}', 'IL': '\u{1F1EE}\u{1F1F1}', 'SA': '\u{1F1F8}\u{1F1E6}',
-                'AE': '\u{1F1E6}\u{1F1EA}', 'EG': '\u{1F1EA}\u{1F1EC}', 'ZA': '\u{1F1FF}\u{1F1E6}', 'NG': '\u{1F1F3}\u{1F1EC}',
-                'LA': '\u{1F1F1}\u{1F1E6}', 'AF': '\u{1F30D}'
-            };
-            return flags[country] || '\u{1F4FA}';
-        }
-        return '\u{1F4FA}'; // TV emoji as default
+        return countryFlags[country] || '\u{1F4FA}';
     }
 
     async function loadCategories() {
         try {
-            // Load settings to get preferred languages
             const settingsResp = await fetch('/api/settings');
             const settings = await settingsResp.json();
             preferredLanguages = (settings.preferredLanguages || []).map(l => l.toUpperCase());
@@ -221,7 +207,6 @@
             const filters = await response.json();
             allCategories = filters.categories.filter(cat => cat);
 
-            // Filter categories to only show preferred countries
             if (preferredLanguages.length > 0) {
                 allCategories = allCategories.filter(cat => {
                     const country = getCategoryCountry(cat);
@@ -238,14 +223,12 @@
 
     function populateCountryFilter() {
         const select = document.getElementById('country-filter');
-        // Get unique countries from categories
         const countries = new Set();
         allCategories.forEach(cat => {
             const country = getCategoryCountry(cat);
             if (country) countries.add(country);
         });
 
-        // Sort countries with priority ones first
         const priority = ['DE', 'US', 'UK', 'FR', 'ES', 'IT'];
         const sortedCountries = Array.from(countries).sort((a, b) => {
             const aIdx = priority.indexOf(a);
@@ -256,15 +239,11 @@
             return a.localeCompare(b);
         });
 
-        // Clear and repopulate
         select.innerHTML = '<option value="">All Countries</option>';
         sortedCountries.forEach(code => {
-            const flag = getCategoryIcon({ match: () => [null, code] }.match() ? code : '|' + code + '|');
+            const flag = countryFlags[code] || '';
             const name = countryNames[code] || code;
-            const option = document.createElement('option');
-            option.value = code;
-            option.textContent = getCategoryIcon('|' + code + '|') + ' ' + name;
-            select.appendChild(option);
+            select.innerHTML += \`<option value="\${code}">\${flag} \${name}</option>\`;
         });
     }
 
@@ -272,12 +251,10 @@
         const query = document.getElementById('search-input').value.toLowerCase();
         let filtered = allCategories;
 
-        // Filter by country
         if (currentCountry) {
             filtered = filtered.filter(cat => getCategoryCountry(cat) === currentCountry);
         }
 
-        // Filter by search query
         if (query) {
             filtered = filtered.filter(cat =>
                 cat.toLowerCase().includes(query) ||
@@ -289,10 +266,10 @@
     }
 
     function renderCategories(categories) {
-        const grid = document.getElementById('categories-grid');
-        grid.innerHTML = '';
+        const container = document.getElementById('categories-view');
+        container.innerHTML = '';
 
-        // Group categories by country/region
+        // Group by country
         const grouped = {};
         categories.forEach(cat => {
             const country = getCategoryCountry(cat) || 'OTHER';
@@ -300,7 +277,6 @@
             grouped[country].push(cat);
         });
 
-        // Sort countries alphabetically, but put common ones first
         const priority = ['DE', 'US', 'UK', 'FR', 'ES', 'IT'];
         const sortedCountries = Object.keys(grouped).sort((a, b) => {
             const aIdx = priority.indexOf(a);
@@ -313,34 +289,56 @@
             return a.localeCompare(b);
         });
 
-        // Render each category
+        // Create horizontal rows for each country
         sortedCountries.forEach(country => {
-            grouped[country].forEach(cat => {
-                const card = document.createElement('div');
-                card.className = 'card p-4 text-center hover:bg-dark-700 transition-all cursor-pointer hover:scale-105 hover:border-primary-500';
-                const icon = getCategoryIcon(cat);
-                const displayName = getCategoryDisplayName(cat);
-                const channelCount = ''; // Could add count later
+            const countryCategories = grouped[country];
+            const countryName = countryNames[country] || country;
+            const flag = countryFlags[country] || '';
 
-                card.innerHTML = \`
-                    <div class="text-4xl mb-3">\${icon}</div>
-                    <h3 class="font-medium text-white text-sm truncate" title="\${cat}">\${displayName}</h3>
-                    <p class="text-gray-500 text-xs mt-1">\${country !== 'OTHER' ? country : ''}</p>
-                \`;
-                card.onclick = () => selectCategory(cat);
-                grid.appendChild(card);
-            });
+            const cards = countryCategories.map(cat => \`
+                <div class="category-card" onclick="selectCategory('\${cat.replace(/'/g, "\\\\'")}')">
+                    <div class="category-icon">\${getCategoryIcon(cat)}</div>
+                    <div class="category-name">\${getCategoryDisplayName(cat)}</div>
+                </div>
+            \`).join('');
+
+            container.innerHTML += \`
+                <section class="content-row">
+                    <div class="row-header">
+                        <h2 class="row-title">\${flag} \${countryName}</h2>
+                    </div>
+                    <div class="row-slider">
+                        <button class="slider-arrow left" onclick="scrollRow(this, -1)" aria-label="Scroll left">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                            </svg>
+                        </button>
+                        <div class="slider-track">\${cards}</div>
+                        <button class="slider-arrow right" onclick="scrollRow(this, 1)" aria-label="Scroll right">
+                            <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+            \`;
         });
 
         document.getElementById('results-count').textContent = categories.length;
         document.getElementById('results-label').textContent = 'categories';
     }
 
+    window.scrollRow = function(btn, direction) {
+        const track = btn.parentElement.querySelector('.slider-track');
+        const cardWidth = track.querySelector('.category-card')?.offsetWidth || 160;
+        const scrollAmount = cardWidth * 4 * direction;
+        track.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    };
+
     function selectCategory(category) {
         currentCategory = category;
         currentOffset = 0;
 
-        // Update UI
         document.getElementById('categories-view').classList.add('hidden');
         document.getElementById('channels-view').classList.remove('hidden');
         document.getElementById('back-btn').classList.remove('hidden');
@@ -356,7 +354,6 @@
         currentCategory = null;
         currentOffset = 0;
 
-        // Update UI
         document.getElementById('categories-view').classList.remove('hidden');
         document.getElementById('channels-view').classList.add('hidden');
         document.getElementById('back-btn').classList.add('hidden');
@@ -388,7 +385,8 @@
 
         try {
             const response = await fetch('/api/media?' + params);
-            const channels = await response.json();
+            const data = await response.json();
+            const channels = data.items || data;
             const grid = document.getElementById('channels-grid');
             const emptyState = document.getElementById('empty-state');
 
@@ -403,45 +401,36 @@
             }
 
             channels.forEach((channel, index) => {
-                const card = document.createElement('div');
-                card.className = 'card p-4 text-center hover:bg-dark-700 transition-all cursor-pointer group';
                 const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.png';
                 const isEager = currentOffset === 0 && index < 16;
+                let displayName = channel.title.replace(/^[A-Z]{2}\\s*[-:]\\s*/i, '');
 
-                // Clean channel name - remove country prefix
-                let displayName = channel.title;
-                displayName = displayName.replace(/^[A-Z]{2}\\s*[-:]\\s*/i, '');
-
-                card.innerHTML = \`
-                    <div class="relative">
-                        <img src="\${isEager ? imgSrc : '/static/img/no-logo.png'}"
-                             data-src="\${imgSrc}"
-                             alt="\${displayName}"
-                             class="w-16 h-16 mx-auto rounded-lg object-contain bg-dark-700 mb-3 \${isEager ? '' : 'lazy-image'}"
-                             onerror="this.src='/static/img/no-logo.png'" />
-                        <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                            <div class="bg-primary-500 rounded-full p-2">
-                                <svg class="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24">
+                grid.innerHTML += \`
+                    <div class="channel-card" onclick="playChannel(\${JSON.stringify(channel).replace(/"/g, '&quot;')})" oncontextmenu="showContextMenu(event, \${JSON.stringify(channel).replace(/"/g, '&quot;')})">
+                        <div class="channel-logo">
+                            <img src="\${isEager ? imgSrc : '/static/img/no-logo.png'}"
+                                 data-src="\${imgSrc}"
+                                 alt="\${displayName}"
+                                 class="\${isEager ? '' : 'lazy-image'}"
+                                 onerror="this.src='/static/img/no-logo.png'" />
+                            <div class="channel-play">
+                                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M8 5v14l11-7z"/>
                                 </svg>
                             </div>
                         </div>
+                        <div class="channel-info">
+                            <h3 class="channel-name">\${displayName}</h3>
+                            <p class="channel-epg epg-now" data-tvg-id="\${channel.tvg_id || ''}">&nbsp;</p>
+                        </div>
                     </div>
-                    <h3 class="font-medium text-white text-sm truncate" title="\${channel.title}">\${displayName}</h3>
-                    <p class="text-xs text-gray-500 truncate mt-1 epg-now" data-tvg-id="\${channel.tvg_id || ''}">&nbsp;</p>
                 \`;
-                card.onclick = () => playChannel(channel);
-                card.oncontextmenu = (e) => showContextMenu(e, channel);
-                grid.appendChild(card);
             });
 
             initLazyLoad();
 
-            // Fetch EPG data for channels with tvg_id
             const tvgIds = channels.filter(c => c.tvg_id).map(c => c.tvg_id);
-            if (tvgIds.length > 0) {
-                fetchEpgForChannels(tvgIds);
-            }
+            if (tvgIds.length > 0) fetchEpgForChannels(tvgIds);
 
             document.getElementById('results-count').textContent = (currentOffset + channels.length).toLocaleString();
             document.getElementById('load-more').classList.toggle('hidden', channels.length < limit);
@@ -453,56 +442,22 @@
     }
 
     function playChannel(channel) {
-        const url = channel.stream_url;
-
-        // Open in VLC via server API (same as EPG page)
         fetch('/api/play', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url })
+            body: JSON.stringify({ url: channel.stream_url })
         })
         .then(res => res.json())
         .then(data => {
-            if (data.success && window.showToast) {
-                showToast('Opening in VLC...', 'success');
-            } else if (data.error && window.showToast) {
-                showToast('Failed to open VLC: ' + data.error, 'error');
-            }
+            if (data.success && window.showToast) showToast('Opening in VLC...', 'success');
+            else if (data.error && window.showToast) showToast('Failed to open VLC: ' + data.error, 'error');
         })
         .catch(err => {
             console.error('Failed to open VLC:', err);
-            if (window.showToast) {
-                showToast('Failed to open VLC', 'error');
-            }
+            if (window.showToast) showToast('Failed to open VLC', 'error');
         });
     }
 
-    // Search handler - searches both categories and channels
-    document.getElementById('search-input').addEventListener('input', debounce((e) => {
-        if (currentCategory) {
-            // In channel view - search channels
-            loadChannels(true);
-        } else {
-            // In category view - apply filters
-            applyFilters();
-        }
-    }, 300));
-
-    // Country filter handler
-    document.getElementById('country-filter').addEventListener('change', (e) => {
-        currentCountry = e.target.value;
-        if (currentCategory) {
-            // If viewing channels, go back to categories with filter
-            showCategories();
-        } else {
-            applyFilters();
-        }
-    });
-
-    document.getElementById('back-btn').addEventListener('click', showCategories);
-    document.getElementById('load-more').addEventListener('click', () => loadChannels(false));
-
-    // EPG functions
     async function fetchEpgForChannels(tvgIds) {
         try {
             const response = await fetch('/api/epg/channels', {
@@ -512,7 +467,6 @@
             });
             const epgData = await response.json();
 
-            // Update channel cards with EPG info
             document.querySelectorAll('.epg-now').forEach(el => {
                 const tvgId = el.dataset.tvgId;
                 if (tvgId && epgData[tvgId]?.current) {
@@ -525,40 +479,36 @@
         }
     }
 
-    // Initialize
-    loadCategories();
+    // Event listeners
+    document.getElementById('search-input').addEventListener('input', debounce((e) => {
+        if (currentCategory) loadChannels(true);
+        else applyFilters();
+    }, 300));
 
-    function debounce(func, wait) {
-        let timeout;
-        return function(e) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func(e), wait);
-        };
-    }
+    document.getElementById('country-filter').addEventListener('change', (e) => {
+        currentCountry = e.target.value;
+        if (currentCategory) showCategories();
+        else applyFilters();
+    });
 
-    // Context menu state
+    document.getElementById('back-btn').addEventListener('click', showCategories);
+    document.getElementById('load-more').addEventListener('click', () => loadChannels(false));
+
+    // Context menu
     let contextMenuChannel = null;
-    let recordingEndTime = null;
 
     function showContextMenu(e, channel) {
         e.preventDefault();
+        e.stopPropagation();
         contextMenuChannel = channel;
 
         const menu = document.getElementById('context-menu');
         menu.classList.remove('hidden');
 
-        // Position menu at click location
-        let x = e.clientX;
-        let y = e.clientY;
-
-        // Adjust if menu would go off screen
+        let x = e.clientX, y = e.clientY;
         const menuRect = menu.getBoundingClientRect();
-        if (x + menuRect.width > window.innerWidth) {
-            x = window.innerWidth - menuRect.width - 10;
-        }
-        if (y + menuRect.height > window.innerHeight) {
-            y = window.innerHeight - menuRect.height - 10;
-        }
+        if (x + menuRect.width > window.innerWidth) x = window.innerWidth - menuRect.width - 10;
+        if (y + menuRect.height > window.innerHeight) y = window.innerHeight - menuRect.height - 10;
 
         menu.style.left = x + 'px';
         menu.style.top = y + 'px';
@@ -569,23 +519,18 @@
         contextMenuChannel = null;
     }
 
-    // Context menu actions
     document.getElementById('ctx-play').addEventListener('click', () => {
-        if (contextMenuChannel) {
-            playChannel(contextMenuChannel);
-        }
+        if (contextMenuChannel) playChannel(contextMenuChannel);
         hideContextMenu();
     });
 
     document.getElementById('ctx-record').addEventListener('click', () => {
-        if (contextMenuChannel) {
-            openRecordModal(contextMenuChannel);
-        }
+        if (contextMenuChannel) openRecordModal(contextMenuChannel);
         hideContextMenu();
     });
 
     document.getElementById('ctx-copy').addEventListener('click', () => {
-        if (contextMenuChannel && contextMenuChannel.stream_url) {
+        if (contextMenuChannel?.stream_url) {
             navigator.clipboard.writeText(contextMenuChannel.stream_url).then(() => {
                 if (window.showToast) showToast('Stream URL copied!', 'success');
             });
@@ -593,40 +538,28 @@
         hideContextMenu();
     });
 
-    // Hide context menu on click elsewhere
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('#context-menu')) {
-            hideContextMenu();
-        }
+        if (!e.target.closest('#context-menu')) hideContextMenu();
     });
-
-    // Hide context menu on scroll
     document.addEventListener('scroll', hideContextMenu, true);
 
-    // Recording modal functions
+    // Recording modal
     let recordChannel = null;
+    let recordingEndTime = null;
 
     function openRecordModal(channel) {
         recordChannel = channel;
-
-        // Update modal info
         const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.png';
         document.getElementById('record-channel-logo').src = imgSrc;
         document.getElementById('record-channel-name').textContent = channel.title;
         document.getElementById('record-channel-category').textContent = channel.category || '';
 
-        // Reset duration selection
-        document.querySelectorAll('.duration-btn').forEach(btn => {
-            btn.classList.remove('bg-primary-600', 'border-primary-600');
-        });
+        document.querySelectorAll('.duration-btn').forEach(btn => btn.classList.remove('btn-primary'));
         recordingEndTime = null;
         document.getElementById('record-end-display').textContent = '--:--';
         document.getElementById('record-end-time').value = '';
 
-        // Default to 1 hour
         selectDuration(60);
-
-        // Show modal
         document.getElementById('record-modal').classList.remove('hidden');
     }
 
@@ -637,50 +570,33 @@
     }
 
     function selectDuration(minutes) {
-        // Update button states
         document.querySelectorAll('.duration-btn').forEach(btn => {
             const btnMinutes = parseInt(btn.dataset.minutes);
-            if (btnMinutes === minutes) {
-                btn.classList.add('bg-primary-600', 'border-primary-600');
-                btn.classList.remove('btn-secondary');
-            } else {
-                btn.classList.remove('bg-primary-600', 'border-primary-600');
-                btn.classList.add('btn-secondary');
-            }
+            btn.classList.toggle('btn-primary', btnMinutes === minutes);
+            btn.classList.toggle('btn-secondary', btnMinutes !== minutes);
         });
 
-        // Calculate end time
         const endDate = new Date(Date.now() + minutes * 60 * 1000);
         recordingEndTime = endDate.toISOString();
         document.getElementById('record-end-display').textContent = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         document.getElementById('record-end-time').value = '';
     }
 
-    // Duration button click handlers
     document.querySelectorAll('.duration-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            selectDuration(parseInt(btn.dataset.minutes));
-        });
+        btn.addEventListener('click', () => selectDuration(parseInt(btn.dataset.minutes)));
     });
 
-    // Manual end time input
     document.getElementById('record-end-time').addEventListener('change', (e) => {
         if (e.target.value) {
-            // Clear duration button selection
             document.querySelectorAll('.duration-btn').forEach(btn => {
-                btn.classList.remove('bg-primary-600', 'border-primary-600');
+                btn.classList.remove('btn-primary');
                 btn.classList.add('btn-secondary');
             });
 
-            // Parse time input
             const [hours, minutes] = e.target.value.split(':').map(Number);
             const endDate = new Date();
             endDate.setHours(hours, minutes, 0, 0);
-
-            // If time is earlier than now, assume it's tomorrow
-            if (endDate <= new Date()) {
-                endDate.setDate(endDate.getDate() + 1);
-            }
+            if (endDate <= new Date()) endDate.setDate(endDate.getDate() + 1);
 
             recordingEndTime = endDate.toISOString();
             document.getElementById('record-end-display').textContent = endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -719,19 +635,82 @@
         }
     }
 
-    // Close modal on Escape
     document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') {
-            closeRecordModal();
-            hideContextMenu();
-        }
+        if (e.key === 'Escape') { closeRecordModal(); hideContextMenu(); }
     });
 
-    // Close modal on backdrop click
     document.getElementById('record-modal').addEventListener('click', (e) => {
-        if (e.target.id === 'record-modal') {
-            closeRecordModal();
-        }
+        if (e.target.id === 'record-modal') closeRecordModal();
     });
+
+    // Initialize
+    loadCategories();
+
+    function debounce(func, wait) {
+        let timeout;
+        return function(e) { clearTimeout(timeout); timeout = setTimeout(() => func(e), wait); };
+    }
 </script>
+
+<style>
+    /* Category Cards */
+    .category-card {
+        @apply flex-shrink-0 snap-start cursor-pointer
+               bg-dark-surface rounded-xl p-4 text-center
+               transition-all duration-300 ease-out
+               hover:bg-dark-hover hover:scale-105;
+        width: 140px;
+    }
+
+    .category-icon {
+        @apply text-4xl mb-2;
+    }
+
+    .category-name {
+        @apply text-sm font-medium text-white truncate;
+    }
+
+    /* Channel Cards */
+    .channel-card {
+        @apply relative rounded-xl overflow-hidden cursor-pointer
+               bg-dark-surface transition-all duration-300;
+    }
+
+    .channel-card:hover {
+        @apply scale-105 shadow-xl z-10;
+    }
+
+    .channel-logo {
+        @apply relative aspect-square bg-dark-card flex items-center justify-center p-4;
+    }
+
+    .channel-logo img {
+        @apply w-16 h-16 object-contain rounded-lg;
+    }
+
+    .channel-play {
+        @apply absolute inset-0 flex items-center justify-center
+               bg-black/50 opacity-0 transition-opacity duration-200;
+    }
+
+    .channel-card:hover .channel-play {
+        @apply opacity-100;
+    }
+
+    .channel-play svg {
+        @apply w-12 h-12 text-white bg-primary-500 rounded-full p-3;
+    }
+
+    .channel-info {
+        @apply p-3;
+    }
+
+    .channel-name {
+        @apply text-sm font-medium text-white truncate;
+    }
+
+    .channel-epg {
+        @apply text-xs text-text-muted truncate mt-1;
+    }
+</style>
 ` }) %>

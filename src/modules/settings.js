@@ -55,7 +55,7 @@ const defaults = {
     transcodeWatchEnabled: false,     // Enable watch folder for manual transcoding
     transcodeWatchFolder: '',         // Input folder to watch for files to transcode
     transcodeOutputFolder: '',        // Output folder for transcoded files
-    lowPerformanceMode: false,        // If true, wait for transcode to complete before starting next download
+    slowDiskMode: false,              // Sequential download+transcode: one at a time for slow HDDs
 
     // LLM settings
     llmProvider: 'none',                    // 'none', 'openai', 'ollama'
@@ -63,6 +63,16 @@ const defaults = {
     openaiModel: 'gpt-4o-mini',             // OpenAI model to use
     ollamaUrl: 'http://localhost:11434',    // Ollama server URL
     ollamaModel: 'llama3.2',                // Ollama model to use
+
+    // Usenet settings
+    usenetEnabled: false,                   // Enable usenet downloading
+    usenetTempPath: '',                     // Temp path for NZB downloads (set in init)
+    usenetDownloadPath: '',                 // Final path for completed usenet downloads
+    usenetConnections: 10,                  // Max connections per provider
+    usenetRetryAttempts: 3,                 // Retry failed segments
+    usenetParRepair: true,                  // Enable PAR2 verification/repair
+    usenetAutoExtract: true,                // Auto-extract archives after download
+    usenetCleanupAfterExtract: true,        // Delete archives after extraction
 
     // User agents for rotation
     userAgents: [
@@ -114,6 +124,8 @@ module.exports = {
         defaults.recordingsPath = path.join(PATHS.data, 'recordings');
         defaults.transcodeWatchFolder = path.join(PATHS.data, 'transcode-input');
         defaults.transcodeOutputFolder = path.join(PATHS.data, 'transcode-output');
+        defaults.usenetTempPath = path.join(PATHS.data, 'usenet-temp');
+        defaults.usenetDownloadPath = path.join(PATHS.data, 'downloads', 'usenet');
 
         load();
     },

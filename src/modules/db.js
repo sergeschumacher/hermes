@@ -88,6 +88,9 @@ module.exports = {
                 logger?.info('db', 'Database connected');
 
                 try {
+                    // Enable foreign key support for CASCADE deletes
+                    await runAsync('PRAGMA foreign_keys = ON');
+
                     await applyMigrations();
                     resolve();
                 } catch (migrationErr) {

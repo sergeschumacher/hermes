@@ -1,98 +1,142 @@
 <%- include('layouts/main', { title: 'Movies', body: `
-<div class="p-6 lg:p-8">
-    <!-- Header -->
-    <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-8">
-        <div>
-            <h1 class="text-3xl font-bold text-white">Movies</h1>
-            <p class="text-gray-400 mt-1">Browse and discover movies from your library</p>
-        </div>
-        <div class="flex items-center gap-3">
-            <span class="text-gray-400 text-sm"><span id="results-count" class="text-white font-semibold">0</span> movies</span>
-        </div>
+<!-- Mini Hero with Featured Movie -->
+<section class="mini-hero" id="mini-hero">
+    <div class="mini-hero-bg"></div>
+    <div class="mini-hero-gradient"></div>
+    <div class="mini-hero-content">
+        <h1 class="text-4xl font-bold mb-2" id="hero-title">Movies</h1>
+        <p class="text-text-muted" id="hero-subtitle">Discover and watch movies from your library</p>
     </div>
+</section>
 
-    <!-- Search & Filter Bar -->
-    <div class="card p-4 mb-6">
-        <div class="flex flex-col lg:flex-row gap-4">
+<div class="content-container">
+    <!-- Floating Filter Bar -->
+    <div class="filter-bar">
+        <div class="filter-bar-inner">
             <!-- Search -->
-            <div class="flex-1 relative">
-                <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="filter-search">
+                <svg class="filter-search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input type="text" id="search-input" placeholder="Search movies..." class="input input-search" />
+                <input type="text" id="search-input" placeholder="Search movies..." class="filter-search-input" />
             </div>
 
-            <!-- Filters -->
-            <div class="flex flex-wrap gap-3">
-                <select id="filter-quality" class="select w-auto min-w-[120px]">
-                    <option value="">All Qualities</option>
-                    <option value="4K">4K</option>
-                    <option value="1080p">1080p</option>
-                    <option value="720p">720p</option>
-                    <option value="SD">SD</option>
-                </select>
+            <!-- Filter Chips -->
+            <div class="filter-chips">
+                <div class="filter-chip-group">
+                    <select id="filter-quality" class="filter-select">
+                        <option value="">Quality</option>
+                        <option value="4K">4K</option>
+                        <option value="1080p">1080p</option>
+                        <option value="720p">720p</option>
+                        <option value="SD">SD</option>
+                    </select>
+                </div>
 
-                <select id="filter-year" class="select w-auto min-w-[120px]">
-                    <option value="">All Years</option>
-                </select>
+                <div class="filter-chip-group">
+                    <select id="filter-year" class="filter-select">
+                        <option value="">Year</option>
+                    </select>
+                </div>
 
-                <select id="filter-language" class="select w-auto min-w-[140px]">
-                    <option value="">All Languages</option>
-                </select>
+                <div class="filter-chip-group hidden lg:block">
+                    <select id="filter-language" class="filter-select">
+                        <option value="">Language</option>
+                    </select>
+                </div>
 
-                <select id="filter-source" class="select w-auto min-w-[140px]">
-                    <option value="">All Sources</option>
-                </select>
+                <div class="filter-chip-group hidden lg:block">
+                    <select id="filter-source" class="filter-select">
+                        <option value="">Source</option>
+                    </select>
+                </div>
 
-                <select id="filter-platform" class="select w-auto min-w-[140px]">
-                    <option value="">All Platforms</option>
-                </select>
+                <div class="filter-chip-group hidden xl:block">
+                    <select id="filter-platform" class="filter-select">
+                        <option value="">Platform</option>
+                    </select>
+                </div>
 
-                <select id="filter-recently" class="select w-auto min-w-[140px]">
-                    <option value="">All Time</option>
-                    <option value="7">Last 7 Days</option>
-                    <option value="14">Last 2 Weeks</option>
-                    <option value="30">Last 30 Days</option>
-                </select>
+                <div class="filter-chip-group">
+                    <select id="filter-recently" class="filter-select">
+                        <option value="">Time</option>
+                        <option value="7">7 Days</option>
+                        <option value="14">2 Weeks</option>
+                        <option value="30">30 Days</option>
+                    </select>
+                </div>
 
-                <select id="sort-by" class="select w-auto min-w-[150px]">
-                    <option value="title">Sort by Title</option>
-                    <option value="year">Sort by Year</option>
-                    <option value="rating">Sort by Rating</option>
-                    <option value="created_at">Recently Added</option>
-                </select>
+                <div class="filter-chip-group">
+                    <select id="sort-by" class="filter-select">
+                        <option value="title">A-Z</option>
+                        <option value="year">Year</option>
+                        <option value="rating">Rating</option>
+                        <option value="created_at">New</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- View Toggle & Count -->
+            <div class="filter-actions">
+                <span class="result-count"><span id="results-count">0</span> movies</span>
+                <div class="view-toggle">
+                    <button class="view-btn active" data-view="rows" title="Rows View">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
+                        </svg>
+                    </button>
+                    <button class="view-btn" data-view="grid" title="Grid View">
+                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Movies Grid -->
-    <div class="media-grid" id="movies-grid">
+    <!-- Rows View (default) -->
+    <div id="rows-view" class="rows-view">
         <!-- Loading skeleton -->
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
-        <div class="skeleton-card"></div>
+        <div class="content-row">
+            <div class="row-header">
+                <div class="h-6 w-32 bg-dark-surface rounded animate-pulse"></div>
+            </div>
+            <div class="row-slider">
+                <div class="slider-track">
+                    <div class="skeleton-card-sm"></div>
+                    <div class="skeleton-card-sm"></div>
+                    <div class="skeleton-card-sm"></div>
+                    <div class="skeleton-card-sm"></div>
+                    <div class="skeleton-card-sm"></div>
+                    <div class="skeleton-card-sm"></div>
+                </div>
+            </div>
+        </div>
     </div>
 
-    <!-- Loading More Spinner -->
-    <div class="mt-8 flex justify-center hidden" id="loading-more">
-        <div class="flex items-center gap-3 text-gray-400">
-            <div class="spinner"></div>
-            <span>Loading more movies...</span>
+    <!-- Grid View (hidden by default) -->
+    <div id="grid-view" class="grid-view hidden">
+        <div class="media-grid" id="movies-grid"></div>
+
+        <!-- Loading More Spinner -->
+        <div class="mt-8 flex justify-center hidden" id="loading-more">
+            <div class="flex items-center gap-3 text-text-muted">
+                <div class="spinner"></div>
+                <span>Loading more movies...</span>
+            </div>
         </div>
     </div>
 
     <!-- Empty State -->
     <div class="empty-state hidden" id="empty-state">
         <div class="empty-state-icon">
-            <svg class="w-8 h-8 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375" />
+            <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h1.5C5.496 19.5 6 18.996 6 18.375" />
             </svg>
         </div>
         <p class="empty-state-title">No movies found</p>
-        <p class="empty-state-text">Try adjusting your search or filters to find what you're looking for</p>
+        <p class="empty-state-text">Try adjusting your search or filters</p>
     </div>
 </div>
 
@@ -101,27 +145,45 @@
     const limit = 50;
     let loading = false;
     let hasMore = true;
+    let currentView = localStorage.getItem('hermes_movies_view') || 'rows';
     const STORAGE_KEY = 'hermes_movies_filters';
 
-    // Cache for TMDB enrichments to avoid repeated requests
-    const tmdbCache = new Map();
-    const enrichmentQueue = [];
-    let isEnriching = false;
+    // Enrichment tracking
+    const enrichingIds = new Set();
+    let pendingEnrichment = [];
+    let enrichmentTimer = null;
 
-    // Helper to clean M3U metadata from titles
+    // Initialize view
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.view === currentView);
+    });
+    document.getElementById('rows-view').classList.toggle('hidden', currentView !== 'rows');
+    document.getElementById('grid-view').classList.toggle('hidden', currentView !== 'grid');
+
+    // View toggle handlers
+    document.querySelectorAll('.view-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const view = btn.dataset.view;
+            if (view === currentView) return;
+
+            currentView = view;
+            localStorage.setItem('hermes_movies_view', view);
+
+            document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+            document.getElementById('rows-view').classList.toggle('hidden', view !== 'rows');
+            document.getElementById('grid-view').classList.toggle('hidden', view !== 'grid');
+
+            loadMovies(true);
+        });
+    });
+
     function cleanM3UTitle(rawTitle) {
         if (!rawTitle) return { title: '', year: null };
         let cleanTitle = rawTitle;
-
-        // If title contains M3U tags, extract the actual name after the last comma
         if (cleanTitle.includes('tvg-logo=') || cleanTitle.includes('group-title=')) {
-            let lastQuotePos = -1;
-            let inQuotes = false;
+            let lastQuotePos = -1, inQuotes = false;
             for (let i = 0; i < cleanTitle.length; i++) {
-                if (cleanTitle[i] === '"') {
-                    inQuotes = !inQuotes;
-                    if (!inQuotes) lastQuotePos = i;
-                }
+                if (cleanTitle[i] === '"') { inQuotes = !inQuotes; if (!inQuotes) lastQuotePos = i; }
             }
             if (lastQuotePos > -1) {
                 const commaAfterQuote = cleanTitle.indexOf(',', lastQuotePos);
@@ -130,106 +192,49 @@
                 }
             }
         }
-
-        // Remove country/language prefix (DE -, EN -, etc.)
-        cleanTitle = cleanTitle.replace(/^[A-Z]{2}\s*-\s*/, '');
-
-        // Extract year if present
-        const titleMatch = cleanTitle.match(/^(.+?)\s*\((\d{4})\)$/);
-        if (titleMatch) {
-            return { title: titleMatch[1].trim(), year: parseInt(titleMatch[2]) };
-        }
-
+        cleanTitle = cleanTitle.replace(/^[A-Z]{2}\\s*-\\s*/, '');
+        const titleMatch = cleanTitle.match(/^(.+?)\\s*\\((\\d{4})\\)$/);
+        if (titleMatch) return { title: titleMatch[1].trim(), year: parseInt(titleMatch[2]) };
         return { title: cleanTitle, year: null };
     }
 
-    // Enrich a single movie card with TMDB data
-    async function enrichMovieCard(card, movie) {
-        const cacheKey = movie.id;
+    function queueForEnrichment(mediaId) {
+        if (enrichingIds.has(mediaId)) return;
+        pendingEnrichment.push(mediaId);
+        enrichingIds.add(mediaId);
+        if (enrichmentTimer) clearTimeout(enrichmentTimer);
+        enrichmentTimer = setTimeout(processBatchEnrichment, 500);
+    }
 
-        // Skip if already has TMDB poster or already enriched
-        if (movie.poster?.includes('image.tmdb.org') || tmdbCache.has(cacheKey)) {
-            return;
-        }
-
-        const cleaned = cleanM3UTitle(movie.title);
-        if (!cleaned.title || cleaned.title.length < 2) return;
-
+    async function processBatchEnrichment() {
+        if (pendingEnrichment.length === 0) return;
+        const mediaIds = [...pendingEnrichment];
+        pendingEnrichment = [];
         try {
-            // Search TMDB
-            const searchUrl = \`/api/tmdb/search/movie?query=\${encodeURIComponent(cleaned.title)}\${cleaned.year ? \`&year=\${cleaned.year}\` : ''}\`;
-            const searchResults = await fetch(searchUrl).then(r => r.json());
-
-            if (searchResults.length > 0) {
-                const match = searchResults[0];
-                const tmdbData = {
-                    poster: match.poster_path ? \`https://image.tmdb.org/t/p/w500\${match.poster_path}\` : null,
-                    rating: match.vote_average,
-                    year: match.release_date ? parseInt(match.release_date.substring(0, 4)) : cleaned.year,
-                    title: match.title
-                };
-                tmdbCache.set(cacheKey, tmdbData);
-
-                // Update the card UI
-                if (tmdbData.poster) {
-                    const img = card.querySelector('img');
-                    if (img) {
-                        img.src = proxyImage(tmdbData.poster);
-                        img.dataset.src = proxyImage(tmdbData.poster);
-                    }
+            const response = await fetch('/api/enrich/batch', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mediaIds, highPriority: false })
+            });
+            const result = await response.json();
+            if (result.results) {
+                for (const item of result.results) {
+                    if (item.success) updateCardUI(item.mediaId, item);
                 }
-
-                // Update rating if we got one
-                if (tmdbData.rating) {
-                    const metaDiv = card.querySelector('.media-card-meta');
-                    if (metaDiv && !metaDiv.querySelector('.media-card-rating')) {
-                        const yearSpan = metaDiv.querySelector('span');
-                        const ratingHtml = \`
-                            <span class="media-card-rating">
-                                <svg fill="currentColor" viewBox="0 0 20 20">
-                                    <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                </svg>
-                                \${tmdbData.rating.toFixed(1)}
-                            </span>
-                        \`;
-                        if (yearSpan) {
-                            yearSpan.insertAdjacentHTML('afterend', ratingHtml);
-                        } else {
-                            metaDiv.insertAdjacentHTML('beforeend', ratingHtml);
-                        }
-                    }
-                }
-            } else {
-                // Mark as checked to avoid re-searching
-                tmdbCache.set(cacheKey, null);
             }
-        } catch (err) {
-            console.error('TMDB enrichment failed:', err);
-        }
+        } catch (err) { console.error('Batch enrichment failed:', err); }
     }
 
-    // Process enrichment queue with rate limiting
-    async function processEnrichmentQueue() {
-        if (isEnriching || enrichmentQueue.length === 0) return;
-        isEnriching = true;
-
-        while (enrichmentQueue.length > 0) {
-            const { card, movie } = enrichmentQueue.shift();
-            await enrichMovieCard(card, movie);
-            // Small delay to avoid hitting rate limits
-            await new Promise(r => setTimeout(r, 100));
+    function updateCardUI(mediaId, data) {
+        const card = document.querySelector('[data-movie-id="' + mediaId + '"]');
+        if (!card) return;
+        if (data.poster && data.poster.includes('image.tmdb.org')) {
+            const img = card.querySelector('img');
+            if (img && !img.src.includes('image.tmdb.org')) {
+                img.src = proxyImage(data.poster);
+                img.classList.remove('lazy-image');
+            }
         }
-
-        isEnriching = false;
-    }
-
-    // Queue a card for enrichment
-    function queueEnrichment(card, movie) {
-        // Skip if movie already has good data
-        if (movie.poster?.includes('image.tmdb.org') || movie.tmdb_id) return;
-
-        enrichmentQueue.push({ card, movie });
-        processEnrichmentQueue();
     }
 
     function saveFilters() {
@@ -247,12 +252,8 @@
 
     function restoreFilters() {
         try {
-            // URL parameters take priority over localStorage
             const urlParams = new URLSearchParams(window.location.search);
-            const hasUrlParams = urlParams.has('quality') || urlParams.has('year') ||
-                                 urlParams.has('language') || urlParams.has('source') || urlParams.has('platform') || urlParams.has('sort') || urlParams.has('recently');
-
-            // If URL has filter params, use them and clear stored source to avoid conflicts
+            const hasUrlParams = urlParams.has('quality') || urlParams.has('year') || urlParams.has('language') || urlParams.has('source') || urlParams.has('platform') || urlParams.has('sort') || urlParams.has('recently');
             if (hasUrlParams) {
                 if (urlParams.has('quality')) document.getElementById('filter-quality').value = urlParams.get('quality');
                 if (urlParams.has('year')) document.getElementById('filter-year').value = urlParams.get('year');
@@ -261,14 +262,8 @@
                 if (urlParams.has('platform')) document.getElementById('filter-platform').value = urlParams.get('platform');
                 if (urlParams.has('recently')) document.getElementById('filter-recently').value = urlParams.get('recently');
                 if (urlParams.has('sort')) document.getElementById('sort-by').value = urlParams.get('sort');
-                // Don't restore source from localStorage if URL has language param (user wants cross-source results)
-                if (urlParams.has('language') && !urlParams.has('source')) {
-                    document.getElementById('filter-source').value = '';
-                }
                 return;
             }
-
-            // Fall back to localStorage if no URL params
             const saved = localStorage.getItem(STORAGE_KEY);
             if (saved) {
                 const filters = JSON.parse(saved);
@@ -280,9 +275,49 @@
                 if (filters.recently) document.getElementById('filter-recently').value = filters.recently;
                 if (filters.sort) document.getElementById('sort-by').value = filters.sort;
             }
-        } catch (err) {
-            console.error('Failed to restore filters:', err);
-        }
+        } catch (err) { console.error('Failed to restore filters:', err); }
+    }
+
+    function createMovieCard(movie, index, isEager = false) {
+        const cleaned = cleanM3UTitle(movie.title);
+        const displayTitle = cleaned.title || movie.title;
+        const displayYear = movie.year || cleaned.year;
+        const imgSrc = movie.poster ? proxyImage(movie.poster) : '/static/img/no-poster.png';
+
+        return \`
+            <a href="/movies/\${movie.id}" class="content-card" data-movie-id="\${movie.id}">
+                <div class="card-poster">
+                    <img src="\${isEager ? imgSrc : '/static/img/placeholder.svg'}"
+                         data-src="\${imgSrc}"
+                         alt="\${displayTitle}"
+                         class="\${isEager ? '' : 'lazy-image'}"
+                         loading="\${isEager ? 'eager' : 'lazy'}"
+                         onerror="this.src='/static/img/no-poster.png'" />
+                    \${movie.quality ? \`<span class="quality-badge">\${movie.quality}</span>\` : ''}
+                    \${movie.has_trailer ? \`<span class="trailer-badge" title="Trailer available">
+                        <svg viewBox="0 0 24 24" fill="white"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                    </span>\` : ''}
+                    <div class="card-overlay">
+                        <div class="play-btn">
+                            <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-info">
+                    <h3 class="card-title">\${displayTitle}</h3>
+                    <p class="card-meta">
+                        \${displayYear || ''}
+                        \${movie.rating ? \`<span class="flex items-center gap-0.5">
+                            <svg class="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/></svg>
+                            \${movie.rating.toFixed(1)}
+                        </span>\` : ''}
+                    </p>
+                </div>
+            </a>
+        \`;
     }
 
     async function loadMovies(reset = false) {
@@ -292,7 +327,6 @@
         if (reset) {
             currentOffset = 0;
             hasMore = true;
-            document.getElementById('movies-grid').innerHTML = '';
         }
 
         const recentlyVal = document.getElementById('filter-recently').value;
@@ -306,7 +340,7 @@
             platform: document.getElementById('filter-platform').value,
             sort: document.getElementById('sort-by').value,
             order: document.getElementById('sort-by').value === 'title' ? 'asc' : 'desc',
-            limit,
+            limit: currentView === 'rows' ? 200 : limit,
             offset: currentOffset
         });
         if (recentlyVal) params.set('recently_added', recentlyVal);
@@ -314,100 +348,34 @@
         try {
             const response = await fetch('/api/media?' + params);
             const data = await response.json();
-            const movies = data.items || data; // Support both new {items, total} and legacy array format
+            const movies = data.items || data;
             const totalCount = data.total;
 
-            const grid = document.getElementById('movies-grid');
             const emptyState = document.getElementById('empty-state');
-
-            if (reset) grid.innerHTML = '';
 
             if (movies.length === 0 && currentOffset === 0) {
                 emptyState.classList.remove('hidden');
-                grid.classList.add('hidden');
+                document.getElementById('rows-view').classList.add('hidden');
+                document.getElementById('grid-view').classList.add('hidden');
             } else {
                 emptyState.classList.add('hidden');
-                grid.classList.remove('hidden');
+
+                if (currentView === 'rows') {
+                    renderRowsView(movies, reset);
+                } else {
+                    renderGridView(movies, reset);
+                }
             }
 
-            movies.forEach((movie, index) => {
-                const card = document.createElement('a');
-                card.href = '/media/' + movie.id;
-                card.className = 'media-card';
-                card.dataset.movieId = movie.id;
+            // Update hero with first high-rated movie
+            if (reset && movies.length > 0) {
+                const featured = movies.find(m => m.backdrop_url || m.poster) || movies[0];
+                updateMiniHero(featured);
+            }
 
-                // Clean the title for display
-                const cleaned = cleanM3UTitle(movie.title);
-                const displayTitle = cleaned.title || movie.title;
-                const displayYear = movie.year || cleaned.year;
-
-                const imgSrc = movie.poster ? proxyImage(movie.poster) : '/static/img/no-poster.png';
-                const isEager = currentOffset === 0 && index < 12;
-                const needsEnrichment = !movie.poster?.includes('image.tmdb.org') && !movie.tmdb_id;
-
-                card.innerHTML = \`
-                    <img src="\${isEager ? imgSrc : '/static/img/placeholder.svg'}"
-                         data-src="\${imgSrc}"
-                         alt="\${displayTitle}"
-                         class="media-card-poster \${isEager ? '' : 'lazy-image'}"
-                         \${isEager ? '' : 'loading="lazy"'}
-                         onerror="this.src='/static/img/no-poster.png'" />
-
-                    <!-- Hover Overlay -->
-                    <div class="media-card-overlay">
-                        <button class="btn btn-primary btn-sm w-full">
-                            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                            </svg>
-                            View Details
-                        </button>
-                    </div>
-
-                    <!-- Quality Badge -->
-                    \${movie.quality ? \`<span class="media-card-badge">\${movie.quality}</span>\` : ''}
-
-                    <!-- YouTube Trailer Badge -->
-                    \${movie.has_trailer ? \`<span class="media-card-badge" style="left: auto; right: 0.5rem; background: #FF0000; padding: 0.25rem 0.4rem;" title="Trailer available">
-                        <svg style="width: 1rem; height: 1rem;" viewBox="0 0 24 24" fill="white">
-                            <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>
-                        </svg>
-                    </span>\` : ''}
-
-                    <!-- NEW Badge for recently added -->
-                    \${movie.is_new ? \`<span class="media-card-badge bg-green-500" style="left: auto; right: \${movie.has_trailer ? '2.5rem' : '0.5rem'};">NEW</span>\` : ''}
-
-                    <!-- Info Bar -->
-                    <div class="media-card-info">
-                        <h3 class="media-card-title">\${displayTitle}</h3>
-                        <div class="media-card-meta">
-                            \${displayYear ? \`<span>\${displayYear}</span>\` : ''}
-                            \${movie.rating ? \`
-                                <span class="media-card-rating">
-                                    <svg fill="currentColor" viewBox="0 0 20 20">
-                                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
-                                    </svg>
-                                    \${movie.rating.toFixed(1)}
-                                </span>
-                            \` : ''}
-                        </div>
-                    </div>
-                \`;
-                grid.appendChild(card);
-
-                // Queue for TMDB enrichment if needed (only for first 20 visible items)
-                if (needsEnrichment && index < 20) {
-                    queueEnrichment(card, movie);
-                }
-            });
-
-            // Initialize lazy loading for new images
-            initLazyLoad();
-
-            // Show total count if available, otherwise show loaded count
-            document.getElementById('results-count').textContent = (totalCount !== undefined ? totalCount : currentOffset + movies.length).toLocaleString();
-            hasMore = movies.length === limit;
-            if (hasMore) currentOffset += limit;
+            document.getElementById('results-count').textContent = (totalCount !== undefined ? totalCount : movies.length).toLocaleString();
+            hasMore = movies.length === (currentView === 'rows' ? 200 : limit);
+            if (hasMore && currentView === 'grid') currentOffset += limit;
             document.getElementById('loading-more').classList.add('hidden');
         } catch (err) {
             console.error('Failed to load movies:', err);
@@ -415,6 +383,121 @@
 
         loading = false;
     }
+
+    function updateMiniHero(movie) {
+        const hero = document.getElementById('mini-hero');
+        const bgUrl = movie.backdrop_url || movie.poster;
+        if (bgUrl) {
+            hero.querySelector('.mini-hero-bg').style.backgroundImage = 'url(' + proxyImage(bgUrl) + ')';
+        }
+    }
+
+    function renderRowsView(movies, reset) {
+        const container = document.getElementById('rows-view');
+        if (reset) container.innerHTML = '';
+        container.classList.remove('hidden');
+
+        // Group movies by genre or category
+        const groups = {};
+        const recentlyAdded = [];
+        const topRated = [];
+
+        movies.forEach(movie => {
+            // Add to recently added (first 20)
+            if (recentlyAdded.length < 20) recentlyAdded.push(movie);
+
+            // Add to top rated if rating >= 7
+            if (movie.rating >= 7 && topRated.length < 20) topRated.push(movie);
+
+            // Group by genre
+            if (movie.genres) {
+                const genreList = Array.isArray(movie.genres) ? movie.genres : movie.genres.split(',');
+                genreList.forEach(genre => {
+                    const g = genre.trim();
+                    if (g && !groups[g]) groups[g] = [];
+                    if (g && groups[g].length < 20) groups[g].push(movie);
+                });
+            }
+        });
+
+        // Render rows
+        if (recentlyAdded.length > 0) {
+            container.innerHTML += createContentRow('Recently Added', recentlyAdded);
+        }
+        if (topRated.length > 0) {
+            container.innerHTML += createContentRow('Top Rated', topRated.sort((a, b) => (b.rating || 0) - (a.rating || 0)));
+        }
+
+        // Genre rows
+        const genreOrder = ['Action', 'Comedy', 'Drama', 'Thriller', 'Horror', 'Sci-Fi', 'Romance', 'Adventure', 'Animation', 'Documentary'];
+        genreOrder.forEach(genre => {
+            if (groups[genre] && groups[genre].length >= 3) {
+                container.innerHTML += createContentRow(genre, groups[genre]);
+            }
+        });
+
+        // Any remaining genres
+        Object.keys(groups).sort().forEach(genre => {
+            if (!genreOrder.includes(genre) && groups[genre].length >= 3) {
+                container.innerHTML += createContentRow(genre, groups[genre]);
+            }
+        });
+
+        initLazyLoad();
+
+        // Queue enrichment for first items
+        movies.slice(0, 20).forEach((movie, index) => {
+            if (!movie.tmdb_id) queueForEnrichment(movie.id);
+        });
+    }
+
+    function createContentRow(title, items) {
+        if (!items || items.length === 0) return '';
+
+        const cards = items.map((item, i) => createMovieCard(item, i, i < 6)).join('');
+
+        return \`
+            <section class="content-row">
+                <div class="row-header">
+                    <h2 class="row-title">\${title}</h2>
+                </div>
+                <div class="row-slider">
+                    <button class="slider-arrow left" onclick="scrollRow(this, -1)" aria-label="Scroll left">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                        </svg>
+                    </button>
+                    <div class="slider-track">\${cards}</div>
+                    <button class="slider-arrow right" onclick="scrollRow(this, 1)" aria-label="Scroll right">
+                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </button>
+                </div>
+            </section>
+        \`;
+    }
+
+    function renderGridView(movies, reset) {
+        const grid = document.getElementById('movies-grid');
+        if (reset) grid.innerHTML = '';
+        document.getElementById('grid-view').classList.remove('hidden');
+
+        movies.forEach((movie, index) => {
+            const isEager = currentOffset === 0 && index < 12;
+            grid.innerHTML += createMovieCard(movie, index, isEager);
+            if (!movie.tmdb_id && index < 20) queueForEnrichment(movie.id);
+        });
+
+        initLazyLoad();
+    }
+
+    window.scrollRow = function(btn, direction) {
+        const track = btn.parentElement.querySelector('.slider-track');
+        const cardWidth = track.querySelector('.content-card')?.offsetWidth || 200;
+        const scrollAmount = cardWidth * 4 * direction;
+        track.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    };
 
     async function loadFilters() {
         try {
@@ -444,30 +527,21 @@
 
             const platformSelect = document.getElementById('filter-platform');
             platforms.forEach(p => {
-                if (p.platform) platformSelect.innerHTML += \`<option value="\${p.platform}">\${p.platform} (\${p.count})</option>\`;
+                if (p.platform) platformSelect.innerHTML += \`<option value="\${p.platform}">\${p.platform}</option>\`;
             });
-        } catch (err) {
-            console.error('Failed to load filters:', err);
-        }
+        } catch (err) { console.error('Failed to load filters:', err); }
     }
 
     // Event listeners
     document.getElementById('search-input').addEventListener('input', debounce(() => loadMovies(true), 300));
-    document.getElementById('filter-quality').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('filter-year').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('filter-language').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('filter-source').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('filter-platform').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('filter-recently').addEventListener('change', () => { saveFilters(); loadMovies(true); });
-    document.getElementById('sort-by').addEventListener('change', () => { saveFilters(); loadMovies(true); });
+    ['filter-quality', 'filter-year', 'filter-language', 'filter-source', 'filter-platform', 'filter-recently', 'sort-by'].forEach(id => {
+        document.getElementById(id).addEventListener('change', () => { saveFilters(); loadMovies(true); });
+    });
 
-    // Infinite scroll
+    // Infinite scroll (grid view only)
     window.addEventListener('scroll', () => {
-        if (loading || !hasMore) return;
-        const scrollY = window.scrollY;
-        const windowHeight = window.innerHeight;
-        const docHeight = document.documentElement.scrollHeight;
-        if (scrollY + windowHeight >= docHeight - 500) {
+        if (currentView !== 'grid' || loading || !hasMore) return;
+        if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 500) {
             document.getElementById('loading-more').classList.remove('hidden');
             loadMovies(false);
         }
@@ -481,10 +555,7 @@
 
     function debounce(func, wait) {
         let timeout;
-        return function executedFunction(...args) {
-            clearTimeout(timeout);
-            timeout = setTimeout(() => func.apply(this, args), wait);
-        };
+        return function(...args) { clearTimeout(timeout); timeout = setTimeout(() => func.apply(this, args), wait); };
     }
 </script>
 ` }) %>

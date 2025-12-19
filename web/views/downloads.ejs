@@ -184,6 +184,12 @@
                 <h2 class="text-lg font-semibold text-white">Completed</h2>
                 <span class="badge badge-success" id="completed-count">0</span>
             </div>
+            <button onclick="clearCompletedDownloads()" class="btn btn-sm bg-gray-700 hover:bg-gray-600 text-gray-300" title="Clear completed downloads">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear
+            </button>
         </div>
         <div id="completed-downloads" class="divide-y divide-gray-800/50 max-h-96 overflow-y-auto">
             <div class="empty-state py-12">
@@ -210,6 +216,12 @@
                 <h2 class="text-lg font-semibold text-white">Failed</h2>
                 <span class="badge badge-danger" id="failed-count">0</span>
             </div>
+            <button onclick="clearFailedDownloads()" class="btn btn-sm bg-gray-700 hover:bg-gray-600 text-gray-300" title="Clear failed downloads">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Clear
+            </button>
         </div>
         <div id="failed-downloads" class="divide-y divide-gray-800/50">
             <div class="empty-state py-12">
@@ -431,7 +443,7 @@
             const response = await fetch('/api/transcoder/clear', { method: 'POST' });
             const result = await response.json();
             loadTranscodeQueue();
-            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} completed jobs\`, 'success');
+            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} transcode jobs\`, 'success');
         } catch (err) {
             console.error('Failed to clear transcode queue:', err);
             if (window.showToast) showToast('Failed to clear queue', 'error');
@@ -509,15 +521,86 @@
                             </button>
                         </div>
                         <div class="mt-4">
-                            <div class="flex items-center justify-between text-sm mb-2">
-                                <span class="text-gray-400">
-                                    \${formatBytes(d.downloaded_size || 0)} / \${formatBytes(d.file_size || 0)}
-                                </span>
-                                <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
-                            </div>
-                            <div class="progress-bar">
-                                <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
-                            </div>
+                            \${d.source_type === 'usenet' ? \`
+                                <!-- Usenet download progress -->
+                                <div class="flex items-center gap-2 mb-2">
+                                    <span class="badge bg-orange-500/20 text-orange-400 text-xs">Usenet</span>
+                                    \${d.usenet_speed ? \`<span class="text-sm text-gray-400">\${d.usenet_speed}</span>\` : ''}
+                                </div>
+                                <div class="flex items-center justify-between text-sm mb-2">
+                                    <span class="text-gray-400">
+                                        \${d.completed_segments || 0} / \${d.total_segments || 0} segments
+                                        \${d.failed_segments > 0 ? \`<span class="text-danger-400">(\${d.failed_segments} failed)</span>\` : ''}
+                                    </span>
+                                    <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
+                                </div>
+                                <div class="progress-bar mb-3">
+                                    <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
+                                </div>
+                                \${d.par2_status || d.extract_status ? \`
+                                    <div class="flex items-center gap-4 text-sm">
+                                        \${d.par2_status ? \`
+                                            <div class="flex items-center gap-1.5">
+                                                \${d.par2_status === 'verifying' ? \`
+                                                    <svg class="w-4 h-4 text-yellow-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span class="text-yellow-400">Verifying PAR2...</span>
+                                                \` : d.par2_status === 'repairing' ? \`
+                                                    <svg class="w-4 h-4 text-orange-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span class="text-orange-400">Repairing...</span>
+                                                \` : d.par2_status === 'verified' ? \`
+                                                    <svg class="w-4 h-4 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    <span class="text-success-400">PAR2 OK</span>
+                                                \` : d.par2_status === 'failed' ? \`
+                                                    <svg class="w-4 h-4 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                    <span class="text-danger-400">PAR2 Failed</span>
+                                                \` : ''}
+                                            </div>
+                                        \` : ''}
+                                        \${d.extract_status ? \`
+                                            <div class="flex items-center gap-1.5">
+                                                \${d.extract_status === 'extracting' ? \`
+                                                    <svg class="w-4 h-4 text-blue-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                    </svg>
+                                                    <span class="text-blue-400">Extracting...</span>
+                                                \` : d.extract_status === 'extracted' ? \`
+                                                    <svg class="w-4 h-4 text-success-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                                                    </svg>
+                                                    <span class="text-success-400">Extracted</span>
+                                                \` : d.extract_status === 'failed' ? \`
+                                                    <svg class="w-4 h-4 text-danger-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                                                    </svg>
+                                                    <span class="text-danger-400">Extract Failed</span>
+                                                \` : ''}
+                                            </div>
+                                        \` : ''}
+                                    </div>
+                                \` : ''}
+                            \` : \`
+                                <!-- Standard IPTV/HTTP download progress -->
+                                <div class="flex items-center justify-between text-sm mb-2">
+                                    <span class="text-gray-400">
+                                        \${formatBytes(d.downloaded_size || 0)} / \${formatBytes(d.file_size || 0)}
+                                    </span>
+                                    <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
+                                </div>
+                                <div class="progress-bar">
+                                    <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
+                                </div>
+                            \`}
                         </div>
                     </div>
                 </div>
@@ -765,14 +848,38 @@
     async function clearCompleted() {
         if (!confirm('Remove all completed downloads from the list?')) return;
         try {
-            const completed = downloads.filter(d => d.status === 'completed');
-            await Promise.all(completed.map(d =>
-                fetch(\`/api/downloads/\${d.id}\`, { method: 'DELETE' })
-            ));
+            const response = await fetch('/api/downloads/clear-completed', { method: 'POST' });
+            const result = await response.json();
             loadDownloads();
-            if (window.showToast) showToast('Completed downloads cleared', 'success');
+            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} completed downloads\`, 'success');
         } catch (err) {
             console.error('Failed to clear completed:', err);
+        }
+    }
+
+    async function clearCompletedDownloads() {
+        if (!confirm('Remove all completed downloads from the list?')) return;
+        try {
+            const response = await fetch('/api/downloads/clear-completed', { method: 'POST' });
+            const result = await response.json();
+            loadDownloads();
+            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} completed downloads\`, 'success');
+        } catch (err) {
+            console.error('Failed to clear completed:', err);
+            if (window.showToast) showToast('Failed to clear completed downloads', 'error');
+        }
+    }
+
+    async function clearFailedDownloads() {
+        if (!confirm('Remove all failed downloads from the list?')) return;
+        try {
+            const response = await fetch('/api/downloads/clear-failed', { method: 'POST' });
+            const result = await response.json();
+            loadDownloads();
+            if (window.showToast) showToast(\`Cleared \${result.deleted || 0} failed downloads\`, 'success');
+        } catch (err) {
+            console.error('Failed to clear failed:', err);
+            if (window.showToast) showToast('Failed to clear failed downloads', 'error');
         }
     }
 
@@ -796,6 +903,31 @@
         socket.on('download:cancelled', () => loadDownloads());
         socket.on('download:removed', () => loadDownloads());
         socket.on('download:priority', () => loadDownloads());
+
+        // Usenet events
+        socket.on('usenet:download:progress', (data) => {
+            const download = downloads.find(d => d.id === data.downloadId);
+            if (download) {
+                download.completed_segments = data.completedSegments;
+                download.total_segments = data.totalSegments;
+                download.failed_segments = data.failedSegments;
+                download.progress = data.percent;
+                download.usenet_speed = data.speed;
+                renderDownloads();
+            }
+        });
+
+        socket.on('usenet:postprocess:status', (data) => {
+            const download = downloads.find(d => d.id === data.downloadId);
+            if (download) {
+                if (data.par2_status) download.par2_status = data.par2_status;
+                if (data.extract_status) download.extract_status = data.extract_status;
+                renderDownloads();
+            }
+        });
+
+        socket.on('usenet:postprocess:complete', () => loadDownloads());
+        socket.on('usenet:postprocess:error', () => loadDownloads());
 
         // Transcode events
         socket.on('transcode:queued', () => loadTranscodeQueue());

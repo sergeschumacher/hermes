@@ -271,6 +271,8 @@ function setupRoutes() {
     app.get('/downloads', (req, res) => res.render('downloads', { page: 'downloads' }));
     app.get('/settings', (req, res) => res.render('settings', { page: 'settings' }));
     app.get('/media/:id', (req, res) => res.render('media-detail', { page: 'media', mediaId: req.params.id }));
+    app.get('/movies/:id', (req, res) => res.render('media-detail', { page: 'movies', mediaId: req.params.id }));
+    app.get('/series/:name', (req, res) => res.render('show-detail', { page: 'series', showName: decodeURIComponent(req.params.name) }));
     app.get('/person/:id', (req, res) => res.render('person', { page: 'person', personId: req.params.id }));
     app.get('/show/:name', (req, res) => res.render('show-detail', { page: 'series', showName: decodeURIComponent(req.params.name) }));
     app.get('/series/:name/season/:season', (req, res) => res.render('season-detail', { page: 'series', showName: decodeURIComponent(req.params.name), seasonNumber: parseInt(req.params.season) }));
@@ -296,39 +298,177 @@ function setupApiRoutes() {
 
             let stats;
             if (preferredLangs.length > 0) {
-                // Build language filter for SQL (matches 'de', 'en', etc.)
+                // Build language filter for SQL - case insensitive, also include NULL (undetected) languages
                 const langPlaceholders = preferredLangs.map(() => '?').join(',');
-                const langParams = preferredLangs;
+                const langParamsUpper = preferredLangs.map(l => l.toUpperCase());
 
                 stats = {
                     totalMovies: (await db.get(`
                         SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'movie' AND language IN (${langPlaceholders})
-                    `, langParams))?.c || 0,
+                        WHERE media_type = 'movie' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                    `, langParamsUpper))?.c || 0,
                     totalSeries: (await db.get(`
                         SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'series' AND language IN (${langPlaceholders})
-                    `, langParams))?.c || 0,
+                        WHERE media_type = 'series' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                    `, langParamsUpper))?.c || 0,
                     totalLiveTV: (await db.get(`
                         SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'live' AND language IN (${langPlaceholders})
-                    `, langParams))?.c || 0,
+                        WHERE media_type = 'live' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                    `, langParamsUpper))?.c || 0,
                     totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
                     activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
                     totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
                 };
             } else {
-                // No language filter - show all
+                // No language filter - show all active
                 stats = {
-                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['movie']))?.c || 0,
-                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['series']))?.c || 0,
-                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ?', ['live']))?.c || 0,
+                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['movie']))?.c || 0,
+                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['series']))?.c || 0,
+                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['live']))?.c || 0,
                     totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
                     activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
                     totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
                 };
             }
             res.json(stats);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Search API
+    router.get('/search', async (req, res) => {
+        try {
+            const query = req.query.q || '';
+            const limit = parseInt(req.query.limit) || 50;
+            const type = req.query.type;
+
+            if (!query || query.length < 2) {
+                return res.json([]);
+            }
+
+            const results = await modules.search.search(query, { type, limit });
+            res.json(results);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Featured content for hero carousel
+    router.get('/featured', async (req, res) => {
+        try {
+            const db = modules.db;
+            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const limit = parseInt(req.query.limit) || 8;
+
+            let langFilter = '';
+            let langParams = [];
+            if (preferredLangs.length > 0) {
+                const langPlaceholders = preferredLangs.map(() => '?').join(',');
+                langFilter = `AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)`;
+                langParams = preferredLangs.map(l => l.toUpperCase());
+            }
+
+            // Get top-rated content with backdrop images
+            const featured = await db.all(`
+                SELECT
+                    m.id, m.title, m.media_type, m.year, m.rating, m.plot as overview, m.runtime,
+                    m.poster as poster_url, m.backdrop as backdrop_url, m.genres,
+                    (SELECT 'https://www.youtube.com/watch?v=' || mt.youtube_key
+                     FROM media_trailers mt
+                     WHERE mt.media_id = m.id
+                     ORDER BY mt.official DESC, mt.type = 'Trailer' DESC
+                     LIMIT 1) as trailer_url
+                FROM media m
+                WHERE m.is_active = 1
+                    AND m.media_type IN ('movie', 'series')
+                    AND m.backdrop IS NOT NULL
+                    AND m.backdrop != ''
+                    ${langFilter.replace(/language/g, 'm.language')}
+                ORDER BY
+                    CASE WHEN m.rating IS NOT NULL AND m.rating > 0 THEN 0 ELSE 1 END,
+                    m.rating DESC,
+                    m.created_at DESC
+                LIMIT ?
+            `, [...langParams, limit]);
+
+            res.json(featured);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Content rows for homepage
+    router.get('/content/rows', async (req, res) => {
+        try {
+            const db = modules.db;
+            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const mediaType = req.query.type; // 'movie' or 'series' or undefined for both
+
+            let langFilter = '';
+            let langParams = [];
+            if (preferredLangs.length > 0) {
+                const langPlaceholders = preferredLangs.map(() => '?').join(',');
+                langFilter = `AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)`;
+                langParams = preferredLangs.map(l => l.toUpperCase());
+            }
+
+            let typeFilter = '';
+            if (mediaType === 'movie' || mediaType === 'series') {
+                typeFilter = `AND media_type = '${mediaType}'`;
+            } else {
+                typeFilter = `AND media_type IN ('movie', 'series')`;
+            }
+
+            const rows = [];
+
+            // Recently Added
+            const recentlyAdded = await db.all(`
+                SELECT id, title, media_type, year, rating, poster as poster_url, quality
+                FROM media
+                WHERE is_active = 1 ${typeFilter} ${langFilter}
+                ORDER BY created_at DESC
+                LIMIT 20
+            `, langParams);
+            if (recentlyAdded.length > 0) {
+                rows.push({ title: 'Recently Added', items: recentlyAdded, link: mediaType ? `/${mediaType}s?sort=newest` : null });
+            }
+
+            // Top Rated
+            const topRated = await db.all(`
+                SELECT id, title, media_type, year, rating, poster as poster_url, quality
+                FROM media
+                WHERE is_active = 1 ${typeFilter} ${langFilter}
+                    AND rating IS NOT NULL AND rating > 0
+                ORDER BY rating DESC
+                LIMIT 20
+            `, langParams);
+            if (topRated.length > 0) {
+                rows.push({ title: 'Top Rated', items: topRated, link: mediaType ? `/${mediaType}s?sort=rating` : null });
+            }
+
+            // Get genres and create rows for popular ones
+            const genres = ['Action', 'Comedy', 'Drama', 'Thriller', 'Sci-Fi', 'Horror', 'Romance', 'Documentary'];
+            for (const genre of genres) {
+                const genreItems = await db.all(`
+                    SELECT id, title, media_type, year, rating, poster as poster_url, quality
+                    FROM media
+                    WHERE is_active = 1 ${typeFilter} ${langFilter}
+                        AND genres LIKE ?
+                    ORDER BY rating DESC NULLS LAST, created_at DESC
+                    LIMIT 20
+                `, [...langParams, `%${genre}%`]);
+
+                if (genreItems.length >= 5) {
+                    rows.push({
+                        title: genre,
+                        items: genreItems,
+                        link: mediaType ? `/${mediaType}s?genre=${encodeURIComponent(genre)}` : null
+                    });
+                }
+            }
+
+            res.json(rows);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -384,6 +524,17 @@ function setupApiRoutes() {
                 }
             }
 
+            // Also extract from the language column directly (most reliable source)
+            const languageColResult = await db.all(`
+                SELECT DISTINCT UPPER(language) as lang FROM media
+                WHERE language IS NOT NULL AND language != '' AND media_type IN ('movie', 'series')
+            `);
+            for (const row of languageColResult) {
+                if (row.lang && row.lang.length === 2) {
+                    langSet.add(row.lang);
+                }
+            }
+
             // Sort languages alphabetically, but put EN first
             let languages = Array.from(langSet).sort((a, b) => {
                 if (a === 'EN') return -1;
@@ -415,6 +566,16 @@ function setupApiRoutes() {
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
+    });
+
+    // Aliases for media-type specific filter endpoints
+    router.get('/series/filters', (req, res, next) => {
+        req.url = '/filters';
+        router.handle(req, res, next);
+    });
+    router.get('/movies/filters', (req, res, next) => {
+        req.url = '/filters';
+        router.handle(req, res, next);
     });
 
     // Stream proxy for CORS bypass - pipes IPTV streams through server
@@ -854,8 +1015,25 @@ function setupApiRoutes() {
 
     router.delete('/sources/:id', async (req, res) => {
         try {
-            await modules.db.run('DELETE FROM sources WHERE id = ?', [req.params.id]);
-            res.json({ message: 'Source deleted' });
+            const sourceId = req.params.id;
+
+            // Get count of media to be deleted
+            const mediaCount = await modules.db.get(
+                'SELECT COUNT(*) as count FROM media WHERE source_id = ?',
+                [sourceId]
+            );
+
+            // Explicitly delete all media from this source (cascade should handle related tables)
+            await modules.db.run('DELETE FROM media WHERE source_id = ?', [sourceId]);
+
+            // Delete the source itself
+            await modules.db.run('DELETE FROM sources WHERE id = ?', [sourceId]);
+
+            logger?.info('sources', `Deleted source ${sourceId} and ${mediaCount?.count || 0} media entries`);
+            res.json({
+                message: 'Source deleted',
+                mediaDeleted: mediaCount?.count || 0
+            });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -1044,6 +1222,320 @@ function setupApiRoutes() {
             } else {
                 res.status(500).json({ error: 'EPG module not loaded' });
             }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Analyze source patterns
+    router.post('/sources/:id/analyze', async (req, res) => {
+        try {
+            const db = modules.db;
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+
+            if (!modules['source-analyzer']) {
+                return res.status(500).json({ error: 'Source analyzer module not loaded' });
+            }
+
+            // Run analysis
+            const result = await modules['source-analyzer'].analyzeSource(source);
+
+            // Update source with analysis status
+            await db.run(`
+                UPDATE sources
+                SET analysis_status = ?, last_analyzed = CURRENT_TIMESTAMP, analysis_confidence = ?
+                WHERE id = ?
+            `, [result.success ? 'completed' : 'failed', result.patterns?.confidence || 0, source.id]);
+
+            res.json(result);
+        } catch (err) {
+            logger.error('app', `Source analysis failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Preview patterns on sample data
+    router.post('/sources/analyze-preview', async (req, res) => {
+        try {
+            const { patterns, samples } = req.body;
+
+            if (!patterns || !samples) {
+                return res.status(400).json({ error: 'patterns and samples are required' });
+            }
+
+            if (!modules['source-analyzer']) {
+                return res.status(500).json({ error: 'Source analyzer module not loaded' });
+            }
+
+            const validation = modules['source-analyzer'].validatePatterns(patterns, samples);
+            res.json(validation);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Apply analyzed patterns to source
+    router.post('/sources/:id/apply-patterns', async (req, res) => {
+        try {
+            const db = modules.db;
+            const { patterns } = req.body;
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+            if (!patterns) return res.status(400).json({ error: 'patterns are required' });
+
+            if (!modules['source-analyzer']) {
+                return res.status(500).json({ error: 'Source analyzer module not loaded' });
+            }
+
+            // Convert patterns to parser config format
+            const parserConfig = modules['source-analyzer'].patternsToParserConfig(patterns);
+
+            // Update source with new parser config
+            await db.run(`
+                UPDATE sources
+                SET m3u_parser_config = ?
+                WHERE id = ?
+            `, [JSON.stringify(parserConfig), source.id]);
+
+            res.json({ success: true, parserConfig });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // =====================
+    // Usenet Provider Routes
+    // =====================
+
+    // Get all usenet providers
+    router.get('/usenet/providers', async (req, res) => {
+        try {
+            const db = modules.db;
+            const providers = await db.all('SELECT * FROM usenet_providers ORDER BY priority DESC, name');
+            // Don't send passwords to frontend
+            const safeProviders = providers.map(p => ({ ...p, password: p.password ? '********' : '' }));
+            res.json(safeProviders);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Add usenet provider
+    router.post('/usenet/providers', async (req, res) => {
+        try {
+            const db = modules.db;
+            const { name, host, port, ssl, username, password, connections, priority, retention_days } = req.body;
+
+            if (!name || !host) {
+                return res.status(400).json({ error: 'Name and host are required' });
+            }
+
+            const result = await db.run(`
+                INSERT INTO usenet_providers (name, host, port, ssl, username, password, connections, priority, retention_days)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `, [name, host, port || 563, ssl !== false ? 1 : 0, username || '', password || '', connections || 10, priority || 0, retention_days || 3000]);
+
+            res.json({ success: true, id: result.lastID });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Update usenet provider
+    router.put('/usenet/providers/:id', async (req, res) => {
+        try {
+            const db = modules.db;
+            const { name, host, port, ssl, username, password, connections, priority, enabled, retention_days } = req.body;
+
+            // Build update query dynamically to handle password updates
+            const updates = [];
+            const params = [];
+
+            if (name !== undefined) { updates.push('name = ?'); params.push(name); }
+            if (host !== undefined) { updates.push('host = ?'); params.push(host); }
+            if (port !== undefined) { updates.push('port = ?'); params.push(port); }
+            if (ssl !== undefined) { updates.push('ssl = ?'); params.push(ssl ? 1 : 0); }
+            if (username !== undefined) { updates.push('username = ?'); params.push(username); }
+            if (password !== undefined && password !== '********') { updates.push('password = ?'); params.push(password); }
+            if (connections !== undefined) { updates.push('connections = ?'); params.push(connections); }
+            if (priority !== undefined) { updates.push('priority = ?'); params.push(priority); }
+            if (enabled !== undefined) { updates.push('enabled = ?'); params.push(enabled ? 1 : 0); }
+            if (retention_days !== undefined) { updates.push('retention_days = ?'); params.push(retention_days); }
+
+            if (updates.length === 0) {
+                return res.status(400).json({ error: 'No fields to update' });
+            }
+
+            params.push(req.params.id);
+            await db.run(`UPDATE usenet_providers SET ${updates.join(', ')} WHERE id = ?`, params);
+
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Delete usenet provider
+    router.delete('/usenet/providers/:id', async (req, res) => {
+        try {
+            const db = modules.db;
+            await db.run('DELETE FROM usenet_providers WHERE id = ?', [req.params.id]);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Test usenet provider connection
+    router.post('/usenet/providers/:id/test', async (req, res) => {
+        try {
+            const db = modules.db;
+            const provider = await db.get('SELECT * FROM usenet_providers WHERE id = ?', [req.params.id]);
+
+            if (!provider) {
+                return res.status(404).json({ error: 'Provider not found' });
+            }
+
+            // If usenet module is loaded, use it to test
+            if (modules.usenet) {
+                const result = await modules.usenet.testProvider(provider);
+                res.json(result);
+            } else {
+                // Basic connection test using net/tls
+                const net = require('net');
+                const tls = require('tls');
+
+                const socket = provider.ssl ? tls.connect({
+                    host: provider.host,
+                    port: provider.port,
+                    rejectUnauthorized: false
+                }) : net.connect({
+                    host: provider.host,
+                    port: provider.port
+                });
+
+                const timeout = setTimeout(() => {
+                    socket.destroy();
+                    res.json({ success: false, error: 'Connection timeout' });
+                }, 10000);
+
+                socket.once('connect', () => {
+                    clearTimeout(timeout);
+                    socket.destroy();
+                    res.json({ success: true, message: 'Connected successfully' });
+                });
+
+                socket.once('error', (err) => {
+                    clearTimeout(timeout);
+                    res.json({ success: false, error: err.message });
+                });
+            }
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // =====================
+    // Newznab Indexer Routes
+    // =====================
+
+    // Test newznab indexer (for source add/edit)
+    router.post('/newznab/test', async (req, res) => {
+        try {
+            if (!modules.newznab) {
+                return res.status(500).json({ error: 'Newznab module not loaded' });
+            }
+
+            const result = await modules.newznab.testIndexer(req.body);
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Search newznab indexer
+    router.get('/newznab/:indexerId/search', async (req, res) => {
+        try {
+            if (!modules.newznab) {
+                return res.status(500).json({ error: 'Newznab module not loaded' });
+            }
+
+            const { q, type, imdbId, tmdbId, tvdbId, season, episode, limit } = req.query;
+            const indexerId = parseInt(req.params.indexerId, 10);
+            const options = { imdbId, tmdbId, tvdbId, season, episode, limit: parseInt(limit) || 100 };
+
+            let results;
+            if (type === 'movie') {
+                results = await modules.newznab.searchMovies(indexerId, q, options);
+            } else if (type === 'tv') {
+                results = await modules.newznab.searchTv(indexerId, q, options);
+            } else {
+                results = await modules.newznab.search(indexerId, q, options);
+            }
+
+            res.json(results);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Grab NZB and queue download
+    router.post('/newznab/:indexerId/grab', async (req, res) => {
+        try {
+            if (!modules.newznab) {
+                return res.status(500).json({ error: 'Newznab module not loaded' });
+            }
+
+            const db = modules.db;
+            const indexerId = parseInt(req.params.indexerId, 10);
+            const { guid, title, mediaId } = req.body;
+
+            if (!guid) {
+                return res.status(400).json({ error: 'GUID is required' });
+            }
+
+            // Download NZB content
+            const nzbContent = await modules.newznab.getNzb(indexerId, guid);
+
+            // Create download entry
+            const mediaInfo = mediaId ? await db.get('SELECT * FROM media WHERE id = ?', [mediaId]) : null;
+            const downloadType = mediaInfo?.media_type || 'movie';
+
+            const downloadResult = await db.run(`
+                INSERT INTO downloads (media_id, source_id, status, filename, download_type, created_at)
+                VALUES (?, ?, 'pending', ?, ?, CURRENT_TIMESTAMP)
+            `, [mediaId || null, indexerId, title || guid, downloadType === 'series' ? 'episode' : 'movie']);
+
+            const downloadId = downloadResult.lastID;
+
+            // Store NZB data
+            await db.run(`
+                INSERT INTO nzb_downloads (download_id, nzb_name, nzb_content)
+                VALUES (?, ?, ?)
+            `, [downloadId, title || guid, nzbContent]);
+
+            // Queue for usenet download if module is loaded
+            if (modules.usenet) {
+                await modules.usenet.queueNzb(downloadId, nzbContent);
+            }
+
+            res.json({ success: true, downloadId });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get indexer capabilities
+    router.get('/newznab/:indexerId/caps', async (req, res) => {
+        try {
+            if (!modules.newznab) {
+                return res.status(500).json({ error: 'Newznab module not loaded' });
+            }
+
+            const caps = await modules.newznab.getCapabilities(parseInt(req.params.indexerId, 10));
+            res.json(caps);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -1429,12 +1921,12 @@ function setupApiRoutes() {
         }
     });
 
-    // Clear completed/skipped items from transcode queue
+    // Clear all non-active items from transcode queue (completed, skipped, failed)
     router.post('/transcoder/clear', async (req, res) => {
         try {
             const result = await modules.db.run(`
                 DELETE FROM transcode_queue
-                WHERE status IN ('completed', 'skipped')
+                WHERE status IN ('completed', 'skipped', 'failed')
             `);
             res.json({ success: true, deleted: result.changes });
         } catch (err) {
@@ -1639,6 +2131,32 @@ function setupApiRoutes() {
                 await modules.db.run('UPDATE downloads SET status = ? WHERE id = ?', ['cancelled', req.params.id]);
             }
             res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear completed downloads
+    router.post('/downloads/clear-completed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM downloads
+                WHERE status = 'completed'
+            `);
+            res.json({ success: true, deleted: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear failed downloads
+    router.post('/downloads/clear-failed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM downloads
+                WHERE status IN ('failed', 'cancelled')
+            `);
+            res.json({ success: true, deleted: result.changes });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -1976,6 +2494,158 @@ function setupApiRoutes() {
         }
     });
 
+    // =========================================================================
+    // ENRICHMENT CACHE ENDPOINTS
+    // Cache stores TMDB data so it persists across provider changes
+    // =========================================================================
+
+    // Get enrichment cache statistics
+    router.get('/enrich/cache/stats', async (req, res) => {
+        try {
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+            const stats = await modules.enrichment.getCacheStats();
+            res.json(stats);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Populate enrichment cache from existing enriched media
+    // Call this before switching providers to backup enrichment data
+    router.post('/enrich/cache/populate', async (req, res) => {
+        try {
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+            const result = await modules.enrichment.populateEnrichmentCache();
+            res.json({
+                message: 'Enrichment cache populated',
+                ...result
+            });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // =========================================================================
+    // ON-DEMAND ENRICHMENT ENDPOINTS
+    // These provide instant enrichment for visible content
+    // =========================================================================
+
+    /**
+     * Instant enrichment for a single media item
+     * Returns enriched data immediately (synchronous)
+     * Use for: detail page views, user-initiated refresh
+     */
+    router.post('/enrich/instant/:id', async (req, res) => {
+        try {
+            const mediaId = parseInt(req.params.id);
+            const { highPriority = true, forceRefresh = false } = req.body;
+
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+
+            const result = await modules.enrichment.enrichItemSync(mediaId, {
+                highPriority,
+                forceRefresh
+            });
+
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    /**
+     * Batch enrichment for visible page items
+     * Enriches multiple items and persists to database
+     * Use for: list page loads (movies/series grid)
+     */
+    router.post('/enrich/batch', async (req, res) => {
+        try {
+            const { mediaIds, highPriority = false } = req.body;
+
+            if (!mediaIds || !Array.isArray(mediaIds)) {
+                return res.status(400).json({ error: 'mediaIds array required' });
+            }
+
+            if (mediaIds.length > 50) {
+                return res.status(400).json({ error: 'Maximum 50 items per batch' });
+            }
+
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+
+            const result = await modules.enrichment.enrichBatch(mediaIds, { highPriority });
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    /**
+     * Batch enrichment for shows by name
+     * Enriches all media items for given show names
+     * Use for: series list page loads
+     */
+    router.post('/enrich/shows', async (req, res) => {
+        try {
+            const { showNames, highPriority = false } = req.body;
+            const db = modules.db;
+
+            if (!showNames || !Array.isArray(showNames)) {
+                return res.status(400).json({ error: 'showNames array required' });
+            }
+
+            if (showNames.length > 50) {
+                return res.status(400).json({ error: 'Maximum 50 shows per batch' });
+            }
+
+            if (!modules.enrichment) {
+                return res.status(400).json({ error: 'Enrichment module not loaded' });
+            }
+
+            // Get one media ID per show (to get poster/backdrop for the show)
+            const placeholders = showNames.map(() => '?').join(',');
+            const mediaItems = await db.all(`
+                SELECT MIN(id) as id, show_name
+                FROM media
+                WHERE show_name IN (${placeholders})
+                AND media_type = 'series'
+                GROUP BY show_name
+            `, showNames);
+
+            // Create mapping from mediaId to showName
+            const idToShowName = {};
+            for (const item of mediaItems) {
+                idToShowName[item.id] = item.show_name;
+            }
+
+            const mediaIds = mediaItems.map(m => m.id);
+
+            if (mediaIds.length === 0) {
+                return res.json({ total: 0, enriched: 0, skipped: 0, failed: 0, results: [] });
+            }
+
+            const result = await modules.enrichment.enrichBatch(mediaIds, { highPriority });
+
+            // Add showName to each result for UI matching
+            if (result.results) {
+                for (const item of result.results) {
+                    item.showName = idToShowName[item.mediaId];
+                }
+            }
+
+            res.json(result);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Get trailers for a media item
     router.get('/media/:id/trailers', async (req, res) => {
         try {
@@ -2143,6 +2813,7 @@ function setupApiRoutes() {
                     MAX(year) as year,
                     MAX(quality) as quality,
                     MAX(created_at) as created_at,
+                    MAX(tmdb_id) as tmdb_id,
                     MAX(CASE WHEN EXISTS(
                         SELECT 1 FROM media_trailers mt WHERE mt.media_id = media.id
                     ) THEN 1 ELSE 0 END) as has_trailer

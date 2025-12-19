@@ -72,6 +72,9 @@ function getDefaultHeaders(userAgent = 'IBOPlayer', source = null) {
 function extractLanguageFromText(category, title) {
     const text = `${category || ''} ${title || ''}`.toUpperCase();
 
+    // Known 2-letter language codes to match
+    const knownLangCodes = ['DE', 'EN', 'ES', 'FR', 'IT', 'PT', 'NL', 'PL', 'TR', 'RU', 'AR', 'HI', 'KO', 'JA', 'ZH', 'SV', 'NO', 'DA', 'FI', 'EL', 'RO', 'HU', 'CS', 'SK', 'HR', 'SR', 'BG', 'UK', 'SQ', 'FA', 'HE'];
+
     // Common language patterns: [XX], |XX|, (XX), -XX-, XX- prefix
     const langPatterns = [
         /\[([A-Z]{2})\]/,           // [DE], [EN]
@@ -80,11 +83,13 @@ function extractLanguageFromText(category, title) {
         /-([A-Z]{2})-/,             // -DE-, -EN-
         /^([A-Z]{2})\s*[-|]/,       // DE -, DE|
         /[-|]\s*([A-Z]{2})$/,       // - DE, |DE
+        /[✪◉★●▶]\s*([A-Z]{2})\s/,   // ✪ DE , ◉ EN  (special markers followed by lang code)
+        /\s([A-Z]{2})\s*[✪◉★●▶]/,   // DE ✪ (lang code before special markers)
     ];
 
     for (const pattern of langPatterns) {
         const match = text.match(pattern);
-        if (match) {
+        if (match && knownLangCodes.includes(match[1])) {
             return match[1];
         }
     }
@@ -231,7 +236,8 @@ async function syncXtreamSource(source) {
     const cleanPassword = (source.password || '').replace(/[\x00-\x1F\x7F]/g, '');
 
     // Track sync start time for marking inactive items
-    const syncStartTime = new Date().toISOString();
+    // Use SQLite-compatible format (YYYY-MM-DD HH:MM:SS) to match CURRENT_TIMESTAMP
+    const syncStartTime = new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0];
 
     // Track sync statistics
     const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
@@ -254,14 +260,32 @@ async function syncXtreamSource(source) {
     // Fetch categories first to map category_id to category_name
     updateSyncStatus(source.id, { step: 'categories', message: 'Fetching categories...', percent: 5 });
     app?.emit('sync:progress', { source: source.id, step: 'categories', message: 'Fetching categories...', percent: 5 });
-    const categoriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_categories`;
-    const categoriesResponse = await fetchWithRetry(categoriesUrl, { headers }, 3, source);
-    const categories = categoriesResponse.data || [];
+
+    // Fetch all category types (live, VOD, series) and merge into one map
     const categoryMap = {};
-    for (const cat of categories) {
+
+    // Live categories
+    const liveCatUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_categories`;
+    const liveCatResponse = await fetchWithRetry(liveCatUrl, { headers }, 3, source);
+    for (const cat of (liveCatResponse.data || [])) {
         categoryMap[cat.category_id] = cat.category_name;
     }
-    logger.info('iptv', `Loaded ${categories.length} categories`);
+
+    // VOD categories
+    const vodCatUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_categories`;
+    const vodCatResponse = await fetchWithRetry(vodCatUrl, { headers }, 3, source);
+    for (const cat of (vodCatResponse.data || [])) {
+        categoryMap[cat.category_id] = cat.category_name;
+    }
+
+    // Series categories
+    const seriesCatUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series_categories`;
+    const seriesCatResponse = await fetchWithRetry(seriesCatUrl, { headers }, 3, source);
+    for (const cat of (seriesCatResponse.data || [])) {
+        categoryMap[cat.category_id] = cat.category_name;
+    }
+
+    logger.info('iptv', `Loaded ${Object.keys(categoryMap).length} categories`);
 
     // Sync Live TV (10-40%)
     updateSyncStatus(source.id, { step: 'live', message: 'Fetching live channels...', percent: 10 });
@@ -276,6 +300,8 @@ async function syncXtreamSource(source) {
 
     let liveCount = 0, movieCount = 0, seriesCount = 0;
 
+    // Use transaction for faster bulk inserts
+    await db.run('BEGIN TRANSACTION');
     for (let i = 0; i < liveChannels.length; i++) {
         const channel = liveChannels[i];
         // Build stream URL using sanitized credentials
@@ -329,13 +355,15 @@ async function syncXtreamSource(source) {
         }
     }
 
+    await db.run('COMMIT');
     logger.info('iptv', `Categorized: ${liveCount} live, ${movieCount} movies, ${seriesCount} series`);
 
     // Sync VOD (40-70%)
     updateSyncStatus(source.id, { step: 'vod', message: 'Fetching movies...', percent: 40 });
     app?.emit('sync:progress', { source: source.id, step: 'vod', message: 'Fetching movies...', percent: 40 });
     const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
-    const vodResponse = await fetchWithRetry(vodUrl, { headers }, 3, source);
+    // Use longer timeout for VOD - some providers have large catalogs (30MB+)
+    const vodResponse = await fetchWithRetry(vodUrl, { headers, timeout: 120000 }, 3, source);
     const vodItems = vodResponse.data || [];
 
     logger.info('iptv', `Found ${vodItems.length} VOD items`);
@@ -343,11 +371,16 @@ async function syncXtreamSource(source) {
     app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
     let vodSaved = 0, vodSkipped = 0;
+    // Use transaction for faster bulk inserts
+    await db.run('BEGIN TRANSACTION');
     for (let i = 0; i < vodItems.length; i++) {
         const vod = vodItems[i];
 
+        // Get category name from map (API only provides category_id)
+        const categoryName = categoryMap[vod.category_id] || '';
+
         // Extract language and check if allowed
-        const language = extractLanguageFromText(vod.category_name, vod.name);
+        const language = extractLanguageFromText(categoryName, vod.name);
         if (!isLanguageAllowed(language)) {
             vodSkipped++;
             continue; // Skip content not in preferred languages
@@ -372,12 +405,16 @@ async function syncXtreamSource(source) {
                 category = excluded.category,
                 stream_url = excluded.stream_url,
                 container = excluded.container,
+                rating = COALESCE(media.rating, excluded.rating),
+                year = COALESCE(media.year, excluded.year),
+                plot = COALESCE(media.plot, excluded.plot),
+                genres = COALESCE(media.genres, excluded.genres),
                 quality = COALESCE(excluded.quality, media.quality),
                 language = COALESCE(media.language, excluded.language),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
         `, [
-            source.id, String(vod.stream_id), vod.name, vod.stream_icon, vod.category_name,
+            source.id, String(vod.stream_id), vod.name, vod.stream_icon, categoryName,
             streamUrl, ext, vod.rating || null, extractYear(vod.name), vod.plot || null,
             vod.genre || null, quality, vod.tmdb || null, language
         ]);
@@ -400,13 +437,15 @@ async function syncXtreamSource(source) {
             app?.emit('sync:progress', { source: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
         }
     }
+    await db.run('COMMIT');
     logger.info('iptv', `VOD: ${vodSaved} saved, ${vodSkipped} filtered by language`);
 
     // Sync Series (70-100%)
     updateSyncStatus(source.id, { step: 'series', message: 'Fetching series...', percent: 70 });
     app?.emit('sync:progress', { source: source.id, step: 'series', message: 'Fetching series...', percent: 70 });
     const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
-    const seriesResponse = await fetchWithRetry(seriesUrl, { headers }, 3, source);
+    // Use longer timeout for series - some providers have large catalogs
+    const seriesResponse = await fetchWithRetry(seriesUrl, { headers, timeout: 120000 }, 3, source);
     const seriesList = seriesResponse.data || [];
 
     logger.info('iptv', `Found ${seriesList.length} series`);
@@ -414,11 +453,16 @@ async function syncXtreamSource(source) {
     app?.emit('sync:progress', { source: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
     let seriesSaved = 0, seriesSkipped = 0;
+    // Use transaction for faster bulk inserts
+    await db.run('BEGIN TRANSACTION');
     for (let i = 0; i < seriesList.length; i++) {
         const series = seriesList[i];
 
+        // Get category name from map (API only provides category_id)
+        const categoryName = categoryMap[series.category_id] || '';
+
         // Extract language and check if allowed
-        const language = extractLanguageFromText(series.category_name, series.name);
+        const language = extractLanguageFromText(categoryName, series.name);
         if (!isLanguageAllowed(language)) {
             seriesSkipped++;
             // Emit progress even for skipped items
@@ -438,19 +482,24 @@ async function syncXtreamSource(source) {
         );
 
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, is_active, last_seen_at)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, is_active, last_seen_at)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = excluded.title,
+                show_name = COALESCE(media.show_name, excluded.show_name),
                 poster = COALESCE(media.poster, excluded.poster),
                 backdrop = COALESCE(media.backdrop, excluded.backdrop),
                 category = excluded.category,
+                rating = COALESCE(media.rating, excluded.rating),
+                year = COALESCE(media.year, excluded.year),
+                plot = COALESCE(media.plot, excluded.plot),
+                genres = COALESCE(media.genres, excluded.genres),
                 language = COALESCE(media.language, excluded.language),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
         `, [
-            source.id, String(series.series_id), series.name, series.cover,
-            series.backdrop_path?.[0] || null, series.category_name, series.rating || null,
+            source.id, String(series.series_id), series.name, series.name, series.cover,
+            series.backdrop_path?.[0] || null, categoryName, series.rating || null,
             extractYear(series.releaseDate || series.name), series.plot || null,
             series.genre || null, series.tmdb || null, language
         ]);
@@ -518,6 +567,7 @@ async function syncXtreamSource(source) {
             app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
         }
     }
+    await db.run('COMMIT');
     logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language`);
 
     // Mark items not seen in this sync as inactive
@@ -543,7 +593,8 @@ async function syncM3USource(source) {
     const headers = getDefaultHeaders(source.user_agent || 'IBOPlayer', source);
 
     // Track sync start time for marking inactive items
-    const syncStartTime = new Date().toISOString();
+    // Use SQLite-compatible format (YYYY-MM-DD HH:MM:SS) to match CURRENT_TIMESTAMP
+    const syncStartTime = new Date().toISOString().replace('T', ' ').replace('Z', '').split('.')[0];
 
     // Track sync statistics
     const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
@@ -1323,8 +1374,23 @@ function detectQuality(title) {
 
 function extractYear(text) {
     if (!text) return null;
-    const match = text.match(/\((\d{4})\)/);
-    return match ? parseInt(match[1]) : null;
+    // Match (YYYY) or - YYYY or YYYY at end of title
+    const patterns = [
+        /\((\d{4})\)/,           // (2024)
+        /[-–]\s*(\d{4})(?:\s|$)/, // - 2024 or – 2024
+        /\s(\d{4})$/,            // ends with 2024
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (match) {
+            const year = parseInt(match[1]);
+            // Validate year is reasonable (1900-2030)
+            if (year >= 1900 && year <= 2030) {
+                return year;
+            }
+        }
+    }
+    return null;
 }
 
 /**

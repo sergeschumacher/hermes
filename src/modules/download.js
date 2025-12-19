@@ -10,6 +10,8 @@ let settings = null;
 let app = null;
 let plex = null;
 let transcoder = null;
+let usenet = null;
+let newznab = null;
 
 let activeDownloads = 0;
 let downloadInterval = null;
@@ -239,27 +241,40 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 }
 
 async function processQueue() {
-    const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
+    const slowDiskMode = settings.get('slowDiskMode');
 
-    if (activeDownloads >= maxConcurrent) return;
+    if (slowDiskMode) {
+        // Slow disk mode: strictly sequential - one operation at a time
+        // Don't start if ANY download is in progress
+        if (activeDownloads > 0) return;
 
-    // Low performance mode: don't start new downloads while transcoding is active
-    const lowPerfMode = settings.get('lowPerformanceMode');
-    if (lowPerfMode && transcoder) {
-        const transcoderStatus = transcoder.getStatus();
-        if (transcoderStatus.isProcessing) {
-            // Transcoding in progress, skip starting new downloads
-            return;
+        // Don't start if transcoding is active
+        if (transcoder) {
+            const transcoderStatus = transcoder.getStatus();
+            if (transcoderStatus.isProcessing) return;
         }
+
+        // Don't start if there are items waiting for transcode to complete
+        const pendingTranscode = await db.get(
+            "SELECT COUNT(*) as count FROM downloads WHERE status = 'transcoding'"
+        );
+        if (pendingTranscode?.count > 0) return;
+    } else {
+        // Normal mode: respect maxConcurrentDownloads
+        const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
+        if (activeDownloads >= maxConcurrent) return;
     }
 
     const download = await db.get(`
         SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id,
+               m.poster,
                e.stream_url as episode_url, e.external_id as episode_external_id,
-               e.container as episode_container, e.title as episode_title
+               e.container as episode_container, e.title as episode_title,
+               s.type as source_type
         FROM downloads d
         LEFT JOIN media m ON d.media_id = m.id
         LEFT JOIN episodes e ON d.episode_id = e.id
+        LEFT JOIN sources s ON m.source_id = s.id
         WHERE d.status = 'queued'
         ORDER BY d.priority DESC, d.created_at ASC
         LIMIT 1
@@ -274,6 +289,11 @@ async function processQueue() {
 }
 
 async function processDownload(download) {
+    // Check if this is a usenet download (has nzb_url set or source is newznab type)
+    if (download.nzb_url) {
+        return processUsenetDownload(download);
+    }
+
     let streamUrl = (download.episode_url || download.stream_url || '').trim();
     if (!streamUrl) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
@@ -619,6 +639,193 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     });
 }
 
+/**
+ * Process a usenet download using NZB
+ */
+async function processUsenetDownload(download) {
+    if (!usenet || !newznab) {
+        logger.error('download', 'Usenet modules not available');
+        await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
+            ['failed', 'Usenet support not configured', download.id]);
+        return;
+    }
+
+    const displayTitle = download.episode_title || download.title || 'download';
+    logger.info('download', `Starting usenet download: ${displayTitle}`);
+
+    await db.run('UPDATE downloads SET status = ?, started_at = CURRENT_TIMESTAMP, source_type = ? WHERE id = ?',
+        ['downloading', 'usenet', download.id]);
+
+    app?.emit('download:start', { id: download.id, title: download.title });
+
+    try {
+        // Fetch NZB content
+        const nzbContent = await newznab.fetchNzb(download.nzb_url);
+
+        if (!nzbContent) {
+            throw new Error('Failed to fetch NZB content');
+        }
+
+        // Create NZB download record
+        await db.run(`
+            INSERT INTO nzb_downloads (download_id, nzb_name, status)
+            VALUES (?, ?, 'pending')
+        `, [download.id, displayTitle]);
+
+        // Queue for usenet download
+        await usenet.queueNzb(download.id, nzbContent);
+
+        logger.info('download', `Queued NZB download: ${displayTitle}`);
+
+        // The rest happens via events:
+        // - usenet:download:complete triggers post-processing
+        // - usenet:postprocess:complete triggers file moving and completion
+
+    } catch (err) {
+        logger.error('download', `Usenet download failed: ${displayTitle} - ${err.message}`);
+
+        await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
+            ['failed', err.message, download.id]);
+
+        app?.emit('download:failed', { id: download.id, title: download.title, error: err.message });
+    }
+}
+
+/**
+ * Handle usenet post-processing completion
+ * Called by usenet-postprocess module when files are ready
+ */
+async function handleUsenetComplete(downloadId, tempDir, files) {
+    const download = await db.get(`
+        SELECT d.*, m.title, m.media_type,
+               e.title as episode_title
+        FROM downloads d
+        LEFT JOIN media m ON d.media_id = m.id
+        LEFT JOIN episodes e ON d.episode_id = e.id
+        WHERE d.id = ?
+    `, [downloadId]);
+
+    if (!download) {
+        logger.error('download', `Usenet complete but download ${downloadId} not found`);
+        return;
+    }
+
+    const displayTitle = download.episode_title || download.title || 'download';
+
+    try {
+        // Get type-specific download path
+        const isMovie = download.media_type === 'movie';
+        const isEpisode = !!download.episode_id;
+        let downloadPathSetting;
+
+        if (isMovie) {
+            downloadPathSetting = settings.get('movieDownloadPath') || settings.get('downloadPath');
+        } else if (isEpisode) {
+            downloadPathSetting = settings.get('seriesDownloadPath') || settings.get('downloadPath');
+        } else {
+            downloadPathSetting = settings.get('downloadPath');
+        }
+
+        const downloadPath = resolveSmbPath(downloadPathSetting);
+
+        // Determine final directory
+        const hasTypeSpecificPath = isMovie
+            ? !!settings.get('movieDownloadPath')
+            : isEpisode ? !!settings.get('seriesDownloadPath') : false;
+
+        let finalDir;
+        if (isMovie) {
+            finalDir = hasTypeSpecificPath ? downloadPath : path.join(downloadPath, 'movies');
+        } else if (isEpisode) {
+            finalDir = hasTypeSpecificPath
+                ? path.join(downloadPath, sanitizeFilename(download.title))
+                : path.join(downloadPath, 'series', sanitizeFilename(download.title));
+        } else {
+            finalDir = downloadPath;
+        }
+
+        if (!fs.existsSync(finalDir)) fs.mkdirSync(finalDir, { recursive: true });
+
+        // Find the main media file from extracted files
+        const mediaFile = files.find(f => f.isMedia);
+        if (!mediaFile) {
+            throw new Error('No media file found after extraction');
+        }
+
+        const filename = sanitizeFilename(displayTitle) + path.extname(mediaFile.name);
+        const finalPath = path.join(finalDir, filename);
+
+        // Check if transcoding is enabled
+        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
+
+        if (shouldTranscode) {
+            // Queue for transcoding
+            await transcoder.queue(downloadId, mediaFile.path, finalDir, filename, download.media_type);
+
+            await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', downloadId]);
+
+            logger.info('download', `Usenet download queued for transcoding: ${displayTitle}`);
+            app?.emit('download:transcoding', { id: downloadId, title: download.title });
+
+        } else {
+            // Move to final destination
+            try {
+                fs.renameSync(mediaFile.path, finalPath);
+            } catch (renameErr) {
+                if (renameErr.code === 'EXDEV') {
+                    fs.copyFileSync(mediaFile.path, finalPath);
+                    fs.unlinkSync(mediaFile.path);
+                } else {
+                    throw renameErr;
+                }
+            }
+
+            // Get file size
+            const fileStats = fs.statSync(finalPath);
+
+            await db.run(`
+                UPDATE downloads SET status = ?, final_path = ?, file_size = ?, progress = 100, completed_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            `, ['completed', finalPath, fileStats.size, downloadId]);
+
+            logger.info('download', `Usenet download completed: ${displayTitle}`);
+            app?.emit('download:complete', { id: downloadId, title: download.title, path: finalPath });
+
+            // Trigger Plex scan
+            if (plex) {
+                const libraryId = download.media_type === 'movie'
+                    ? settings.get('plexMovieLibraryId')
+                    : settings.get('plexTvLibraryId');
+
+                if (libraryId) {
+                    try {
+                        await plex.scanLibrary(libraryId, finalDir);
+                    } catch (err) {
+                        logger.warn('download', `Failed to trigger Plex scan: ${err.message}`);
+                    }
+                }
+            }
+        }
+
+        // Cleanup temp directory
+        try {
+            const fsp = require('fs').promises;
+            await fsp.rm(tempDir, { recursive: true, force: true });
+            logger.info('download', `Cleaned up usenet temp directory: ${tempDir}`);
+        } catch (err) {
+            logger.warn('download', `Failed to cleanup temp directory: ${err.message}`);
+        }
+
+    } catch (err) {
+        logger.error('download', `Failed to process usenet completion: ${err.message}`);
+
+        await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
+            ['failed', err.message, downloadId]);
+
+        app?.emit('download:failed', { id: downloadId, title: download.title, error: err.message });
+    }
+}
+
 function sanitizeFilename(name) {
     return name
         .replace(/[<>:"/\\|?*]/g, '')
@@ -635,6 +842,8 @@ module.exports = {
         app = modules.app;
         plex = modules.plex;
         transcoder = modules.transcoder;
+        usenet = modules.usenet;
+        newznab = modules.newznab;
 
         // Reset any downloads that were stuck in "downloading" status from a previous crash/restart
         const stuckDownloads = await db.all(
@@ -666,6 +875,26 @@ module.exports = {
             logger.info('download', `Reset ${stuckDownloads.length} stuck downloads to queued status`);
         }
 
+        // Listen for usenet post-processing completion
+        if (app) {
+            app.on('usenet:postprocess:complete', async (data) => {
+                try {
+                    await handleUsenetComplete(data.downloadId, data.tempDir, data.files);
+                } catch (err) {
+                    logger.error('download', `Failed to handle usenet completion: ${err.message}`);
+                }
+            });
+
+            // Emit socket events for usenet progress
+            app.on('usenet:download:progress', (data) => {
+                app.emit('socket:broadcast', 'usenet:download:progress', data);
+            });
+
+            app.on('usenet:postprocess:status', (data) => {
+                app.emit('socket:broadcast', 'usenet:postprocess:status', data);
+            });
+        }
+
         // Start processing queue
         downloadInterval = setInterval(processQueue, 5000);
         logger.info('download', 'Download engine started');
@@ -694,6 +923,27 @@ module.exports = {
         );
 
         app?.emit('download:queued', { id: result.lastID, mediaId, episodeId });
+        return { success: true, id: result.lastID };
+    },
+
+    // Add usenet download to queue
+    queueUsenet: async (mediaId, nzbUrl, nzbTitle, episodeId = null, priority = 50) => {
+        const existing = await db.get(
+            'SELECT id FROM downloads WHERE media_id = ? AND (episode_id = ? OR (episode_id IS NULL AND ? IS NULL)) AND status IN (?, ?, ?)',
+            [mediaId, episodeId, episodeId, 'queued', 'downloading', 'transcoding']
+        );
+
+        if (existing) {
+            return { success: false, message: 'Already in queue' };
+        }
+
+        const result = await db.run(
+            'INSERT INTO downloads (media_id, episode_id, status, priority, nzb_url, nzb_title, source_type) VALUES (?, ?, ?, ?, ?, ?, ?)',
+            [mediaId, episodeId, 'queued', priority, nzbUrl, nzbTitle, 'usenet']
+        );
+
+        app?.emit('download:queued', { id: result.lastID, mediaId, episodeId, type: 'usenet' });
+        logger?.info('download', `Queued usenet download: ${nzbTitle}`);
         return { success: true, id: result.lastID };
     },
 
