@@ -604,7 +604,10 @@ function setupApiRoutes() {
 
             if (isHls) {
                 // Direct proxy for HLS streams
-                const headers = {};
+                const headers = {
+                    'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
+                    'Referer': new URL(url).origin + '/'
+                };
                 if (req.headers.range) {
                     headers['Range'] = req.headers.range;
                 }
@@ -634,19 +637,27 @@ function setupApiRoutes() {
             } else {
                 // For non-HLS streams, we need to transcode to browser-playable format
                 // Use FFmpeg to convert to fragmented MP4 which browsers can play directly
-                logger?.info('stream', 'Starting FFmpeg transcode to fMP4...');
+                // Must transcode to H.264 since source may be H.265/HEVC which browsers don't support
+                logger?.info('stream', 'Starting FFmpeg transcode to H.264 fMP4...');
 
                 res.setHeader('Content-Type', 'video/mp4');
                 res.setHeader('Transfer-Encoding', 'chunked');
 
-                // FFmpeg: input TS stream -> output fragmented MP4 for browser playback
+                // FFmpeg: input stream -> output H.264 fragmented MP4 for browser playback
+                // Add headers to bypass IPTV server restrictions (403 errors)
+                // Use software encoding for reliability (hardware can be added later)
                 const ffmpeg = spawn('ffmpeg', [
-                    '-re',                     // Read input at native frame rate
+                    '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
                     '-i', url,
-                    '-c:v', 'copy',           // Copy video codec (no re-encode for speed)
+                    '-c:v', 'libx264',        // Software H.264 encoding (universal support)
+                    '-preset', 'ultrafast',   // Fast encoding for real-time preview
+                    '-tune', 'zerolatency',   // Minimize latency for streaming
+                    '-crf', '28',             // Quality (lower = better, 23-28 typical for preview)
+                    '-profile:v', 'baseline', // Maximum browser compatibility
+                    '-level', '3.0',
                     '-c:a', 'aac',            // Transcode audio to AAC (browser compatible)
                     '-b:a', '128k',
-                    '-movflags', 'frag_keyframe+empty_moov+faststart',
+                    '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
                     '-f', 'mp4',
                     '-'                        // Output to stdout
                 ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -763,9 +774,9 @@ function setupApiRoutes() {
                 params.push(quality);
             }
             if (language) {
-                // Filter by language in category [XX] or title prefix "XX - "
-                sql += ' AND (category LIKE ? OR title LIKE ?)';
-                params.push(`%[${language}]%`, `${language} - %`);
+                // Filter by language in category [XX], category name, or title prefix "XX - " / "XX ★"
+                sql += ' AND (category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ?)';
+                params.push(`%[${language}]%`, `%${language} %`, `${language} - %`, `${language} ★%`);
             }
             if (genre) {
                 sql += ' AND genres LIKE ?';
@@ -1684,7 +1695,23 @@ function setupApiRoutes() {
     router.post('/epg/match-channels', async (req, res) => {
         try {
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            // First clear invalid tvg_id values (from IPTV source that don't match EPG)
+            const clearResult = await modules.epg.clearInvalidTvgIds();
+
+            // Then run AI matching
             const result = await modules.epg.matchChannelsWithAI();
+            res.json({ ...result, cleared: clearResult.cleared });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear invalid tvg_id values
+    router.post('/epg/clear-invalid-mappings', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+            const result = await modules.epg.clearInvalidTvgIds();
             res.json(result);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -1836,6 +1863,154 @@ function setupApiRoutes() {
             if (!modules.scheduler) return res.status(500).json({ error: 'Scheduler module not loaded' });
             const ffmpeg = await modules.scheduler.checkFfmpeg();
             res.json(ffmpeg);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // =====================================================
+    // HDHomeRun Emulator endpoints
+    // =====================================================
+
+    // Get HDHR status
+    router.get('/hdhr/status', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.json({ enabled: false, running: false });
+            res.json(modules.hdhr.getStatus());
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Start/stop HDHR emulator
+    router.post('/hdhr/toggle', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const { enabled } = req.body;
+
+            if (enabled) {
+                await modules.hdhr.start();
+                modules.settings.set('hdhrEnabled', true);
+            } else {
+                await modules.hdhr.stop();
+                modules.settings.set('hdhrEnabled', false);
+            }
+
+            res.json(modules.hdhr.getStatus());
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get all channels available for HDHR
+    router.get('/hdhr/channels/available', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const channels = await modules.hdhr.getAvailableChannels();
+            res.json(channels);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get enabled HDHR channels (lineup)
+    router.get('/hdhr/channels', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const channels = await modules.hdhr.getEnabledChannels();
+            res.json(channels);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get categories for channel selection
+    router.get('/hdhr/categories', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const categories = await modules.hdhr.getCategories();
+            res.json(categories);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Add channel to HDHR lineup
+    router.post('/hdhr/channels', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const { mediaId, guideNumber, guideName } = req.body;
+            await modules.hdhr.addChannel(mediaId, guideNumber, guideName);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Remove channel from HDHR lineup
+    router.delete('/hdhr/channels/:id', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            await modules.hdhr.removeChannel(parseInt(req.params.id));
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Toggle channel enabled/disabled
+    router.post('/hdhr/channels/:id/toggle', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const { enabled } = req.body;
+            await modules.hdhr.toggleChannel(parseInt(req.params.id), enabled);
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Add all channels from a category
+    router.post('/hdhr/categories/add', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const { category, sourceId, startNumber } = req.body;
+            const count = await modules.hdhr.addChannelsByCategory(category, sourceId, startNumber || 1);
+            res.json({ success: true, added: count });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear all HDHR channels
+    router.delete('/hdhr/channels', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            await modules.hdhr.clearAllChannels();
+            res.json({ success: true });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Rebuild lineup (auto-number channels)
+    router.post('/hdhr/lineup/rebuild', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const count = await modules.hdhr.rebuildLineup();
+            res.json({ success: true, channels: count });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get XMLTV EPG (also available on HDHR port, but exposed here for convenience)
+    router.get('/hdhr/xmltv', async (req, res) => {
+        try {
+            if (!modules.hdhr) return res.status(500).json({ error: 'HDHR module not loaded' });
+            const xml = await modules.hdhr.generateXmltv();
+            res.set('Content-Type', 'application/xml');
+            res.send(xml);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

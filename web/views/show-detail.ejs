@@ -230,6 +230,29 @@
     .episode-item:hover {
         background: rgba(55, 65, 81, 0.2);
     }
+    .episode-preview-btn {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(229, 9, 20, 0.9);
+        color: white;
+        border: none;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        align-self: center;
+        transition: all 0.2s ease;
+    }
+    .episode-preview-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+    .episode-preview-btn:hover {
+        background: rgba(229, 9, 20, 1);
+        transform: scale(1.1);
+    }
     .episode-still {
         width: 10rem;
         height: 5.625rem;
@@ -980,6 +1003,14 @@
                                         ` : `
                                             <div style="width: 2.25rem; flex-shrink: 0;"></div>
                                         `}
+
+                                        <!-- Preview Button -->
+                                        ${isAvailable && ep.stream_url ? `
+                                            <button onclick="openPreview('${ep.stream_url.replace(/'/g, "\\\\'")}', '${showData.showName ? showData.showName.replace(/'/g, "\\\\'") : ""} S${String(season.season_number).padStart(2, '0')}E${String(ep.episode_number).padStart(2, '0')}', '', '${ep.language || ''}')"
+                                                    class="episode-preview-btn" title="Preview episode">
+                                                <svg fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                                            </button>
+                                        ` : ''}
 
                                         <!-- Episode Still -->
                                         ${stillUrl ? `

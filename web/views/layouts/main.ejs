@@ -155,11 +155,14 @@
     </div>
 
     <!-- Main Content -->
-    <main class="min-h-screen">
+    <main class="min-h-screen pt-16">
         <div class="animate-fade-in">
             <%- body %>
         </div>
     </main>
+
+    <!-- Preview Modal -->
+    <%- include('../partials/preview-modal') %>
 
     <!-- Toast Container -->
     <div id="toast-container" class="fixed bottom-4 right-4 z-toast space-y-2"></div>
@@ -251,7 +254,7 @@
                         <a href="/${item.media_type === 'movie' ? 'movies' : 'series'}/${item.id}"
                            class="group" onclick="closeSearch()">
                             <div class="aspect-[2/3] rounded-lg overflow-hidden bg-dark-surface mb-2">
-                                <img src="${proxyImage(item.poster_url) || '/static/images/no-poster.png'}"
+                                <img src="${item.poster ? proxyImage(item.poster) : '/static/images/no-poster.png'}"
                                      alt="${item.title}"
                                      class="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300">
                             </div>

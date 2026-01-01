@@ -8,7 +8,7 @@ set -e
 # =============================================================================
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
-UNRAID_HOST="192.168.1.XXX"       # Your Unraid IP address
+UNRAID_HOST="192.168.1.XXX"     # Your Unraid IP address
 UNRAID_USER="root"                # Unraid SSH user (usually root)
 UNRAID_PASS=""                    # Unraid SSH password (leave empty to prompt)
 CONTAINER_NAME="hermes"           # Container name on Unraid
@@ -118,6 +118,8 @@ do_ssh "mkdir -p ${HOST_PATH}/data && docker run -d \
     --restart unless-stopped \
     --device=/dev/dri:/dev/dri \
     -p ${PORT}:3000 \
+    -p 5004:5004 \
+    -p 65001:65001/udp \
     -v ${HOST_PATH}:/hermesdata \
     -e DATA_PATH=${DATA_PATH} \
     $IMAGE_NAME"

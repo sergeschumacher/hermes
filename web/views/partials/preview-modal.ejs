@@ -1,0 +1,408 @@
+<!-- Preview Modal -->
+<div id="preview-modal" class="preview-modal hidden">
+    <div class="preview-overlay" onclick="closePreview()"></div>
+    <div class="preview-container">
+        <!-- Close Button -->
+        <button class="preview-close" onclick="closePreview()" title="Close (Esc)">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+
+        <!-- Media Info Header -->
+        <div class="preview-header">
+            <h3 id="preview-title" class="preview-title">Loading...</h3>
+            <div class="preview-badges">
+                <span id="preview-quality" class="preview-badge quality"></span>
+                <span id="preview-language" class="preview-badge language"></span>
+            </div>
+        </div>
+
+        <!-- Video Player -->
+        <div class="preview-player">
+            <video id="preview-video" controls autoplay>
+                Your browser does not support the video tag.
+            </video>
+            <div id="preview-loading" class="preview-loading">
+                <div class="preview-spinner"></div>
+                <p>Loading preview...</p>
+            </div>
+            <div id="preview-error" class="preview-error hidden">
+                <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+                </svg>
+                <p>Unable to load preview</p>
+                <span id="preview-error-msg"></span>
+            </div>
+        </div>
+
+        <!-- Control Bar -->
+        <div class="preview-controls">
+            <button id="preview-vlc-btn" class="preview-btn vlc" onclick="playPreviewInVLC()">
+                <svg fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+                </svg>
+                Open in VLC
+            </button>
+            <button class="preview-btn close" onclick="closePreview()">
+                Close Preview
+            </button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .preview-modal {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .preview-modal.hidden {
+        display: none;
+    }
+
+    .preview-overlay {
+        position: absolute;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.95);
+    }
+
+    .preview-container {
+        position: relative;
+        width: 90%;
+        max-width: 1280px;
+        max-height: 90vh;
+        display: flex;
+        flex-direction: column;
+        background: #141414;
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+
+    .preview-close {
+        position: absolute;
+        top: 12px;
+        right: 12px;
+        z-index: 10;
+        width: 40px;
+        height: 40px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.6);
+        border: none;
+        border-radius: 50%;
+        color: white;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .preview-close:hover {
+        background: rgba(229, 9, 20, 0.8);
+        transform: scale(1.1);
+    }
+
+    .preview-close svg {
+        width: 24px;
+        height: 24px;
+    }
+
+    .preview-header {
+        padding: 16px 20px;
+        background: #1a1a1a;
+        border-bottom: 1px solid #2d2d2d;
+    }
+
+    .preview-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: white;
+        margin: 0 0 8px 0;
+        padding-right: 40px;
+    }
+
+    .preview-badges {
+        display: flex;
+        gap: 8px;
+    }
+
+    .preview-badge {
+        padding: 4px 10px;
+        border-radius: 4px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+    }
+
+    .preview-badge.quality {
+        background: rgba(229, 9, 20, 0.2);
+        color: #E50914;
+    }
+
+    .preview-badge.language {
+        background: rgba(99, 102, 241, 0.2);
+        color: #818cf8;
+    }
+
+    .preview-badge:empty {
+        display: none;
+    }
+
+    .preview-player {
+        position: relative;
+        width: 100%;
+        background: #000;
+        aspect-ratio: 16 / 9;
+    }
+
+    .preview-player video {
+        width: 100%;
+        height: 100%;
+        background: #000;
+    }
+
+    .preview-loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.8);
+        color: #808080;
+        gap: 16px;
+    }
+
+    .preview-loading.hidden {
+        display: none;
+    }
+
+    .preview-spinner {
+        width: 48px;
+        height: 48px;
+        border: 3px solid #2d2d2d;
+        border-top-color: #E50914;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+        to { transform: rotate(360deg); }
+    }
+
+    .preview-error {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.9);
+        color: #ef4444;
+        gap: 12px;
+    }
+
+    .preview-error.hidden {
+        display: none;
+    }
+
+    .preview-error svg {
+        width: 48px;
+        height: 48px;
+    }
+
+    .preview-error p {
+        font-size: 1.125rem;
+        font-weight: 500;
+    }
+
+    .preview-error span {
+        font-size: 0.875rem;
+        color: #808080;
+    }
+
+    .preview-controls {
+        display: flex;
+        gap: 12px;
+        padding: 16px 20px;
+        background: #1a1a1a;
+        border-top: 1px solid #2d2d2d;
+    }
+
+    .preview-btn {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        border: none;
+        border-radius: 6px;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .preview-btn svg {
+        width: 20px;
+        height: 20px;
+    }
+
+    .preview-btn.vlc {
+        background: #ff6600;
+        color: white;
+    }
+
+    .preview-btn.vlc:hover {
+        background: #e65c00;
+    }
+
+    .preview-btn.close {
+        background: #2d2d2d;
+        color: #d1d5db;
+        margin-left: auto;
+    }
+
+    .preview-btn.close:hover {
+        background: #3d3d3d;
+        color: white;
+    }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+        .preview-container {
+            width: 100%;
+            max-height: 100vh;
+            border-radius: 0;
+        }
+
+        .preview-controls {
+            flex-direction: column;
+        }
+
+        .preview-btn.close {
+            margin-left: 0;
+        }
+    }
+</style>
+
+<script>
+    // Preview state
+    let currentPreviewUrl = null;
+
+    function openPreview(streamUrl, title, quality, language) {
+        if (!streamUrl) {
+            showToast('No stream URL available', 'error');
+            return;
+        }
+
+        currentPreviewUrl = streamUrl;
+
+        // Update modal info
+        document.getElementById('preview-title').textContent = title || 'Preview';
+        document.getElementById('preview-quality').textContent = quality || '';
+        document.getElementById('preview-language').textContent = language || '';
+
+        // Show loading state
+        document.getElementById('preview-loading').classList.remove('hidden');
+        document.getElementById('preview-error').classList.add('hidden');
+
+        // Get video element and fully reset it
+        const video = document.getElementById('preview-video');
+
+        // Remove old event handlers
+        video.oncanplay = null;
+        video.onerror = null;
+        video.onloadeddata = null;
+
+        // Stop and reset video
+        video.pause();
+        video.removeAttribute('src');
+        video.innerHTML = '';
+        video.load(); // Reset the element
+
+        // Build new proxy URL with cache buster
+        const proxyUrl = '/api/stream/proxy?url=' + encodeURIComponent(streamUrl) + '&t=' + Date.now();
+
+        // Create new source element
+        const source = document.createElement('source');
+        source.src = proxyUrl;
+        source.type = 'video/mp4';
+        video.appendChild(source);
+
+        // Handle video events
+        video.onloadeddata = () => {
+            document.getElementById('preview-loading').classList.add('hidden');
+            video.play().catch(e => console.log('Autoplay prevented:', e));
+        };
+
+        video.onerror = (e) => {
+            console.error('Video error:', e);
+            document.getElementById('preview-loading').classList.add('hidden');
+            document.getElementById('preview-error').classList.remove('hidden');
+            document.getElementById('preview-error-msg').textContent = 'Stream may be unavailable or incompatible';
+        };
+
+        // Load the new source
+        video.load();
+
+        // Show modal
+        document.getElementById('preview-modal').classList.remove('hidden');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closePreview() {
+        const video = document.getElementById('preview-video');
+
+        // Remove event handlers
+        video.oncanplay = null;
+        video.onerror = null;
+        video.onloadeddata = null;
+
+        // Stop playback
+        video.pause();
+        video.removeAttribute('src');
+        video.innerHTML = '';
+        video.load(); // Reset the element
+
+        document.getElementById('preview-modal').classList.add('hidden');
+        document.body.style.overflow = '';
+        currentPreviewUrl = null;
+    }
+
+    function playPreviewInVLC() {
+        if (!currentPreviewUrl) {
+            showToast('No stream URL available', 'error');
+            return;
+        }
+
+        fetch('/api/play', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: currentPreviewUrl })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                showToast('Opening in VLC...', 'success');
+            } else {
+                showToast('Failed to open VLC: ' + (data.error || 'Unknown error'), 'error');
+            }
+        })
+        .catch(err => {
+            console.error('VLC error:', err);
+            showToast('Failed to open VLC', 'error');
+        });
+    }
+
+    // Close on Escape key
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && !document.getElementById('preview-modal').classList.contains('hidden')) {
+            closePreview();
+        }
+    });
+</script>

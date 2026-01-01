@@ -516,8 +516,10 @@ function normalizeChannelName(name) {
     if (!name) return '';
     return name
         .toLowerCase()
-        // Remove country prefix patterns (DE -, UK -, US -, etc.)
-        .replace(/^[a-z]{2}\s*[-:]\s*/i, '')
+        // Remove country prefix patterns (DE ★, UK -, US :, EXYU ★, etc.)
+        .replace(/^[a-z]{2,6}\s*[-:★☆|]\s*/i, '')
+        // Remove trailing symbols like ◉ ● ★
+        .replace(/\s*[◉●★☆]\s*$/g, '')
         // Remove quality suffixes (HD, SD, FHD, UHD, 4K)
         .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s*$/gi, '')
         .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s+/gi, ' ')
@@ -527,10 +529,11 @@ function normalizeChannelName(name) {
         .replace(/\.\w{2}$/i, '')
         // Remove common suffixes/additions
         .replace(/\s*\(sky\)\s*/gi, '')
-        .replace(/\s*television\s*/gi, '')
-        .replace(/\s*channel\s*/gi, '')
+        .replace(/\s*television\s*/gi, ' ')
+        .replace(/\s*fernsehen\s*/gi, ' ')  // German for "television"
+        .replace(/\s*channel\s*/gi, ' ')
         .replace(/\s*tv\s*$/gi, '')
-        // Remove special chars but keep spaces
+        // Remove special chars but keep spaces and alphanumeric
         .replace(/[^\w\s]/g, ' ')
         // Normalize multiple spaces
         .replace(/\s+/g, ' ')
@@ -570,8 +573,43 @@ async function matchChannelsToEpg() {
         SELECT DISTINCT channel_id FROM epg_programs WHERE source_id IS NULL
     `);
 
-    // Get all live TV channels without tvg_id
+    // Get all live TV channels
     const liveChannels = await db.all(`
+        SELECT id, title, tvg_id FROM media WHERE media_type = 'live'
+    `);
+
+    // First, validate existing tvg_id assignments - clear mismatched ones
+    // This handles IPTV sources that provide wrong tvg_id values
+    let clearedCount = 0;
+    for (const ch of liveChannels) {
+        if (ch.tvg_id) {
+            const channelNorm = normalizeChannelName(ch.title);
+            const tvgNorm = normalizeChannelName(ch.tvg_id);
+
+            // Check if the tvg_id seems to match the channel name
+            // Use word boundary matching to avoid false positives like "a" matching "wdr aachen"
+            const channelWords = channelNorm.split(/\s+/).filter(w => w.length > 1);
+            const tvgWords = tvgNorm.split(/\s+/).filter(w => w.length > 1);
+
+            // Match if exact match, OR if significant words overlap
+            const matches = channelNorm === tvgNorm ||
+                           tvgWords.some(w => channelWords.includes(w)) ||
+                           channelWords.some(w => tvgWords.includes(w));
+
+            if (!matches) {
+                // Clear the mismatched tvg_id
+                await db.run('UPDATE media SET tvg_id = NULL WHERE id = ?', [ch.id]);
+                clearedCount++;
+            }
+        }
+    }
+
+    if (clearedCount > 0) {
+        logger.info('epg', `Cleared ${clearedCount} mismatched tvg_id values`);
+    }
+
+    // Re-fetch channels that now need matching
+    const channelsToMatch = await db.all(`
         SELECT id, title FROM media WHERE media_type = 'live' AND (tvg_id IS NULL OR tvg_id = '')
     `);
 
@@ -579,15 +617,18 @@ async function matchChannelsToEpg() {
 
     for (const epgChannel of epgChannels) {
         const epgNormalized = normalizeChannelName(epgChannel.channel_id);
+        const epgWords = epgNormalized.split(/\s+/).filter(w => w.length > 1);
 
-        for (const liveChannel of liveChannels) {
+        for (const liveChannel of channelsToMatch) {
             const liveNormalized = normalizeChannelName(liveChannel.title);
+            const liveWords = liveNormalized.split(/\s+/).filter(w => w.length > 1);
 
-            // Check for match
-            if (epgNormalized === liveNormalized ||
-                epgNormalized.includes(liveNormalized) ||
-                liveNormalized.includes(epgNormalized)) {
+            // Check for match using word-based matching
+            const matches = epgNormalized === liveNormalized ||
+                           epgWords.some(w => liveWords.includes(w)) ||
+                           liveWords.some(w => epgWords.includes(w));
 
+            if (matches) {
                 await db.run(
                     'UPDATE media SET tvg_id = ? WHERE id = ? AND (tvg_id IS NULL OR tvg_id = "")',
                     [epgChannel.channel_id, liveChannel.id]
@@ -816,19 +857,39 @@ async function matchChannelsWithAI() {
 
 /**
  * Apply stored channel mappings to update media.tvg_id
+ * Overwrites existing tvg_id values if they don't match any EPG channels
  */
 async function applyChannelMappings() {
     const mappings = await db.all('SELECT * FROM channel_mappings WHERE confidence >= 0.7');
 
+    // Get list of valid EPG channel IDs
+    const validEpgChannels = await db.all('SELECT DISTINCT channel_id FROM epg_programs');
+    const validEpgSet = new Set(validEpgChannels.map(c => c.channel_id));
+
     let updated = 0;
     for (const mapping of mappings) {
-        const result = await db.run(`
-            UPDATE media SET tvg_id = ?
-            WHERE title LIKE ? AND tvg_id IS NULL
-        `, [mapping.epg_channel_id, `%${mapping.source_channel_name}%`]);
+        // Update channels that either:
+        // 1. Have no tvg_id
+        // 2. Have a tvg_id that doesn't match any EPG channel (invalid)
+        const candidates = await db.all(`
+            SELECT id, tvg_id FROM media
+            WHERE title LIKE ?
+        `, [`%${mapping.source_channel_name}%`]);
 
-        if (result.changes > 0) {
-            updated += result.changes;
+        for (const candidate of candidates) {
+            // Skip if current tvg_id is valid and matches EPG
+            if (candidate.tvg_id && validEpgSet.has(candidate.tvg_id)) {
+                continue;
+            }
+
+            // Update with new mapping
+            const result = await db.run(`
+                UPDATE media SET tvg_id = ? WHERE id = ?
+            `, [mapping.epg_channel_id, candidate.id]);
+
+            if (result.changes > 0) {
+                updated++;
+            }
         }
     }
 
@@ -844,6 +905,34 @@ async function applyChannelMappings() {
  */
 async function getChannelMappings() {
     return db.all('SELECT * FROM channel_mappings ORDER BY confidence DESC');
+}
+
+/**
+ * Clear invalid tvg_id values from media (ones that don't match any EPG channels)
+ * This allows AI matching to fix bad tvg_id values from IPTV sources
+ */
+async function clearInvalidTvgIds() {
+    // Get all valid EPG channel IDs
+    const validEpgChannels = await db.all('SELECT DISTINCT channel_id FROM epg_programs');
+    const validEpgIds = validEpgChannels.map(c => c.channel_id);
+
+    if (validEpgIds.length === 0) {
+        logger?.warn('epg', 'No EPG channels found, skipping tvg_id cleanup');
+        return { cleared: 0 };
+    }
+
+    // Clear tvg_id values that don't match any EPG channel
+    const placeholders = validEpgIds.map(() => '?').join(',');
+    const result = await db.run(`
+        UPDATE media SET tvg_id = NULL
+        WHERE media_type = 'live'
+          AND tvg_id IS NOT NULL
+          AND tvg_id != ''
+          AND tvg_id NOT IN (${placeholders})
+    `, validEpgIds);
+
+    logger?.info('epg', `Cleared ${result.changes} invalid tvg_id values`);
+    return { cleared: result.changes };
 }
 
 /**
@@ -1080,6 +1169,7 @@ module.exports = {
     matchChannelsWithAI,
     applyChannelMappings,
     getChannelMappings,
+    clearInvalidTvgIds,
 
     // Filtered EPG channels (language + IPTV availability)
     getFilteredEpgChannels,

@@ -18,7 +18,7 @@
                 <svg class="filter-search-icon" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                 </svg>
-                <input type="text" id="search-input" placeholder="Search series..." class="filter-search-input" />
+                <input type="text" id="series-search-input" placeholder="Search series..." class="filter-search-input" />
             </div>
 
             <!-- Filter Chips -->
@@ -306,6 +306,9 @@
                                 <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd"/>
                             </svg>
                         </div>
+                        <button class="preview-btn-card" onclick="event.preventDefault(); event.stopPropagation(); window.location.href='/series/\${encodeURIComponent(show.show_name)}#episodes'" title="Preview Episodes">
+                            <svg fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                        </button>
                     </div>
                 </div>
                 <div class="card-info">
@@ -370,7 +373,7 @@
 
         const recentlyVal = document.getElementById('filter-recently').value;
         const params = new URLSearchParams({
-            search: document.getElementById('search-input').value,
+            search: document.getElementById('series-search-input').value,
             quality: document.getElementById('filter-quality').value,
             year: document.getElementById('filter-year').value,
             language: document.getElementById('filter-language').value,
@@ -572,7 +575,7 @@
     }
 
     // Event listeners
-    document.getElementById('search-input').addEventListener('input', debounce(() => loadShows(true), 300));
+    document.getElementById('series-search-input').addEventListener('input', debounce(() => loadShows(true), 300));
     ['filter-quality', 'filter-year', 'filter-language', 'filter-source', 'filter-platform', 'filter-recently', 'sort-by'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { saveFilters(); loadShows(true); });
     });
