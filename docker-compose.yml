@@ -1,7 +1,7 @@
 services:
   hermes:
-    # Use pre-built image from Docker Hub
-    image: seslab/hermes:latest
+    # Use pre-built image from GitHub Container Registry
+    image: ghcr.io/sergeschumacher/hermes:latest
     # Or build from source:
     # build: .
     container_name: hermes
