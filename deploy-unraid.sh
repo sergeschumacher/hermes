@@ -8,7 +8,7 @@ set -e
 # =============================================================================
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
-UNRAID_HOST="192.168.178.201"     # Your Unraid IP address
+UNRAID_HOST="192.168.1.XXX"       # Your Unraid IP address
 UNRAID_USER="root"                # Unraid SSH user (usually root)
 UNRAID_PASS=""                    # Unraid SSH password (leave empty to prompt)
 CONTAINER_NAME="hermes"           # Container name on Unraid

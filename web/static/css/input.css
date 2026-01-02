@@ -1304,6 +1304,33 @@
 .z-toast { z-index: 70; }
 .z-tooltip { z-index: 80; }
 
+/* Modal overlay - always centered in viewport */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 60;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    overflow-y: auto;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-content {
+    @apply bg-dark-card border border-dark-border rounded-xl w-full;
+    max-height: calc(100vh - 2rem);
+    overflow-y: auto;
+    margin: auto;
+}
+
 /* Reduce motion preference */
 @media (prefers-reduced-motion: reduce) {
     *,

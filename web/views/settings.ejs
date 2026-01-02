@@ -214,8 +214,8 @@
         </div>
 
         <!-- HDHR Channel Selection Modal -->
-        <div id="hdhr-channels-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center">
-            <div class="bg-dark-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden m-4">
+        <div id="hdhr-channels-modal" class="modal-overlay hidden">
+            <div class="modal-content max-w-4xl">
                 <div class="p-4 border-b border-dark-700 flex items-center justify-between">
                     <h3 class="text-lg font-semibold text-white">HDHomeRun Channel Lineup</h3>
                     <button onclick="closeHdhrChannels()" class="text-dark-400 hover:text-white">
@@ -606,8 +606,8 @@
 </div>
 
 <!-- Add Source Modal -->
-<div id="source-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="card w-full max-w-md mx-4">
+<div id="source-modal" class="modal-overlay hidden">
+    <div class="modal-content max-w-md">
         <div class="p-4 border-b border-dark-700">
             <h3 class="text-lg font-semibold text-white" id="modal-title">Add IPTV Source</h3>
         </div>
@@ -729,8 +729,8 @@
 </div>
 
 <!-- Usenet Provider Modal -->
-<div id="usenet-provider-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="card w-full max-w-md mx-4">
+<div id="usenet-provider-modal" class="modal-overlay hidden">
+    <div class="modal-content max-w-md">
         <div class="p-4 border-b border-dark-700">
             <h3 class="text-lg font-semibold text-white" id="usenet-modal-title">Add Usenet Provider</h3>
         </div>
@@ -788,8 +788,8 @@
 </div>
 
 <!-- Source Pattern Analyzer Modal -->
-<div id="analyzer-modal" class="fixed inset-0 bg-black/50 hidden items-center justify-center z-50">
-    <div class="card w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+<div id="analyzer-modal" class="modal-overlay hidden">
+    <div class="modal-content max-w-4xl">
         <div class="p-4 border-b border-dark-700 flex items-center justify-between">
             <h3 class="text-lg font-semibold text-white">Analyze Source Patterns</h3>
             <button onclick="hideAnalyzerModal()" class="text-dark-400 hover:text-white">
@@ -1583,12 +1583,10 @@
         document.getElementById('newznab-fields').style.display = 'none';
         document.getElementById('iptv-fields').style.display = 'block';
         document.getElementById('source-modal').classList.remove('hidden');
-        document.getElementById('source-modal').classList.add('flex');
     }
 
     function hideModal() {
         document.getElementById('source-modal').classList.add('hidden');
-        document.getElementById('source-modal').classList.remove('flex');
     }
 
     async function saveSource() {
@@ -1685,7 +1683,6 @@
             }
 
             document.getElementById('source-modal').classList.remove('hidden');
-            document.getElementById('source-modal').classList.add('flex');
         } catch (err) {
             console.error('Failed to load source:', err);
             alert('Failed to load source');
@@ -1783,7 +1780,6 @@
         results.classList.add('hidden');
         applyBtn.disabled = true;
         modal.classList.remove('hidden');
-        modal.classList.add('flex');
 
         try {
             document.getElementById('analyzer-loading-text').textContent = 'Fetching samples and analyzing patterns...';
@@ -1879,7 +1875,6 @@
     function hideAnalyzerModal() {
         const modal = document.getElementById('analyzer-modal');
         modal.classList.add('hidden');
-        modal.classList.remove('flex');
         currentAnalyzerSourceId = null;
         currentAnalyzerPatterns = null;
         currentAnalyzerSamples = null;
@@ -2088,7 +2083,6 @@
     async function openHdhrChannels() {
         const modal = document.getElementById('hdhr-channels-modal');
         modal.classList.remove('hidden');
-        modal.classList.add('flex');
         await loadHdhrCategories();
         await loadHdhrLineup();
     }
@@ -2096,7 +2090,6 @@
     function closeHdhrChannels() {
         const modal = document.getElementById('hdhr-channels-modal');
         modal.classList.add('hidden');
-        modal.classList.remove('flex');
         loadHdhrChannelCount();
     }
 
@@ -2557,12 +2550,10 @@
         document.getElementById('usenet-priority').value = '0';
         document.getElementById('usenet-ssl').checked = true;
         document.getElementById('usenet-provider-modal').classList.remove('hidden');
-        document.getElementById('usenet-provider-modal').classList.add('flex');
     }
 
     function hideUsenetModal() {
         document.getElementById('usenet-provider-modal').classList.add('hidden');
-        document.getElementById('usenet-provider-modal').classList.remove('flex');
     }
 
     async function editUsenetProvider(id) {
@@ -2583,7 +2574,6 @@
             document.getElementById('usenet-priority').value = provider.priority;
             document.getElementById('usenet-ssl').checked = provider.ssl === 1;
             document.getElementById('usenet-provider-modal').classList.remove('hidden');
-            document.getElementById('usenet-provider-modal').classList.add('flex');
         } catch (err) {
             console.error('Failed to load provider:', err);
             alert('Failed to load provider');
