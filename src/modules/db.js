@@ -63,7 +63,25 @@ async function applyMigrations() {
                 .map(s => s.trim())
                 .filter(s => s && !s.split('\n').every(line => !line.trim() || line.trim().startsWith('--')));
             for (const stmt of statements) {
-                await runAsync(stmt);
+                try {
+                    await runAsync(stmt);
+                } catch (stmtErr) {
+                    // Handle common idempotent errors gracefully
+                    const errMsg = stmtErr.message || '';
+                    if (errMsg.includes('duplicate column name')) {
+                        // Column already exists - this is fine, continue
+                        logger?.info('db', `Column already exists, skipping: ${errMsg}`);
+                    } else if (errMsg.includes('already exists') && stmt.toUpperCase().includes('CREATE TABLE')) {
+                        // Table already exists - this is fine for IF NOT EXISTS cases
+                        logger?.info('db', `Table already exists, skipping: ${errMsg}`);
+                    } else if (errMsg.includes('already exists') && stmt.toUpperCase().includes('CREATE INDEX')) {
+                        // Index already exists - this is fine
+                        logger?.info('db', `Index already exists, skipping: ${errMsg}`);
+                    } else {
+                        // Re-throw unknown errors
+                        throw stmtErr;
+                    }
+                }
             }
 
             await runAsync('INSERT INTO migrations (version) VALUES (?)', [version]);
