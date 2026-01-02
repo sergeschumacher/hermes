@@ -202,22 +202,24 @@ Identify this ${typeHint}: "${title}"${yearHint}
 ${sourceLanguage ? `The title appears to be in ${langName}.` : ''}
 
 This could be:
-1. A localized/dubbed title (e.g., German "Zurück in die Vergangenheit" = "Quantum Leap")
+1. A localized/dubbed title (e.g., German title for an American show)
 2. A translated title
-3. The original title with slight modifications
-4. A reboot/remake where the year in the title might not match the actual release
+3. The original title with slight modifications (e.g., with language tags like "(JP) (Ger Sub)")
+4. An anime or foreign production that should keep its original title
+5. A reboot/remake where the year in the title might not match the actual release
 
-IMPORTANT: The year in the title (if present) might be incorrect or refer to a different version.
-For example, "Zorro (1957)" might actually be a different production than expected.
-Focus on finding the correct TMDB entry regardless of the year provided.
+IMPORTANT:
+- The year in the title (if present) might be incorrect or refer to a different version.
+- Anime titles like "07-Ghost", "Naruto", "Death Note" should be identified as their original anime, NOT confused with Western shows.
+- Language tags like "(JP)", "(Ger Sub)", "(Eng Dub)" indicate the audio/subtitle language, not that it's a different show.
 
 Please identify the ORIGINAL production and provide:
-- The original English title (as listed on TMDB/IMDb)
+- The original title (as listed on TMDB/IMDb)
 - The TMDB ID if you know it (format: tv/12345 for TV shows, movie/12345 for movies)
 - The original release year
 
 Respond ONLY with a valid JSON object in this exact format:
-{"englishTitle": "Original English Title", "tmdbId": "tv/4018", "year": 1989, "confidence": 0.95}
+{"englishTitle": "Original Title", "tmdbId": "tv/12345", "year": 2009, "confidence": 0.95}
 
 Rules:
 - tmdbId should be in format "tv/NUMBER" or "movie/NUMBER" or null if unknown
@@ -303,11 +305,12 @@ Identify these ${langName} titles and find their original English names:
 
 ${itemList}
 
-For each title, identify if it's a localized/dubbed version of an English production.
-Examples:
-- "Zurück in die Vergangenheit" (1989) = "Quantum Leap" (tv/4018)
-- "Ein Colt für alle Fälle" = "The Fall Guy" (tv/2158)
-- "Knight Rider" stays as "Knight Rider" (already English)
+For each title, identify the original production it represents.
+Note:
+- Some titles are localized/dubbed versions of English productions
+- Anime titles (like "07-Ghost", "Death Note") should be identified as the original anime
+- Language tags like "(JP)", "(Ger Sub)" indicate audio/subtitle options, not different shows
+- If the title is already in its original form, keep it as-is
 
 Respond with a JSON array. For each item include:
 - index: the number from the list (1-based)
@@ -315,8 +318,8 @@ Respond with a JSON array. For each item include:
 - tmdbId: format "tv/NUMBER" or "movie/NUMBER" (or null if unknown)
 - confidence: 0.0-1.0 (only include matches with confidence >= 0.6)
 
-Example response:
-[{"index": 1, "englishTitle": "Quantum Leap", "tmdbId": "tv/4018", "confidence": 0.98}]
+Example response format:
+[{"index": 1, "englishTitle": "Original Title", "tmdbId": "tv/12345", "confidence": 0.95}]
 
 Only include titles you can confidently identify. Omit uncertain matches.
 Do NOT guess TMDB IDs - only include if you are certain.`;
