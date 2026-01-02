@@ -294,7 +294,7 @@
     // Preview state
     let currentPreviewUrl = null;
 
-    function openPreview(streamUrl, title, quality, language) {
+    window.openPreview = function(streamUrl, title, quality, language) {
         if (!streamUrl) {
             showToast('No stream URL available', 'error');
             return;
@@ -355,7 +355,7 @@
         document.body.style.overflow = 'hidden';
     }
 
-    function closePreview() {
+    window.closePreview = function() {
         const video = document.getElementById('preview-video');
 
         // Remove event handlers
@@ -374,7 +374,7 @@
         currentPreviewUrl = null;
     }
 
-    function playPreviewInVLC() {
+    window.playPreviewInVLC = function() {
         if (!currentPreviewUrl) {
             showToast('No stream URL available', 'error');
             return;

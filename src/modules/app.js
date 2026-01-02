@@ -365,7 +365,7 @@ function setupApiRoutes() {
             let langParams = [];
             if (preferredLangs.length > 0) {
                 const langPlaceholders = preferredLangs.map(() => '?').join(',');
-                langFilter = `AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)`;
+                langFilter = `AND UPPER(m.language) IN (${langPlaceholders})`;
                 langParams = preferredLangs.map(l => l.toUpperCase());
             }
 
@@ -409,7 +409,7 @@ function setupApiRoutes() {
             let langParams = [];
             if (preferredLangs.length > 0) {
                 const langPlaceholders = preferredLangs.map(() => '?').join(',');
-                langFilter = `AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)`;
+                langFilter = `AND UPPER(language) IN (${langPlaceholders})`;
                 langParams = preferredLangs.map(l => l.toUpperCase());
             }
 

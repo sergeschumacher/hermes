@@ -76,47 +76,15 @@
                 </div>
             </div>
 
-            <!-- View Toggle & Count -->
+            <!-- Count -->
             <div class="filter-actions">
                 <span class="result-count"><span id="results-count">0</span> movies</span>
-                <div class="view-toggle">
-                    <button class="view-btn active" data-view="rows" title="Rows View">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/>
-                        </svg>
-                    </button>
-                    <button class="view-btn" data-view="grid" title="Grid View">
-                        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
-                        </svg>
-                    </button>
-                </div>
             </div>
         </div>
     </div>
 
-    <!-- Rows View (default) -->
-    <div id="rows-view" class="rows-view">
-        <!-- Loading skeleton -->
-        <div class="content-row">
-            <div class="row-header">
-                <div class="h-6 w-32 bg-dark-surface rounded animate-pulse"></div>
-            </div>
-            <div class="row-slider">
-                <div class="slider-track">
-                    <div class="skeleton-card-sm"></div>
-                    <div class="skeleton-card-sm"></div>
-                    <div class="skeleton-card-sm"></div>
-                    <div class="skeleton-card-sm"></div>
-                    <div class="skeleton-card-sm"></div>
-                    <div class="skeleton-card-sm"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Grid View (hidden by default) -->
-    <div id="grid-view" class="grid-view hidden">
+    <!-- Grid View -->
+    <div id="grid-view" class="grid-view">
         <div class="media-grid" id="movies-grid"></div>
 
         <!-- Loading More Spinner -->
@@ -145,37 +113,12 @@
     const limit = 50;
     let loading = false;
     let hasMore = true;
-    let currentView = localStorage.getItem('hermes_movies_view') || 'rows';
     const STORAGE_KEY = 'hermes_movies_filters';
 
     // Enrichment tracking
     const enrichingIds = new Set();
     let pendingEnrichment = [];
     let enrichmentTimer = null;
-
-    // Initialize view
-    document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.classList.toggle('active', btn.dataset.view === currentView);
-    });
-    document.getElementById('rows-view').classList.toggle('hidden', currentView !== 'rows');
-    document.getElementById('grid-view').classList.toggle('hidden', currentView !== 'grid');
-
-    // View toggle handlers
-    document.querySelectorAll('.view-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const view = btn.dataset.view;
-            if (view === currentView) return;
-
-            currentView = view;
-            localStorage.setItem('hermes_movies_view', view);
-
-            document.querySelectorAll('.view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
-            document.getElementById('rows-view').classList.toggle('hidden', view !== 'rows');
-            document.getElementById('grid-view').classList.toggle('hidden', view !== 'grid');
-
-            loadMovies(true);
-        });
-    });
 
     function cleanM3UTitle(rawTitle) {
         if (!rawTitle) return { title: '', year: null };
@@ -345,7 +288,7 @@
             platform: document.getElementById('filter-platform').value,
             sort: document.getElementById('sort-by').value,
             order: document.getElementById('sort-by').value === 'title' ? 'asc' : 'desc',
-            limit: currentView === 'rows' ? 200 : limit,
+            limit,
             offset: currentOffset
         });
         if (recentlyVal) params.set('recently_added', recentlyVal);
@@ -356,20 +299,25 @@
             const movies = data.items || data;
             const totalCount = data.total;
 
+            const grid = document.getElementById('movies-grid');
             const emptyState = document.getElementById('empty-state');
+
+            if (reset) grid.innerHTML = '';
 
             if (movies.length === 0 && currentOffset === 0) {
                 emptyState.classList.remove('hidden');
-                document.getElementById('rows-view').classList.add('hidden');
                 document.getElementById('grid-view').classList.add('hidden');
             } else {
                 emptyState.classList.add('hidden');
+                document.getElementById('grid-view').classList.remove('hidden');
 
-                if (currentView === 'rows') {
-                    renderRowsView(movies, reset);
-                } else {
-                    renderGridView(movies, reset);
-                }
+                movies.forEach((movie, index) => {
+                    const isEager = currentOffset === 0 && index < 12;
+                    grid.innerHTML += createMovieCard(movie, index, isEager);
+                    if (!movie.tmdb_id && index < 20) queueForEnrichment(movie.id);
+                });
+
+                initLazyLoad();
             }
 
             // Update hero with first high-rated movie
@@ -379,8 +327,8 @@
             }
 
             document.getElementById('results-count').textContent = (totalCount !== undefined ? totalCount : movies.length).toLocaleString();
-            hasMore = movies.length === (currentView === 'rows' ? 200 : limit);
-            if (hasMore && currentView === 'grid') currentOffset += limit;
+            hasMore = movies.length === limit;
+            if (hasMore) currentOffset += limit;
             document.getElementById('loading-more').classList.add('hidden');
         } catch (err) {
             console.error('Failed to load movies:', err);
@@ -396,113 +344,6 @@
             hero.querySelector('.mini-hero-bg').style.backgroundImage = 'url(' + proxyImage(bgUrl) + ')';
         }
     }
-
-    function renderRowsView(movies, reset) {
-        const container = document.getElementById('rows-view');
-        if (reset) container.innerHTML = '';
-        container.classList.remove('hidden');
-
-        // Group movies by genre or category
-        const groups = {};
-        const recentlyAdded = [];
-        const topRated = [];
-
-        movies.forEach(movie => {
-            // Add to recently added (first 20)
-            if (recentlyAdded.length < 20) recentlyAdded.push(movie);
-
-            // Add to top rated if rating >= 7
-            if (movie.rating >= 7 && topRated.length < 20) topRated.push(movie);
-
-            // Group by genre
-            if (movie.genres) {
-                const genreList = Array.isArray(movie.genres) ? movie.genres : movie.genres.split(',');
-                genreList.forEach(genre => {
-                    const g = genre.trim();
-                    if (g && !groups[g]) groups[g] = [];
-                    if (g && groups[g].length < 20) groups[g].push(movie);
-                });
-            }
-        });
-
-        // Render rows
-        if (recentlyAdded.length > 0) {
-            container.innerHTML += createContentRow('Recently Added', recentlyAdded);
-        }
-        if (topRated.length > 0) {
-            container.innerHTML += createContentRow('Top Rated', topRated.sort((a, b) => (b.rating || 0) - (a.rating || 0)));
-        }
-
-        // Genre rows
-        const genreOrder = ['Action', 'Comedy', 'Drama', 'Thriller', 'Horror', 'Sci-Fi', 'Romance', 'Adventure', 'Animation', 'Documentary'];
-        genreOrder.forEach(genre => {
-            if (groups[genre] && groups[genre].length >= 3) {
-                container.innerHTML += createContentRow(genre, groups[genre]);
-            }
-        });
-
-        // Any remaining genres
-        Object.keys(groups).sort().forEach(genre => {
-            if (!genreOrder.includes(genre) && groups[genre].length >= 3) {
-                container.innerHTML += createContentRow(genre, groups[genre]);
-            }
-        });
-
-        initLazyLoad();
-
-        // Queue enrichment for first items
-        movies.slice(0, 20).forEach((movie, index) => {
-            if (!movie.tmdb_id) queueForEnrichment(movie.id);
-        });
-    }
-
-    function createContentRow(title, items) {
-        if (!items || items.length === 0) return '';
-
-        const cards = items.map((item, i) => createMovieCard(item, i, i < 6)).join('');
-
-        return \`
-            <section class="content-row">
-                <div class="row-header">
-                    <h2 class="row-title">\${title}</h2>
-                </div>
-                <div class="row-slider">
-                    <button class="slider-arrow left" onclick="scrollRow(this, -1)" aria-label="Scroll left">
-                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-                        </svg>
-                    </button>
-                    <div class="slider-track">\${cards}</div>
-                    <button class="slider-arrow right" onclick="scrollRow(this, 1)" aria-label="Scroll right">
-                        <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                        </svg>
-                    </button>
-                </div>
-            </section>
-        \`;
-    }
-
-    function renderGridView(movies, reset) {
-        const grid = document.getElementById('movies-grid');
-        if (reset) grid.innerHTML = '';
-        document.getElementById('grid-view').classList.remove('hidden');
-
-        movies.forEach((movie, index) => {
-            const isEager = currentOffset === 0 && index < 12;
-            grid.innerHTML += createMovieCard(movie, index, isEager);
-            if (!movie.tmdb_id && index < 20) queueForEnrichment(movie.id);
-        });
-
-        initLazyLoad();
-    }
-
-    window.scrollRow = function(btn, direction) {
-        const track = btn.parentElement.querySelector('.slider-track');
-        const cardWidth = track.querySelector('.content-card')?.offsetWidth || 200;
-        const scrollAmount = cardWidth * 4 * direction;
-        track.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-    };
 
     async function loadFilters() {
         try {
@@ -543,9 +384,9 @@
         document.getElementById(id).addEventListener('change', () => { saveFilters(); loadMovies(true); });
     });
 
-    // Infinite scroll (grid view only)
+    // Infinite scroll
     window.addEventListener('scroll', () => {
-        if (currentView !== 'grid' || loading || !hasMore) return;
+        if (loading || !hasMore) return;
         if (window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 500) {
             document.getElementById('loading-more').classList.remove('hidden');
             loadMovies(false);

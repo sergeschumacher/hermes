@@ -418,6 +418,43 @@
         applyFilters();
     }
 
+    // Smart title cleaning - detects and removes country/language prefixes
+    // Handles various IPTV provider formats like: DE ❖ Name, FR - Name, [US] Name, UK: Name, etc.
+    function cleanChannelTitle(title) {
+        if (!title) return '';
+
+        // Country codes to detect (2-3 letter codes)
+        const countryCodes = ['DE', 'FR', 'US', 'UK', 'GB', 'ES', 'IT', 'NL', 'BE', 'AT', 'CH', 'PL', 'PT', 'TR', 'GR', 'RU', 'BR', 'MX', 'AR', 'CA', 'AU', 'IN', 'JP', 'KR', 'CN', 'HK', 'TW', 'SE', 'NO', 'DK', 'FI', 'CZ', 'SK', 'HU', 'RO', 'BG', 'HR', 'SI', 'RS', 'BA', 'AL', 'MK', 'XK', 'ME', 'ENG', 'GER', 'SPA', 'FRA', 'ITA', 'POR', 'DUT', 'POL', 'TUR', 'ARA', 'RUS', 'HIN', 'JPN'];
+        const codePattern = countryCodes.join('|');
+
+        // Patterns to match and remove (order matters - more specific first)
+        const patterns = [
+            // [DE] Name or (DE) Name
+            new RegExp(\`^\\\\[(\${codePattern})\\\\]\\\\s*\`, 'i'),
+            new RegExp(\`^\\\\((\${codePattern})\\\\)\\\\s*\`, 'i'),
+            // DE ❖ Name or DE ✦ Name (special symbols)
+            new RegExp(\`^(\${codePattern})\\\\s*[❖✦★●◆◇▶►▷■□☆✧✩✪✫✬✭✮✯✰]\\\\s*\`, 'i'),
+            // DE | Name or DE / Name
+            new RegExp(\`^(\${codePattern})\\\\s*[|/]\\\\s*\`, 'i'),
+            // DE - Name or DE : Name
+            new RegExp(\`^(\${codePattern})\\\\s*[-:]\\\\s*\`, 'i'),
+            // DE_ Name (underscore separator)
+            new RegExp(\`^(\${codePattern})_\\\\s*\`, 'i'),
+            // DE Name (just space, but only if followed by uppercase)
+            new RegExp(\`^(\${codePattern})\\\\s+(?=[A-Z])\`, 'i'),
+        ];
+
+        let cleaned = title.trim();
+        for (const pattern of patterns) {
+            cleaned = cleaned.replace(pattern, '');
+        }
+
+        // Also clean up any trailing quality markers if they're at the start: HD, SD, FHD, 4K
+        cleaned = cleaned.replace(/^(HD|SD|FHD|UHD|4K)\\s*[-:|]?\\s*/i, '');
+
+        return cleaned.trim() || title;
+    }
+
     async function loadChannels(reset = false) {
         if (loading) return;
         loading = true;
@@ -455,7 +492,7 @@
             channels.forEach((channel, index) => {
                 const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.png';
                 const isEager = currentOffset === 0 && index < 16;
-                let displayName = channel.title.replace(/^[A-Z]{2}\\s*[-:]\\s*/i, '');
+                let displayName = cleanChannelTitle(channel.title);
                 const channelJson = JSON.stringify(channel).replace(/"/g, '&quot;');
 
                 grid.innerHTML += \`
