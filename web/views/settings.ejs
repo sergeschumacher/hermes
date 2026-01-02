@@ -789,9 +789,9 @@
 
 <!-- Source Pattern Analyzer Modal -->
 <div id="analyzer-modal" class="modal-overlay hidden">
-    <div class="modal-content max-w-4xl">
+    <div class="modal-content max-w-5xl">
         <div class="p-4 border-b border-dark-700 flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-white">Analyze Source Patterns</h3>
+            <h3 class="text-lg font-semibold text-white">Pattern Analyzer</h3>
             <button onclick="hideAnalyzerModal()" class="text-dark-400 hover:text-white">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
             </button>
@@ -800,72 +800,115 @@
             <!-- Loading state -->
             <div id="analyzer-loading" class="flex flex-col items-center justify-center py-8">
                 <div class="animate-spin w-8 h-8 border-3 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-                <p class="text-dark-300" id="analyzer-loading-text">Analyzing source patterns...</p>
+                <p class="text-dark-300" id="analyzer-loading-text">Fetching samples from source...</p>
             </div>
             <!-- Results (hidden initially) -->
-            <div id="analyzer-results" class="hidden space-y-6">
-                <!-- Summary -->
+            <div id="analyzer-results" class="hidden space-y-5">
+                <!-- Instructions -->
+                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
+                    <div class="flex items-start gap-3">
+                        <svg class="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                        <div class="text-sm text-blue-300">
+                            <p class="font-medium mb-1">How to define patterns:</p>
+                            <p class="text-blue-300/80">Select text in any sample below to mark it as Language, Year, or Title. The system will learn from your selection and apply the pattern to all entries.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="flex items-center gap-3">
+                    <button onclick="autoDetectPatterns()" class="btn btn-secondary text-sm" id="auto-detect-btn">
+                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                        Auto-Detect
+                    </button>
+                    <button onclick="aiDetectPatterns()" class="btn btn-secondary text-sm" id="ai-detect-btn">
+                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
+                        AI Detect
+                    </button>
+                    <button onclick="clearPatternSelection()" class="btn btn-secondary text-sm">
+                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                        Clear Selection
+                    </button>
+                    <div class="flex-1"></div>
+                    <span class="text-xs text-dark-400" id="analyzer-stats">
+                        <span id="analyzer-movies-count">0</span> Movies,
+                        <span id="analyzer-series-count">0</span> Series,
+                        <span id="analyzer-live-count">0</span> Live TV
+                    </span>
+                </div>
+
+                <!-- Sample Editor -->
+                <div class="bg-dark-800 rounded-lg overflow-hidden">
+                    <div class="border-b border-dark-700 p-3 flex items-center gap-2">
+                        <span class="text-sm font-medium text-white">Sample Entries</span>
+                        <span class="text-xs text-dark-400 ml-auto">Click on text to mark pattern parts</span>
+                    </div>
+                    <div class="divide-y divide-dark-700 max-h-[300px] overflow-y-auto" id="analyzer-samples">
+                        <!-- Sample rows populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Pattern Selection Context Menu -->
+                <div id="pattern-context-menu" class="fixed bg-dark-card border border-dark-border rounded-lg shadow-2xl py-1 z-50 hidden min-w-[150px]">
+                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('language')">
+                        <span class="w-3 h-3 rounded-full bg-purple-500"></span>
+                        Language
+                    </button>
+                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('year')">
+                        <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                        Year
+                    </button>
+                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('title')">
+                        <span class="w-3 h-3 rounded-full bg-blue-500"></span>
+                        Title
+                    </button>
+                    <div class="border-t border-dark-border my-1"></div>
+                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('ignore')">
+                        <span class="w-3 h-3 rounded-full bg-dark-500"></span>
+                        Ignore/Remove
+                    </button>
+                </div>
+
+                <!-- Detected Patterns Summary -->
                 <div class="bg-dark-800 rounded-lg p-4">
-                    <div class="flex items-center justify-between mb-2">
-                        <h4 class="font-medium text-white">Analysis Summary</h4>
-                        <span id="analyzer-method" class="text-xs px-2 py-1 rounded bg-dark-700"></span>
-                    </div>
-                    <div class="grid grid-cols-4 gap-4 text-sm">
-                        <div>
-                            <span class="text-dark-400">Confidence:</span>
-                            <span id="analyzer-confidence" class="text-white ml-1 font-medium">-</span>
-                        </div>
-                        <div>
-                            <span class="text-dark-400">Movies:</span>
-                            <span id="analyzer-movies-count" class="text-white ml-1">-</span>
-                        </div>
-                        <div>
-                            <span class="text-dark-400">Series:</span>
-                            <span id="analyzer-series-count" class="text-white ml-1">-</span>
-                        </div>
-                        <div>
-                            <span class="text-dark-400">Live TV:</span>
-                            <span id="analyzer-live-count" class="text-white ml-1">-</span>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Detected Patterns -->
-                <div>
-                    <h4 class="font-medium text-white mb-3">Detected Patterns</h4>
+                    <h4 class="text-sm font-medium text-white mb-3">Detected Patterns</h4>
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-dark-800 rounded-lg p-3">
-                            <label class="block text-xs text-dark-400 mb-1">Language Pattern</label>
-                            <input type="text" id="pattern-language" class="input text-xs font-mono" placeholder="^([A-Z]{2})\s*[-:]\s*" />
+                        <div>
+                            <label class="flex items-center gap-2 text-xs text-dark-400 mb-1">
+                                <span class="w-2 h-2 rounded-full bg-purple-500"></span>
+                                Language Pattern
+                            </label>
+                            <input type="text" id="pattern-language" class="input text-xs font-mono" placeholder="e.g. ^([A-Z]{2})\s*[-:★❖]\s*" readonly />
                         </div>
-                        <div class="bg-dark-800 rounded-lg p-3">
-                            <label class="block text-xs text-dark-400 mb-1">Year Pattern</label>
-                            <input type="text" id="pattern-year" class="input text-xs font-mono" placeholder="\((\d{4})\)\s*$" />
+                        <div>
+                            <label class="flex items-center gap-2 text-xs text-dark-400 mb-1">
+                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                                Year Pattern
+                            </label>
+                            <input type="text" id="pattern-year" class="input text-xs font-mono" placeholder="e.g. [-–]\s*(\d{4})\s*$" readonly />
                         </div>
-                        <div class="bg-dark-800 rounded-lg p-3">
-                            <label class="block text-xs text-dark-400 mb-1">Movie Detection</label>
-                            <input type="text" id="pattern-movies" class="input text-xs font-mono" placeholder="VOD|MOVIE|FILM" />
+                        <div>
+                            <label class="text-xs text-dark-400 mb-1 block">Movie Category Keywords</label>
+                            <input type="text" id="pattern-movies" class="input text-xs font-mono" placeholder="e.g. VOD|MOVIE|FILM" />
                         </div>
-                        <div class="bg-dark-800 rounded-lg p-3">
-                            <label class="block text-xs text-dark-400 mb-1">Series Detection</label>
-                            <input type="text" id="pattern-series" class="input text-xs font-mono" placeholder="SERIE|SHOW|SEASON" />
+                        <div>
+                            <label class="text-xs text-dark-400 mb-1 block">Series Category Keywords</label>
+                            <input type="text" id="pattern-series" class="input text-xs font-mono" placeholder="e.g. SERIE|SHOW|SEASON" />
                         </div>
                     </div>
                 </div>
 
-                <!-- Preview Table -->
+                <!-- Preview of Parsed Results -->
                 <div>
-                    <h4 class="font-medium text-white mb-3">Sample Preview</h4>
-                    <div class="overflow-x-auto">
+                    <h4 class="text-sm font-medium text-white mb-3">Preview Results</h4>
+                    <div class="overflow-x-auto bg-dark-800 rounded-lg">
                         <table class="w-full text-xs">
                             <thead>
                                 <tr class="border-b border-dark-700 text-dark-400">
-                                    <th class="text-left p-2">Type</th>
-                                    <th class="text-left p-2">Original</th>
-                                    <th class="text-left p-2">Category</th>
-                                    <th class="text-left p-2">Detected Lang</th>
-                                    <th class="text-left p-2">Detected Year</th>
-                                    <th class="text-left p-2">Detected Type</th>
+                                    <th class="text-left p-3">Type</th>
+                                    <th class="text-left p-3">Original Name</th>
+                                    <th class="text-left p-3">Category</th>
+                                    <th class="text-left p-3">Detected</th>
                                 </tr>
                             </thead>
                             <tbody id="analyzer-preview-body" class="text-white">
@@ -876,7 +919,9 @@
                 </div>
             </div>
         </div>
-        <div class="p-4 border-t border-dark-700 flex justify-end gap-2">
+        <div class="p-4 border-t border-dark-700 flex items-center gap-2">
+            <span id="analyzer-status" class="text-xs text-dark-400"></span>
+            <div class="flex-1"></div>
             <button onclick="hideAnalyzerModal()" class="btn btn-secondary">Cancel</button>
             <button onclick="applyAnalyzedPatterns()" class="btn btn-primary" id="analyzer-apply-btn" disabled>Apply Patterns</button>
         </div>
@@ -1764,11 +1809,13 @@
     let currentAnalyzerSourceId = null;
     let currentAnalyzerPatterns = null;
     let currentAnalyzerSamples = null;
+    let currentSelection = null;
 
     async function analyzeSource(id) {
         currentAnalyzerSourceId = id;
-        currentAnalyzerPatterns = null;
+        currentAnalyzerPatterns = { titlePatterns: {}, contentTypePatterns: {}, confidence: 0 };
         currentAnalyzerSamples = null;
+        currentSelection = null;
 
         // Show modal with loading state
         const modal = document.getElementById('analyzer-modal');
@@ -1780,9 +1827,10 @@
         results.classList.add('hidden');
         applyBtn.disabled = true;
         modal.classList.remove('hidden');
+        document.getElementById('analyzer-status').textContent = '';
 
         try {
-            document.getElementById('analyzer-loading-text').textContent = 'Fetching samples and analyzing patterns...';
+            document.getElementById('analyzer-loading-text').textContent = 'Fetching samples from source...';
 
             const response = await fetch('/api/sources/' + id + '/analyze', {
                 method: 'POST',
@@ -1800,44 +1848,42 @@
                 throw new Error(data.error || 'Analysis failed');
             }
 
-            // Store results
-            currentAnalyzerPatterns = data.patterns;
+            // Store samples and patterns
             currentAnalyzerSamples = data.samples;
+            currentAnalyzerPatterns = data.patterns || { titlePatterns: {}, contentTypePatterns: {}, confidence: 0 };
 
-            // Update UI
-            document.getElementById('analyzer-method').textContent = data.usedLLM ? 'LLM Analysis' : 'Pattern Detection';
-            document.getElementById('analyzer-method').className = 'text-xs px-2 py-1 rounded ' +
-                (data.usedLLM ? 'bg-purple-500/20 text-purple-300' : 'bg-blue-500/20 text-blue-300');
-
-            const confidence = data.patterns?.confidence || 0;
-            document.getElementById('analyzer-confidence').textContent = Math.round(confidence * 100) + '%';
+            // Update counts
             document.getElementById('analyzer-movies-count').textContent = data.samples?.movieCount || 0;
             document.getElementById('analyzer-series-count').textContent = data.samples?.seriesCount || 0;
             document.getElementById('analyzer-live-count').textContent = data.samples?.livetvCount || 0;
 
-            // Fill pattern inputs
+            // Fill pattern inputs with detected patterns
             document.getElementById('pattern-language').value = data.patterns?.titlePatterns?.language || '';
             document.getElementById('pattern-year').value = data.patterns?.titlePatterns?.year || '';
             document.getElementById('pattern-movies').value = data.patterns?.contentTypePatterns?.movies || '';
             document.getElementById('pattern-series').value = data.patterns?.contentTypePatterns?.series || '';
 
-            // Build preview table
-            renderAnalyzerPreview(data.validation);
+            // Render sample entries for visual editing
+            renderSampleEntries();
+
+            // Render preview with current patterns
+            updatePreview();
 
             // Show results, hide loading
             loading.classList.add('hidden');
             results.classList.remove('hidden');
             applyBtn.disabled = false;
 
+            const statusText = data.usedLLM ? 'AI patterns detected' : 'Patterns auto-detected';
+            document.getElementById('analyzer-status').textContent = statusText;
+
             if (window.showToast) {
-                showToast('Analysis complete! Review the detected patterns.', 'success');
+                showToast('Samples loaded! Select text to define patterns or use Auto-Detect.', 'success');
             }
 
         } catch (err) {
             console.error('Analysis failed:', err);
-            loading.classList.add('hidden');
-            document.getElementById('analyzer-loading-text').textContent = 'Analysis failed: ' + err.message;
-            loading.classList.remove('hidden');
+            document.getElementById('analyzer-loading-text').textContent = 'Failed: ' + err.message;
 
             if (window.showToast) {
                 showToast('Analysis failed: ' + err.message, 'error');
@@ -1845,40 +1891,364 @@
         }
     }
 
-    function renderAnalyzerPreview(validation) {
-        const tbody = document.getElementById('analyzer-preview-body');
-        const allResults = [
-            ...(validation?.movies || []).map(r => ({ ...r, type: 'Movie' })),
-            ...(validation?.series || []).map(r => ({ ...r, type: 'Series' })),
-            ...(validation?.livetv || []).map(r => ({ ...r, type: 'Live' }))
+    function renderSampleEntries() {
+        const container = document.getElementById('analyzer-samples');
+        const allSamples = [
+            ...(currentAnalyzerSamples?.movies || []).map(s => ({ ...s, type: 'Movie' })),
+            ...(currentAnalyzerSamples?.series || []).map(s => ({ ...s, type: 'Series' })),
+            ...(currentAnalyzerSamples?.livetv || []).map(s => ({ ...s, type: 'Live' }))
         ];
 
-        tbody.innerHTML = allResults.map(r => \`
-            <tr class="border-b border-dark-800">
-                <td class="p-2"><span class="px-1.5 py-0.5 rounded text-xs \${
-                    r.type === 'Movie' ? 'bg-blue-500/20 text-blue-300' :
-                    r.type === 'Series' ? 'bg-green-500/20 text-green-300' :
-                    'bg-orange-500/20 text-orange-300'
-                }">\${r.type}</span></td>
-                <td class="p-2 max-w-[200px] truncate" title="\${r.original}">\${r.original}</td>
-                <td class="p-2 max-w-[150px] truncate text-dark-400" title="\${r.category}">\${r.category || '-'}</td>
-                <td class="p-2">\${r.extracted?.language || '<span class="text-dark-500">-</span>'}</td>
-                <td class="p-2">\${r.extracted?.year || '<span class="text-dark-500">-</span>'}</td>
-                <td class="p-2">\${r.extracted?.type ?
-                    '<span class="' + (r.typeMatch ? 'text-green-400' : 'text-yellow-400') + '">' + r.extracted.type + '</span>' :
-                    '<span class="text-dark-500">-</span>'
-                }</td>
-            </tr>
-        \`).join('') || '<tr><td colspan="6" class="p-4 text-center text-dark-400">No samples to preview</td></tr>';
+        container.innerHTML = allSamples.map((sample, idx) => \`
+            <div class="p-3 hover:bg-dark-700/50 transition-colors">
+                <div class="flex items-center gap-3">
+                    <span class="px-2 py-0.5 rounded text-xs flex-shrink-0 \${
+                        sample.type === 'Movie' ? 'bg-blue-500/20 text-blue-300' :
+                        sample.type === 'Series' ? 'bg-green-500/20 text-green-300' :
+                        'bg-orange-500/20 text-orange-300'
+                    }">\${sample.type}</span>
+                    <div class="flex-1 min-w-0">
+                        <div class="sample-text text-sm text-white font-mono cursor-text select-text" data-idx="\${idx}" onmouseup="handleTextSelection(event, \${idx})">\${escapeHtml(sample.name)}</div>
+                        <div class="text-xs text-dark-400 mt-0.5 truncate" title="\${escapeHtml(sample.category || '')}">\${sample.category || 'No category'}</div>
+                    </div>
+                </div>
+            </div>
+        \`).join('') || '<div class="p-4 text-center text-dark-400">No samples available</div>';
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text || '';
+        return div.innerHTML;
+    }
+
+    function handleTextSelection(event, sampleIdx) {
+        const selection = window.getSelection();
+        const selectedText = selection.toString().trim();
+
+        if (selectedText.length > 0) {
+            currentSelection = {
+                text: selectedText,
+                sampleIdx: sampleIdx
+            };
+            showPatternContextMenu(event.clientX, event.clientY);
+        } else {
+            hidePatternContextMenu();
+        }
+    }
+
+    function showPatternContextMenu(x, y) {
+        const menu = document.getElementById('pattern-context-menu');
+        menu.classList.remove('hidden');
+
+        // Position menu
+        const rect = menu.getBoundingClientRect();
+        if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 10;
+        if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 10;
+
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+    }
+
+    function hidePatternContextMenu() {
+        document.getElementById('pattern-context-menu').classList.add('hidden');
+    }
+
+    function markSelectionAs(type) {
+        hidePatternContextMenu();
+
+        if (!currentSelection || !currentSelection.text) return;
+
+        const text = currentSelection.text;
+
+        // Generate pattern based on selection
+        if (type === 'language') {
+            // Look for 2-3 letter codes
+            const pattern = generateLanguagePattern(text);
+            document.getElementById('pattern-language').value = pattern;
+            currentAnalyzerPatterns.titlePatterns.language = pattern;
+            document.getElementById('analyzer-status').textContent = 'Language pattern set: ' + text;
+        } else if (type === 'year') {
+            // Look for 4-digit years
+            const pattern = generateYearPattern(text);
+            document.getElementById('pattern-year').value = pattern;
+            currentAnalyzerPatterns.titlePatterns.year = pattern;
+            document.getElementById('analyzer-status').textContent = 'Year pattern set';
+        } else if (type === 'title') {
+            // Title is what remains after removing language and year
+            document.getElementById('analyzer-status').textContent = 'Title marked (language/year will be removed)';
+        } else if (type === 'ignore') {
+            // Add to ignore pattern
+            document.getElementById('analyzer-status').textContent = 'Pattern will be ignored';
+        }
+
+        currentSelection = null;
+        window.getSelection().removeAllRanges();
+        updatePreview();
+    }
+
+    function generateLanguagePattern(text) {
+        // Find the full prefix including separators
+        const allSamples = [
+            ...(currentAnalyzerSamples?.movies || []),
+            ...(currentAnalyzerSamples?.series || []),
+            ...(currentAnalyzerSamples?.livetv || [])
+        ];
+
+        // Common separator patterns
+        const separators = ['\\\\s*[★❖✦●◆▶►]\\\\s*', '\\\\s*[-:]\\\\s*', '\\\\s*[|/]\\\\s*', '\\\\s+'];
+
+        for (const sep of separators) {
+            const pattern = '^([A-Z]{2,3})' + sep;
+            try {
+                const regex = new RegExp(pattern, 'i');
+                const matches = allSamples.filter(s => regex.test(s.name));
+                if (matches.length >= 2) {
+                    return pattern;
+                }
+            } catch (e) {}
+        }
+
+        // Fallback: just match what was selected
+        return '^(' + text.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')\\\\s*';
+    }
+
+    function generateYearPattern(text) {
+        const allSamples = [
+            ...(currentAnalyzerSamples?.movies || []),
+            ...(currentAnalyzerSamples?.series || []),
+            ...(currentAnalyzerSamples?.livetv || [])
+        ];
+
+        // Common year patterns
+        const patterns = [
+            '[-–]\\\\s*(\\\\d{4})\\\\s*$',
+            '\\\\(\\\\s*(\\\\d{4})\\\\s*\\\\)\\\\s*$',
+            '\\\\[(\\\\d{4})\\\\]\\\\s*$',
+            '\\\\s+(\\\\d{4})\\\\s*$'
+        ];
+
+        for (const pattern of patterns) {
+            try {
+                const regex = new RegExp(pattern);
+                const matches = allSamples.filter(s => regex.test(s.name));
+                if (matches.length >= 2) {
+                    return pattern;
+                }
+            } catch (e) {}
+        }
+
+        // Fallback
+        return '[-–]\\\\s*(\\\\d{4})\\\\s*$';
+    }
+
+    function autoDetectPatterns() {
+        if (!currentAnalyzerSamples) return;
+
+        document.getElementById('analyzer-status').textContent = 'Auto-detecting patterns...';
+
+        const allNames = [
+            ...(currentAnalyzerSamples.movies || []).map(s => s.name),
+            ...(currentAnalyzerSamples.series || []).map(s => s.name),
+            ...(currentAnalyzerSamples.livetv || []).map(s => s.name)
+        ];
+
+        // Detect language prefix
+        const langPatterns = [
+            { pattern: '^([A-Z]{2})\\\\s*[★❖✦●◆▶►]\\\\s*', name: 'Symbol separator' },
+            { pattern: '^([A-Z]{2})\\\\s*[-:]\\\\s*', name: 'Dash/colon separator' },
+            { pattern: '^\\\\[([A-Z]{2})\\\\]\\\\s*', name: 'Brackets' },
+            { pattern: '^\\\\(([A-Z]{2})\\\\)\\\\s*', name: 'Parentheses' },
+            { pattern: '^([A-Z]{2})\\\\s*[|/]\\\\s*', name: 'Pipe/slash separator' }
+        ];
+
+        for (const lp of langPatterns) {
+            try {
+                const regex = new RegExp(lp.pattern, 'i');
+                const matches = allNames.filter(n => regex.test(n));
+                if (matches.length >= 3) {
+                    document.getElementById('pattern-language').value = lp.pattern;
+                    currentAnalyzerPatterns.titlePatterns.language = lp.pattern;
+                    break;
+                }
+            } catch (e) {}
+        }
+
+        // Detect year pattern
+        const yearPatterns = [
+            { pattern: '[-–]\\\\s*(\\\\d{4})\\\\s*$', name: 'Dash year' },
+            { pattern: '\\\\(\\\\s*(\\\\d{4})\\\\s*\\\\)\\\\s*$', name: 'Parentheses year' },
+            { pattern: '\\\\s+(\\\\d{4})\\\\s*$', name: 'Space year' }
+        ];
+
+        for (const yp of yearPatterns) {
+            try {
+                const regex = new RegExp(yp.pattern);
+                const matches = allNames.filter(n => regex.test(n));
+                if (matches.length >= 2) {
+                    document.getElementById('pattern-year').value = yp.pattern;
+                    currentAnalyzerPatterns.titlePatterns.year = yp.pattern;
+                    break;
+                }
+            } catch (e) {}
+        }
+
+        // Detect content type keywords from categories
+        const allCategories = [
+            ...(currentAnalyzerSamples.movies || []).map(s => s.category).filter(c => c),
+            ...(currentAnalyzerSamples.series || []).map(s => s.category).filter(c => c),
+            ...(currentAnalyzerSamples.livetv || []).map(s => s.category).filter(c => c)
+        ];
+
+        const movieKw = allCategories.filter(c => /vod|movie|film|cinema/i.test(c));
+        const seriesKw = allCategories.filter(c => /serie|show|season/i.test(c));
+
+        if (movieKw.length > 0) {
+            document.getElementById('pattern-movies').value = 'VOD|MOVIE|FILM';
+            currentAnalyzerPatterns.contentTypePatterns.movies = 'VOD|MOVIE|FILM';
+        }
+
+        if (seriesKw.length > 0) {
+            document.getElementById('pattern-series').value = 'SERIE|SHOW|SEASON';
+            currentAnalyzerPatterns.contentTypePatterns.series = 'SERIE|SHOW|SEASON';
+        }
+
+        updatePreview();
+        document.getElementById('analyzer-status').textContent = 'Patterns auto-detected. Review and adjust as needed.';
+        if (window.showToast) showToast('Patterns auto-detected!', 'success');
+    }
+
+    async function aiDetectPatterns() {
+        if (!currentAnalyzerSamples || !currentAnalyzerSourceId) return;
+
+        document.getElementById('ai-detect-btn').disabled = true;
+        document.getElementById('analyzer-status').textContent = 'Using AI to analyze patterns...';
+
+        try {
+            const response = await fetch('/api/sources/' + currentAnalyzerSourceId + '/analyze-ai', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    samples: {
+                        movies: currentAnalyzerSamples.movies?.slice(0, 5),
+                        series: currentAnalyzerSamples.series?.slice(0, 5),
+                        livetv: currentAnalyzerSamples.livetv?.slice(0, 5)
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                const err = await response.json();
+                throw new Error(err.error || 'AI analysis failed');
+            }
+
+            const data = await response.json();
+
+            if (data.patterns) {
+                if (data.patterns.titlePatterns?.language) {
+                    document.getElementById('pattern-language').value = data.patterns.titlePatterns.language;
+                    currentAnalyzerPatterns.titlePatterns.language = data.patterns.titlePatterns.language;
+                }
+                if (data.patterns.titlePatterns?.year) {
+                    document.getElementById('pattern-year').value = data.patterns.titlePatterns.year;
+                    currentAnalyzerPatterns.titlePatterns.year = data.patterns.titlePatterns.year;
+                }
+                if (data.patterns.contentTypePatterns?.movies) {
+                    document.getElementById('pattern-movies').value = data.patterns.contentTypePatterns.movies;
+                    currentAnalyzerPatterns.contentTypePatterns.movies = data.patterns.contentTypePatterns.movies;
+                }
+                if (data.patterns.contentTypePatterns?.series) {
+                    document.getElementById('pattern-series').value = data.patterns.contentTypePatterns.series;
+                    currentAnalyzerPatterns.contentTypePatterns.series = data.patterns.contentTypePatterns.series;
+                }
+            }
+
+            updatePreview();
+            document.getElementById('analyzer-status').textContent = 'AI analysis complete!';
+            if (window.showToast) showToast('AI patterns detected!', 'success');
+
+        } catch (err) {
+            console.error('AI detection failed:', err);
+            document.getElementById('analyzer-status').textContent = 'AI detection failed: ' + err.message;
+            if (window.showToast) showToast('AI detection failed: ' + err.message, 'error');
+        } finally {
+            document.getElementById('ai-detect-btn').disabled = false;
+        }
+    }
+
+    function clearPatternSelection() {
+        document.getElementById('pattern-language').value = '';
+        document.getElementById('pattern-year').value = '';
+        document.getElementById('pattern-movies').value = '';
+        document.getElementById('pattern-series').value = '';
+        currentAnalyzerPatterns = { titlePatterns: {}, contentTypePatterns: {}, confidence: 0 };
+        updatePreview();
+        document.getElementById('analyzer-status').textContent = 'Patterns cleared';
+    }
+
+    function updatePreview() {
+        const tbody = document.getElementById('analyzer-preview-body');
+        const allSamples = [
+            ...(currentAnalyzerSamples?.movies || []).map(s => ({ ...s, expectedType: 'Movie' })),
+            ...(currentAnalyzerSamples?.series || []).map(s => ({ ...s, expectedType: 'Series' })),
+            ...(currentAnalyzerSamples?.livetv || []).map(s => ({ ...s, expectedType: 'Live' }))
+        ];
+
+        const langPattern = document.getElementById('pattern-language').value;
+        const yearPattern = document.getElementById('pattern-year').value;
+
+        tbody.innerHTML = allSamples.map(sample => {
+            let lang = '-', year = '-';
+
+            if (langPattern) {
+                try {
+                    const regex = new RegExp(langPattern, 'i');
+                    const match = sample.name.match(regex);
+                    if (match && match[1]) lang = '<span class="text-purple-400">' + match[1].toUpperCase() + '</span>';
+                } catch (e) {}
+            }
+
+            if (yearPattern) {
+                try {
+                    const regex = new RegExp(yearPattern);
+                    const match = sample.name.match(regex);
+                    if (match && match[1]) year = '<span class="text-green-400">' + match[1] + '</span>';
+                } catch (e) {}
+            }
+
+            return \`
+                <tr class="border-b border-dark-700/50">
+                    <td class="p-3"><span class="px-2 py-0.5 rounded text-xs \${
+                        sample.expectedType === 'Movie' ? 'bg-blue-500/20 text-blue-300' :
+                        sample.expectedType === 'Series' ? 'bg-green-500/20 text-green-300' :
+                        'bg-orange-500/20 text-orange-300'
+                    }">\${sample.expectedType}</span></td>
+                    <td class="p-3 font-mono text-xs max-w-[250px]" title="\${escapeHtml(sample.name)}">
+                        <div class="truncate">\${escapeHtml(sample.name)}</div>
+                    </td>
+                    <td class="p-3 text-xs text-dark-400 max-w-[150px] truncate">\${sample.category || '-'}</td>
+                    <td class="p-3 text-xs">\${lang} \${year}</td>
+                </tr>
+            \`;
+        }).join('') || '<tr><td colspan="4" class="p-4 text-center text-dark-400">No samples</td></tr>';
     }
 
     function hideAnalyzerModal() {
         const modal = document.getElementById('analyzer-modal');
         modal.classList.add('hidden');
+        hidePatternContextMenu();
         currentAnalyzerSourceId = null;
         currentAnalyzerPatterns = null;
         currentAnalyzerSamples = null;
+        currentSelection = null;
     }
+
+    // Hide context menu on click outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#pattern-context-menu') && !e.target.closest('.sample-text')) {
+            hidePatternContextMenu();
+        }
+    });
 
     async function applyAnalyzedPatterns() {
         if (!currentAnalyzerSourceId || !currentAnalyzerPatterns) {

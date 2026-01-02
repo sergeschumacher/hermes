@@ -1393,6 +1393,82 @@ function setupApiRoutes() {
         }
     });
 
+    // AI-powered pattern analysis
+    router.post('/sources/:id/analyze-ai', async (req, res) => {
+        try {
+            const db = modules.db;
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+
+            const llm = modules.llm;
+            if (!llm?.isConfigured()) {
+                return res.status(400).json({ error: 'LLM not configured. Please configure OpenAI or Ollama in settings.' });
+            }
+
+            const { samples } = req.body;
+            if (!samples) {
+                return res.status(400).json({ error: 'samples are required' });
+            }
+
+            // Build prompt with sample data
+            const movieSamples = (samples.movies || []).map(m => `  - Name: "${m.name}", Category: "${m.category}"`).join('\n');
+            const seriesSamples = (samples.series || []).map(s => `  - Name: "${s.name}", Category: "${s.category}"`).join('\n');
+            const livetvSamples = (samples.livetv || []).map(l => `  - Name: "${l.name}", Category: "${l.category}"`).join('\n');
+
+            const prompt = `Analyze these IPTV M3U entries and generate regex patterns to extract metadata.
+
+Sample MOVIES entries:
+${movieSamples || '  (none available)'}
+
+Sample SERIES entries:
+${seriesSamples || '  (none available)'}
+
+Sample LIVE TV entries:
+${livetvSamples || '  (none available)'}
+
+Based on these samples, generate regex patterns that would work for this IPTV source.
+Look for common patterns like:
+- Language codes at the start (e.g., "DE - ", "EN: ", "[DE]", "DE ★")
+- Year in title (e.g., "(2024)", "- 2024")
+- Quality indicators (4K, HD, FHD)
+- Category keywords that distinguish movies from series from live TV
+
+Return ONLY valid JSON with this exact structure (no markdown, no explanation):
+{
+  "titlePatterns": {
+    "language": "regex pattern to extract 2-letter language code or null if not found",
+    "year": "regex pattern to extract 4-digit year or null if not found"
+  },
+  "contentTypePatterns": {
+    "movies": "regex pattern matching movie categories/titles",
+    "series": "regex pattern matching series categories/titles"
+  },
+  "confidence": 0.85
+}`;
+
+            logger?.info('app', 'Running AI pattern analysis...');
+            const result = await llm.query(prompt, {
+                temperature: 0.2,
+                maxTokens: 1000,
+                timeout: 60000
+            });
+
+            // Extract JSON from response
+            const jsonMatch = result.match(/\{[\s\S]*\}/);
+            if (!jsonMatch) {
+                return res.status(500).json({ error: 'AI did not return valid patterns' });
+            }
+
+            const patterns = JSON.parse(jsonMatch[0]);
+            logger?.info('app', `AI analysis complete, confidence: ${patterns.confidence}`);
+
+            res.json({ success: true, patterns });
+        } catch (err) {
+            logger?.error('app', `AI analysis failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // =====================
     // Usenet Provider Routes
     // =====================
