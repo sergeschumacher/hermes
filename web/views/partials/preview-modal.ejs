@@ -355,7 +355,7 @@
 
         if (isHls) {
             // Use HLS.js for HLS streams (most browsers don't support HLS natively)
-            if (Hls.isSupported()) {
+            if (typeof Hls !== 'undefined' && Hls.isSupported()) {
                 currentHls = new Hls({
                     enableWorker: true,
                     lowLatencyMode: true,

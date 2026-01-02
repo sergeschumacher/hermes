@@ -27,10 +27,15 @@ function getHeaders(userAgent = 'IBOPlayer') {
 
 /**
  * Fetch sample entries from an IPTV source
- * Returns 5 samples each for movies, series, and live TV
+ * Returns samples for movies, series, and live TV
+ * @param {Object} source - The source to fetch from
+ * @param {Object} options - Optional settings
+ * @param {string} options.type - 'movies', 'series', 'livetv', or 'all' (default: 'all')
+ * @param {number} options.count - Number of samples per type (default: 5)
  */
-async function fetchSamples(source) {
-    refs.logger?.info('source-analyzer', `Fetching samples from source: ${source.name}`);
+async function fetchSamples(source, options = {}) {
+    const { type = 'all', count = 5 } = options;
+    refs.logger?.info('source-analyzer', `Fetching samples from source: ${source.name} (type: ${type}, count: ${count})`);
 
     const samples = {
         movies: [],
@@ -41,9 +46,9 @@ async function fetchSamples(source) {
 
     try {
         if (source.type === 'xtream') {
-            return await fetchXtreamSamples(source);
+            return await fetchXtreamSamples(source, { type, count });
         } else if (source.type === 'm3u') {
-            return await fetchM3USamples(source);
+            return await fetchM3USamples(source, { type, count });
         }
     } catch (err) {
         refs.logger?.error('source-analyzer', `Failed to fetch samples: ${err.message}`);
@@ -56,7 +61,8 @@ async function fetchSamples(source) {
 /**
  * Fetch samples from Xtream Codes API
  */
-async function fetchXtreamSamples(source) {
+async function fetchXtreamSamples(source, options = {}) {
+    const { type = 'all', count = 5 } = options;
     const baseUrl = source.url.replace(/\/$/, '');
     const headers = getHeaders(source.user_agent);
     const cleanUsername = (source.username || '').replace(/[\x00-\x1F\x7F]/g, '');
@@ -98,60 +104,66 @@ async function fetchXtreamSamples(source) {
     }
 
     // Fetch live channels
-    try {
-        const liveUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_streams`;
-        const liveRes = await axios.get(liveUrl, { headers, timeout: 30000 });
-        const channels = liveRes.data || [];
+    if (type === 'all' || type === 'livetv') {
+        try {
+            const liveUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_streams`;
+            const liveRes = await axios.get(liveUrl, { headers, timeout: 30000 });
+            const channels = liveRes.data || [];
 
-        // Get 5 random samples
-        const shuffled = channels.sort(() => 0.5 - Math.random());
-        samples.livetv = shuffled.slice(0, 5).map(ch => ({
+            // Get random samples
+            const shuffled = channels.sort(() => 0.5 - Math.random());
+            samples.livetv = shuffled.slice(0, count).map(ch => ({
             name: ch.name,
             category: categoryMap[ch.category_id] || '',
             logo: ch.stream_icon,
             id: ch.stream_id,
             raw: `#EXTINF:-1 tvg-id="${ch.epg_channel_id || ''}" tvg-name="${ch.name}" tvg-logo="${ch.stream_icon || ''}" group-title="${categoryMap[ch.category_id] || ''}",${ch.name}`
         }));
-    } catch (err) {
-        refs.logger?.warn('source-analyzer', `Failed to fetch live channels: ${err.message}`);
+        } catch (err) {
+            refs.logger?.warn('source-analyzer', `Failed to fetch live channels: ${err.message}`);
+        }
     }
 
     // Fetch VOD (movies)
-    try {
-        const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
-        const vodRes = await axios.get(vodUrl, { headers, timeout: 60000 });
-        const movies = vodRes.data || [];
+    if (type === 'all' || type === 'movies') {
+        try {
+            const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
+            const vodRes = await axios.get(vodUrl, { headers, timeout: 60000 });
+            const movies = vodRes.data || [];
 
-        const shuffled = movies.sort(() => 0.5 - Math.random());
-        samples.movies = shuffled.slice(0, 5).map(m => ({
-            name: m.name,
-            category: categoryMap[m.category_id] || '',
-            logo: m.stream_icon,
-            id: m.stream_id,
-            year: m.year,
-            raw: `#EXTINF:-1 tvg-id="${m.stream_id}" tvg-name="${m.name}" tvg-logo="${m.stream_icon || ''}" group-title="${categoryMap[m.category_id] || ''}",${m.name}`
-        }));
-    } catch (err) {
-        refs.logger?.warn('source-analyzer', `Failed to fetch VOD: ${err.message}`);
+            const shuffled = movies.sort(() => 0.5 - Math.random());
+            samples.movies = shuffled.slice(0, count).map(m => ({
+                name: m.name,
+                category: categoryMap[m.category_id] || '',
+                logo: m.stream_icon,
+                id: m.stream_id,
+                year: m.year,
+                raw: `#EXTINF:-1 tvg-id="${m.stream_id}" tvg-name="${m.name}" tvg-logo="${m.stream_icon || ''}" group-title="${categoryMap[m.category_id] || ''}",${m.name}`
+            }));
+        } catch (err) {
+            refs.logger?.warn('source-analyzer', `Failed to fetch VOD: ${err.message}`);
+        }
     }
 
     // Fetch series
-    try {
-        const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
-        const seriesRes = await axios.get(seriesUrl, { headers, timeout: 60000 });
-        const series = seriesRes.data || [];
+    if (type === 'all' || type === 'series') {
+        try {
+            const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
+            const seriesRes = await axios.get(seriesUrl, { headers, timeout: 60000 });
+            const series = seriesRes.data || [];
 
-        const shuffled = series.sort(() => 0.5 - Math.random());
-        samples.series = shuffled.slice(0, 5).map(s => ({
-            name: s.name,
-            category: categoryMap[s.category_id] || '',
-            logo: s.cover,
-            id: s.series_id,
-            year: s.year,
-            raw: `#EXTINF:-1 tvg-id="${s.series_id}" tvg-name="${s.name}" tvg-logo="${s.cover || ''}" group-title="${categoryMap[s.category_id] || ''}",${s.name}`
-        }));
-    } catch (err) {
-        refs.logger?.warn('source-analyzer', `Failed to fetch series: ${err.message}`);
+            const shuffled = series.sort(() => 0.5 - Math.random());
+            samples.series = shuffled.slice(0, count).map(s => ({
+                name: s.name,
+                category: categoryMap[s.category_id] || '',
+                logo: s.cover,
+                id: s.series_id,
+                year: s.year,
+                raw: `#EXTINF:-1 tvg-id="${s.series_id}" tvg-name="${s.name}" tvg-logo="${s.cover || ''}" group-title="${categoryMap[s.category_id] || ''}",${s.name}`
+            }));
+        } catch (err) {
+            refs.logger?.warn('source-analyzer', `Failed to fetch series: ${err.message}`);
+        }
     }
 
     // Combine all raw entries
@@ -168,7 +180,8 @@ async function fetchXtreamSamples(source) {
 /**
  * Fetch samples from M3U playlist
  */
-async function fetchM3USamples(source) {
+async function fetchM3USamples(source, options = {}) {
+    const { type = 'all', count = 5 } = options;
     const headers = getHeaders(source.user_agent);
 
     const samples = {
@@ -214,37 +227,27 @@ async function fetchM3USamples(source) {
         }
     }
 
-    // Categorize entries
-    for (const entry of entries) {
+    // Shuffle entries for random selection
+    const shuffled = entries.sort(() => 0.5 - Math.random());
+
+    // Categorize entries based on type filter
+    for (const entry of shuffled) {
         const category = classifyEntry(entry);
 
-        if (category === 'movie' && samples.movies.length < 5) {
+        if ((type === 'all' || type === 'movies') && category === 'movie' && samples.movies.length < count) {
             samples.movies.push(entry);
-        } else if (category === 'series' && samples.series.length < 5) {
+        } else if ((type === 'all' || type === 'series') && category === 'series' && samples.series.length < count) {
             samples.series.push(entry);
-        } else if (category === 'live' && samples.livetv.length < 5) {
+        } else if ((type === 'all' || type === 'livetv') && category === 'live' && samples.livetv.length < count) {
             samples.livetv.push(entry);
         }
 
-        // Stop if we have enough samples
-        if (samples.movies.length >= 5 && samples.series.length >= 5 && samples.livetv.length >= 5) {
+        // Stop if we have enough samples for requested types
+        const moviesDone = type !== 'all' && type !== 'movies' || samples.movies.length >= count;
+        const seriesDone = type !== 'all' && type !== 'series' || samples.series.length >= count;
+        const livetvDone = type !== 'all' && type !== 'livetv' || samples.livetv.length >= count;
+        if (moviesDone && seriesDone && livetvDone) {
             break;
-        }
-    }
-
-    // If we don't have enough of each type, fill with random entries
-    if (samples.movies.length < 5 || samples.series.length < 5 || samples.livetv.length < 5) {
-        const shuffled = entries.sort(() => 0.5 - Math.random());
-        for (const entry of shuffled) {
-            if (samples.movies.length < 5) {
-                samples.movies.push(entry);
-            } else if (samples.series.length < 5) {
-                samples.series.push(entry);
-            } else if (samples.livetv.length < 5) {
-                samples.livetv.push(entry);
-            } else {
-                break;
-            }
         }
     }
 
@@ -376,7 +379,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 }`;
 
     try {
-        const result = await llm.query(prompt, {
+        const result = await refs.llm.query(prompt, {
             temperature: 0.2,
             maxTokens: 1000,
             timeout: 60000
@@ -517,6 +520,42 @@ function buildManualAnalysis(samples) {
         }
     }
 
+    // Detect quality patterns
+    const qualityPatterns = [
+        { pattern: '\\b(4K|UHD|2160p)\\b', description: '4K/UHD quality' },
+        { pattern: '\\b(2K|1440p)\\b', description: '2K quality' },
+        { pattern: '\\b(FHD|1080p|1080i)\\b', description: 'Full HD quality' },
+        { pattern: '\\b(HD|720p)\\b', description: 'HD quality' },
+        { pattern: '\\b(SD|480p|576p)\\b', description: 'SD quality' }
+    ];
+
+    for (const qual of qualityPatterns) {
+        const regex = new RegExp(qual.pattern, 'i');
+        const matches = allNames.filter(n => regex.test(n));
+        if (matches.length >= 2) {
+            // Build combined quality pattern
+            if (!patterns.titlePatterns.quality) {
+                patterns.titlePatterns.quality = qual.pattern;
+            } else {
+                patterns.titlePatterns.quality += '|' + qual.pattern;
+            }
+            patterns.detectedPatterns.push({
+                type: 'quality',
+                pattern: qual.pattern,
+                description: qual.description,
+                matches: matches.length,
+                examples: matches.slice(0, 3)
+            });
+        }
+    }
+
+    // If any quality patterns found, normalize and add confidence
+    if (patterns.titlePatterns.quality) {
+        // Combine into single capture group
+        patterns.titlePatterns.quality = '\\b(4K|UHD|2160p|2K|1440p|FHD|1080p|1080i|HD|720p|SD|480p|576p)\\b';
+        patterns.confidence += 0.1;
+    }
+
     // Detect content type patterns from categories
     const movieKeywords = allCategories
         .filter(c => /movie|film|vod|cinema/i.test(c))
@@ -617,6 +656,41 @@ function validatePatterns(patterns, samples) {
                     parsed.extracted.year = match[1];
                 }
             } catch (e) {}
+        }
+
+        // Try quality extraction
+        if (patterns.titlePatterns?.quality) {
+            try {
+                const regex = new RegExp(patterns.titlePatterns.quality, 'i');
+                const match = sample.name.match(regex);
+                if (match && match[1]) {
+                    parsed.extracted.quality = match[1].toUpperCase();
+                }
+            } catch (e) {}
+        }
+
+        // Extract clean name (remove language prefix, year, quality)
+        let cleanName = sample.name;
+        if (parsed.extracted.language && patterns.titlePatterns?.language) {
+            try {
+                cleanName = cleanName.replace(new RegExp(patterns.titlePatterns.language, 'i'), '');
+            } catch (e) {}
+        }
+        if (parsed.extracted.year && patterns.titlePatterns?.year) {
+            try {
+                cleanName = cleanName.replace(new RegExp(patterns.titlePatterns.year), '');
+            } catch (e) {}
+        }
+        if (parsed.extracted.quality && patterns.titlePatterns?.quality) {
+            try {
+                cleanName = cleanName.replace(new RegExp(patterns.titlePatterns.quality, 'gi'), '');
+            } catch (e) {}
+        }
+        // Clean up extra spaces and dashes
+        cleanName = cleanName.replace(/^\s*[-–:★❖]\s*/, '').replace(/\s*[-–:★❖]\s*$/, '').trim();
+        cleanName = cleanName.replace(/\s+/g, ' ').trim();
+        if (cleanName) {
+            parsed.extracted.cleanName = cleanName;
         }
 
         // Try content type detection
@@ -769,6 +843,9 @@ function patternsToParserConfig(patterns) {
         }
         if (patterns.titlePatterns.year) {
             config.titlePatterns.year = patterns.titlePatterns.year;
+        }
+        if (patterns.titlePatterns.quality) {
+            config.titlePatterns.quality = patterns.titlePatterns.quality;
         }
     }
 

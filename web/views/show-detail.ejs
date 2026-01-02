@@ -430,6 +430,40 @@
                 storedTrailers = await trailersResponse.json();
             }
 
+            // On-demand enrichment: If no TMDB data and we have media items, trigger enrichment
+            if (!tmdbData && showData.items && showData.items.length > 0) {
+                const firstItem = showData.items[0];
+                if (firstItem.id && (!firstItem.poster || !firstItem.tmdb_id)) {
+                    console.log('Show needs enrichment, triggering on-demand enrichment...');
+                    try {
+                        const enrichResponse = await fetch('/api/enrich/instant/' + firstItem.id, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ highPriority: true })
+                        });
+                        if (enrichResponse.ok) {
+                            const enrichResult = await enrichResponse.json();
+                            if (enrichResult.success && enrichResult.media) {
+                                // Update the first item with enriched data
+                                Object.assign(firstItem, enrichResult.media);
+                                // Try to fetch TMDB data again with the new tmdb_id
+                                if (enrichResult.media.tmdb_id) {
+                                    try {
+                                        const newTmdbResponse = await fetch('/api/tmdb/tv/' + enrichResult.media.tmdb_id);
+                                        if (newTmdbResponse.ok) {
+                                            tmdbData = await newTmdbResponse.json();
+                                        }
+                                    } catch (e) {}
+                                }
+                                console.log('On-demand enrichment successful');
+                            }
+                        }
+                    } catch (e) {
+                        console.log('On-demand enrichment failed:', e);
+                    }
+                }
+            }
+
             renderShow();
         } catch (err) {
             document.getElementById('show-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load show</div>';

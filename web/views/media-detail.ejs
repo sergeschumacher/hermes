@@ -560,11 +560,34 @@
                 storedTrailers = await trailersResponse.json();
             }
 
+            // On-demand enrichment: If media lacks poster/tmdb_id, trigger instant enrichment
+            const needsEnrichment = !mediaData.poster || !mediaData.tmdb_id;
+            if (needsEnrichment && (mediaData.media_type === 'movie' || mediaData.media_type === 'series')) {
+                console.log('Media needs enrichment, triggering on-demand enrichment...');
+                try {
+                    const enrichResponse = await fetch('/api/enrich/instant/' + mediaId, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ highPriority: true })
+                    });
+                    if (enrichResponse.ok) {
+                        const enrichResult = await enrichResponse.json();
+                        if (enrichResult.success && enrichResult.media) {
+                            // Update mediaData with enriched data
+                            mediaData = { ...mediaData, ...enrichResult.media };
+                            console.log('On-demand enrichment successful');
+                        }
+                    }
+                } catch (e) {
+                    console.log('On-demand enrichment failed:', e);
+                }
+            }
+
             // Try to fetch TMDB data if we have a tmdb_id
             if (mediaData.tmdb_id) {
                 try {
                     const endpoint = mediaData.media_type === 'series' ? 'tv' : 'movie';
-                    const tmdbResponse = await fetch(`/api/tmdb/${endpoint}/${mediaData.tmdb_id}`);
+                    const tmdbResponse = await fetch('/api/tmdb/' + endpoint + '/' + mediaData.tmdb_id);
                     if (tmdbResponse.ok) {
                         tmdbData = await tmdbResponse.json();
                     }
@@ -577,14 +600,14 @@
                 if (cleaned.title && cleaned.title.length > 2) {
                     try {
                         const searchType = mediaData.media_type === 'series' ? 'tv' : 'movie';
-                        const searchUrl = `/api/tmdb/search/${searchType}?query=${encodeURIComponent(cleaned.title)}${cleaned.year ? `&year=${cleaned.year}` : ''}`;
+                        const searchUrl = '/api/tmdb/search/' + searchType + '?query=' + encodeURIComponent(cleaned.title) + (cleaned.year ? '&year=' + cleaned.year : '');
                         const searchResponse = await fetch(searchUrl);
                         if (searchResponse.ok) {
                             const searchResults = await searchResponse.json();
                             if (searchResults.length > 0) {
                                 // Get full details for the first match
                                 const match = searchResults[0];
-                                const detailResponse = await fetch(`/api/tmdb/${searchType}/${match.id}`);
+                                const detailResponse = await fetch('/api/tmdb/' + searchType + '/' + match.id);
                                 if (detailResponse.ok) {
                                     tmdbData = await detailResponse.json();
                                 }

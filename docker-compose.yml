@@ -5,6 +5,9 @@ services:
     # Or build from source:
     # build: .
     container_name: hermes
+    labels:
+      - "io.portainer.accesscontrol.public=true"
+      - "io.portainer.application.icon=https://raw.githubusercontent.com/sergeschumacher/hermes/main/hermes.jpeg"
     restart: unless-stopped
     ports:
       - "3000:3000"

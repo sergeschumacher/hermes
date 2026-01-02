@@ -324,18 +324,19 @@ async function syncXtreamSource(source) {
         );
 
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, is_active, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, language, is_active, last_seen_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 media_type = excluded.media_type,
-                title = excluded.title,
+                title = COALESCE(media.title, excluded.title),
+                original_title = excluded.original_title,
                 poster = COALESCE(media.poster, excluded.poster),
                 category = excluded.category,
                 stream_url = excluded.stream_url,
                 language = COALESCE(media.language, excluded.language),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [source.id, String(channel.stream_id), mediaType, channel.name, channel.stream_icon, categoryName, streamUrl, channel.lang]);
+        `, [source.id, String(channel.stream_id), mediaType, channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, channel.lang]);
 
         // Track statistics
         if (!existing) {
@@ -397,10 +398,11 @@ async function syncXtreamSource(source) {
         );
 
         await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language, is_active, last_seen_at)
-            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language, is_active, last_seen_at)
+            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
-                title = excluded.title,
+                title = COALESCE(media.title, excluded.title),
+                original_title = excluded.original_title,
                 poster = COALESCE(media.poster, excluded.poster),
                 category = excluded.category,
                 stream_url = excluded.stream_url,
@@ -414,7 +416,7 @@ async function syncXtreamSource(source) {
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
         `, [
-            source.id, String(vod.stream_id), vod.name, vod.stream_icon, categoryName,
+            source.id, String(vod.stream_id), vod.name, vod.name, vod.stream_icon, categoryName,
             streamUrl, ext, vod.rating || null, extractYear(vod.name), vod.plot || null,
             vod.genre || null, quality, vod.tmdb || null, language
         ]);
@@ -482,10 +484,11 @@ async function syncXtreamSource(source) {
         );
 
         const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, is_active, last_seen_at)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            INSERT INTO media (source_id, external_id, media_type, title, original_title, show_name, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, is_active, last_seen_at)
+            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
-                title = excluded.title,
+                title = COALESCE(media.title, excluded.title),
+                original_title = excluded.original_title,
                 show_name = COALESCE(media.show_name, excluded.show_name),
                 poster = COALESCE(media.poster, excluded.poster),
                 backdrop = COALESCE(media.backdrop, excluded.backdrop),
@@ -498,7 +501,7 @@ async function syncXtreamSource(source) {
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
         `, [
-            source.id, String(series.series_id), series.name, series.name, series.cover,
+            source.id, String(series.series_id), series.name, series.name, series.name, series.cover,
             series.backdrop_path?.[0] || null, categoryName, series.rating || null,
             extractYear(series.releaseDate || series.name), series.plot || null,
             series.genre || null, series.tmdb || null, language
@@ -857,10 +860,11 @@ async function syncM3USource(source) {
             for (const item of batch) {
                 // Insert/update series
                 await db.run(`
-                    INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language, platform, is_active, last_seen_at)
-                    VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                    INSERT INTO media (source_id, external_id, media_type, title, original_title, show_name, poster, category, episode_count, language, platform, is_active, last_seen_at)
+                    VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
                     ON CONFLICT(source_id, external_id) DO UPDATE SET
-                        title = excluded.title,
+                        title = COALESCE(media.title, excluded.title),
+                        original_title = excluded.original_title,
                         show_name = excluded.show_name,
                         poster = COALESCE(media.poster, excluded.poster),
                         category = COALESCE(excluded.category, media.category),
@@ -872,6 +876,7 @@ async function syncM3USource(source) {
                 `, [
                     source.id,
                     item.externalId,
+                    item.seriesName,
                     item.seriesName,
                     item.seriesName,
                     item.logo,
@@ -994,11 +999,12 @@ async function syncM3USource(source) {
         try {
             for (const item of batch) {
                 await db.run(`
-                    INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, platform, is_active, last_seen_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                    INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, language, platform, is_active, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
                     ON CONFLICT(source_id, external_id) DO UPDATE SET
                         media_type = excluded.media_type,
-                        title = excluded.title,
+                        title = COALESCE(media.title, excluded.title),
+                        original_title = excluded.original_title,
                         poster = COALESCE(media.poster, excluded.poster),
                         category = excluded.category,
                         stream_url = excluded.stream_url,
@@ -1010,6 +1016,7 @@ async function syncM3USource(source) {
                     source.id,
                     item.externalId,
                     item.mediaType,
+                    item.name,
                     item.name,
                     item.logo,
                     item.group,

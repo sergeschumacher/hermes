@@ -1229,37 +1229,11 @@ module.exports = {
             }
         }, 5000);
 
-        logger?.info('enrichment', 'Enrichment module initialized (auto-enrich after sync)');
+        logger?.info('enrichment', 'Enrichment module initialized (on-demand only)');
 
-        // Listen for sync:complete events to auto-enrich
-        const setupSyncListener = () => {
-            const app = allModules?.app;
-            if (app?.on) {
-                app.on('sync:complete', async ({ source, stats }) => {
-                    logger?.info('enrichment', `Sync complete for source ${source}, starting auto-enrichment...`);
-                    try {
-                        // Queue unenriched items (movies and series)
-                        const queued = await queueUnenrichedMedia(null, 5000);
-                        if (queued > 0) {
-                            logger?.info('enrichment', `Queued ${queued} items for enrichment`);
-                            // Start workers if not already running
-                            if (!isRunning) {
-                                await startWorkers();
-                            }
-                        } else {
-                            logger?.info('enrichment', 'No items to enrich');
-                        }
-                    } catch (err) {
-                        logger?.error('enrichment', `Auto-enrichment failed: ${err.message}`);
-                    }
-                });
-                logger?.info('enrichment', 'Auto-enrichment listener registered');
-            } else {
-                // App not ready yet, retry in 1 second
-                setTimeout(setupSyncListener, 1000);
-            }
-        };
-        setTimeout(setupSyncListener, 2000);
+        // Auto-enrichment after sync is DISABLED
+        // Enrichment now happens on-demand when user clicks on content
+        // The /api/enrich/instant/:id endpoint is used for this
     },
 
     // Public API - Queue-based (background)

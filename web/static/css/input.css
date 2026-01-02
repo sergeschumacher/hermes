@@ -1304,7 +1304,7 @@
 .z-toast { z-index: 70; }
 .z-tooltip { z-index: 80; }
 
-/* Modal overlay - always centered in viewport */
+/* Modal overlay - positioned at top of viewport */
 .modal-overlay {
     position: fixed;
     top: 0;
@@ -1314,9 +1314,9 @@
     background: rgba(0, 0, 0, 0.8);
     z-index: 60;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: center;
-    padding: 1rem;
+    padding: 2rem 1rem;
     overflow-y: auto;
 }
 
@@ -1326,9 +1326,8 @@
 
 .modal-content {
     @apply bg-dark-card border border-dark-border rounded-xl w-full;
-    max-height: calc(100vh - 2rem);
+    max-height: calc(100vh - 4rem);
     overflow-y: auto;
-    margin: auto;
 }
 
 /* Reduce motion preference */

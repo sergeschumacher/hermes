@@ -384,7 +384,7 @@ function setupApiRoutes() {
                     AND m.media_type IN ('movie', 'series')
                     AND m.backdrop IS NOT NULL
                     AND m.backdrop != ''
-                    ${langFilter.replace(/language/g, 'm.language')}
+                    ${langFilter}
                 ORDER BY
                     CASE WHEN m.rating IS NOT NULL AND m.rating > 0 THEN 0 ELSE 1 END,
                     m.rating DESC,
@@ -730,8 +730,9 @@ function setupApiRoutes() {
                     '-preset', 'ultrafast',   // Fast encoding for real-time preview
                     '-tune', 'zerolatency',   // Minimize latency for streaming
                     '-crf', '28',             // Quality (lower = better, 23-28 typical for preview)
-                    '-profile:v', 'baseline', // Maximum browser compatibility
-                    '-level', '3.0',
+                    '-pix_fmt', 'yuv420p',    // Convert 10-bit to 8-bit for browser compatibility
+                    '-profile:v', 'high',     // High profile supports 10-bit input conversion
+                    '-level', '4.0',          // Level 4.0 for HD content
                     '-c:a', 'aac',            // Transcode audio to AAC (browser compatible)
                     '-b:a', '128k',
                     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
@@ -1329,6 +1330,13 @@ function setupApiRoutes() {
             // Run analysis
             const result = await modules['source-analyzer'].analyzeSource(source);
 
+            // Include previously saved patterns if available
+            if (source.m3u_parser_config) {
+                try {
+                    result.savedConfig = JSON.parse(source.m3u_parser_config);
+                } catch (e) {}
+            }
+
             // Update source with analysis status
             await db.run(`
                 UPDATE sources
@@ -1363,6 +1371,39 @@ function setupApiRoutes() {
         }
     });
 
+    // Fetch more random samples from source
+    router.post('/sources/:id/fetch-samples', async (req, res) => {
+        try {
+            const db = modules.db;
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+
+            if (!modules['source-analyzer']) {
+                return res.status(500).json({ error: 'Source analyzer module not loaded' });
+            }
+
+            const { type, count = 5 } = req.body; // type: 'movies', 'series', 'livetv', or 'all'
+
+            // Fetch fresh samples
+            const samples = await modules['source-analyzer'].fetchSamples(source, { type, count });
+
+            res.json({
+                success: true,
+                samples: {
+                    movies: samples.movies || [],
+                    series: samples.series || [],
+                    livetv: samples.livetv || [],
+                    movieCount: samples.movies?.length || 0,
+                    seriesCount: samples.series?.length || 0,
+                    livetvCount: samples.livetv?.length || 0
+                }
+            });
+        } catch (err) {
+            logger.error('app', `Fetch samples failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Apply analyzed patterns to source
     router.post('/sources/:id/apply-patterns', async (req, res) => {
         try {
@@ -1389,6 +1430,120 @@ function setupApiRoutes() {
 
             res.json({ success: true, parserConfig });
         } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Reprocess all entries with current patterns
+    router.post('/sources/:id/reprocess', async (req, res) => {
+        try {
+            const db = modules.db;
+            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+
+            const parserConfig = source.m3u_parser_config ? JSON.parse(source.m3u_parser_config) : null;
+            if (!parserConfig || !parserConfig.titlePatterns) {
+                return res.status(400).json({ error: 'No patterns configured for this source. Use the Pattern Analyzer first.' });
+            }
+
+            // Get all media entries for this source (use original_title if available, fallback to title)
+            const entries = await db.all('SELECT id, title, original_title, category FROM media WHERE source_id = ?', [source.id]);
+
+            if (entries.length === 0) {
+                return res.json({ success: true, processed: 0, message: 'No entries to process' });
+            }
+
+            let processed = 0;
+            const langPattern = parserConfig.titlePatterns.language;
+            const yearPattern = parserConfig.titlePatterns.year;
+            const qualityPattern = parserConfig.titlePatterns.quality;
+
+            for (const entry of entries) {
+                // Use original_title if available (has the raw title from source), otherwise use current title
+                const sourceTitle = entry.original_title || entry.title;
+                if (!sourceTitle) continue;
+
+                let cleanTitle = sourceTitle;
+                let year = null;
+                let language = null;
+                let quality = null;
+
+                // Extract language
+                if (langPattern) {
+                    try {
+                        const regex = new RegExp(langPattern, 'i');
+                        const match = cleanTitle.match(regex);
+                        if (match && match[1]) {
+                            language = match[1].toUpperCase();
+                            cleanTitle = cleanTitle.replace(regex, '');
+                        }
+                    } catch (e) {}
+                }
+
+                // Extract year
+                if (yearPattern) {
+                    try {
+                        const regex = new RegExp(yearPattern);
+                        const match = cleanTitle.match(regex);
+                        if (match && match[1]) {
+                            year = parseInt(match[1], 10);
+                            cleanTitle = cleanTitle.replace(regex, '');
+                        }
+                    } catch (e) {}
+                }
+
+                // Extract quality
+                if (qualityPattern) {
+                    try {
+                        const regex = new RegExp(qualityPattern, 'i');
+                        const match = cleanTitle.match(regex);
+                        if (match && match[1]) {
+                            quality = match[1].toUpperCase();
+                            cleanTitle = cleanTitle.replace(new RegExp(qualityPattern, 'gi'), '');
+                        }
+                    } catch (e) {}
+                }
+
+                // Clean up title
+                cleanTitle = cleanTitle.replace(/^[\s\-–:★❖]+/, '').replace(/[\s\-–:★❖]+$/, '').trim();
+                cleanTitle = cleanTitle.replace(/\s+/g, ' ').trim();
+
+                // If cleanTitle is empty but we extracted a year, use the year as the title
+                // (handles cases like "DE ★ 1923" where "1923" is the actual show title)
+                if (!cleanTitle && year) {
+                    cleanTitle = String(year);
+                }
+
+                // Clean up category if patterns are available
+                let cleanCategory = entry.category || '';
+                const categoryCleanup = parserConfig.categoryCleanup;
+                if (categoryCleanup?.removePatterns && Array.isArray(categoryCleanup.removePatterns)) {
+                    for (const pattern of categoryCleanup.removePatterns) {
+                        try {
+                            const regex = new RegExp(pattern, 'gi');
+                            cleanCategory = cleanCategory.replace(regex, '');
+                        } catch (e) {}
+                    }
+                    cleanCategory = cleanCategory.trim();
+                }
+
+                // Update the entry (use cleanTitle or fall back to sourceTitle which preserves the original)
+                // Also update show_name for series to ensure the grouped view shows clean titles
+                const finalTitle = cleanTitle || sourceTitle;
+                await db.run(`
+                    UPDATE media
+                    SET title = ?, show_name = CASE WHEN media_type = 'series' THEN ? ELSE show_name END,
+                        year = COALESCE(?, year), language = COALESCE(?, language), quality = COALESCE(?, quality), category = ?
+                    WHERE id = ?
+                `, [finalTitle, finalTitle, year, language, quality, cleanCategory || entry.category, entry.id]);
+
+                processed++;
+            }
+
+            logger?.info('app', `Reprocessed ${processed} entries for source ${source.name}`);
+            res.json({ success: true, processed, total: entries.length });
+        } catch (err) {
+            logger?.error('app', `Reprocess failed: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -1433,6 +1588,12 @@ Look for common patterns like:
 - Quality indicators (4K, HD, FHD)
 - Category keywords that distinguish movies from series from live TV
 
+ALSO analyze the category names and provide patterns to clean them:
+- Remove year ranges like "[2020/2024]" or "(2023-2024)"
+- Remove language prefixes like "EN ", "FR ", "DE " at start
+- Remove special symbols like ✪, ◉, ❖ and similar decorations
+- Identify the clean category name (e.g., "✪ EN NETFLIX" -> "NETFLIX", "◉ FR HBO MAX" -> "HBO MAX")
+
 Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 {
   "titlePatterns": {
@@ -1442,6 +1603,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
   "contentTypePatterns": {
     "movies": "regex pattern matching movie categories/titles",
     "series": "regex pattern matching series categories/titles"
+  },
+  "categoryCleanup": {
+    "removePatterns": ["array of regex patterns to remove from category names"],
+    "examples": [{"original": "✪ EN NETFLIX", "cleaned": "NETFLIX"}]
   },
   "confidence": 0.85
 }`;
@@ -1465,6 +1630,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             res.json({ success: true, patterns });
         } catch (err) {
             logger?.error('app', `AI analysis failed: ${err.message}`);
+            // Check for API key issues
+            if (err.message?.includes('401') || err.message?.includes('API key') || err.message?.includes('Incorrect')) {
+                return res.status(401).json({ error: 'Invalid OpenAI API key. Please check your API key in settings.' });
+            }
             res.status(500).json({ error: err.message });
         }
     });
@@ -3273,7 +3442,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     router.get('/shows/:name', async (req, res) => {
         try {
             const db = modules.db;
-            const showName = decodeURIComponent(req.params.name);
+            let showName = decodeURIComponent(req.params.name);
+
+            // Check if :name is actually a numeric ID - if so, look up the show_name
+            if (/^\d+$/.test(showName)) {
+                const mediaItem = await db.get('SELECT show_name FROM media WHERE id = ? AND media_type = ?', [showName, 'series']);
+                if (mediaItem && mediaItem.show_name) {
+                    showName = mediaItem.show_name;
+                }
+            }
 
             // Get all series entries for this show (parent entries from Xtream API)
             const seriesEntries = await db.all(`
@@ -3395,7 +3572,16 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     // Fetch TMDB data for a show by name
     router.get('/shows/:name/tmdb', async (req, res) => {
         try {
-            const showName = decodeURIComponent(req.params.name);
+            const db = modules.db;
+            let showName = decodeURIComponent(req.params.name);
+
+            // Check if :name is actually a numeric ID - if so, look up the show_name
+            if (/^\d+$/.test(showName)) {
+                const mediaItem = await db.get('SELECT show_name FROM media WHERE id = ? AND media_type = ?', [showName, 'series']);
+                if (mediaItem && mediaItem.show_name) {
+                    showName = mediaItem.show_name;
+                }
+            }
 
             if (!modules.tmdb) {
                 return res.status(400).json({ error: 'TMDB module not loaded' });
@@ -3421,7 +3607,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     router.get('/shows/:name/trailers', async (req, res) => {
         try {
             const db = modules.db;
-            const showName = decodeURIComponent(req.params.name);
+            let showName = decodeURIComponent(req.params.name);
+
+            // Check if :name is actually a numeric ID - if so, look up the show_name
+            if (/^\d+$/.test(showName)) {
+                const mediaItem = await db.get('SELECT show_name FROM media WHERE id = ? AND media_type = ?', [showName, 'series']);
+                if (mediaItem && mediaItem.show_name) {
+                    showName = mediaItem.show_name;
+                }
+            }
 
             // Find a media entry for this show to get its trailers
             const seriesEntry = await db.get(`
@@ -3463,7 +3657,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     router.post('/shows/:name/enrich', async (req, res) => {
         try {
             const db = modules.db;
-            const showName = decodeURIComponent(req.params.name);
+            let showName = decodeURIComponent(req.params.name);
+
+            // Check if :name is actually a numeric ID - if so, look up the show_name
+            if (/^\d+$/.test(showName)) {
+                const mediaItem = await db.get('SELECT show_name FROM media WHERE id = ? AND media_type = ?', [showName, 'series']);
+                if (mediaItem && mediaItem.show_name) {
+                    showName = mediaItem.show_name;
+                }
+            }
 
             // Get all series entries for this show
             const seriesEntries = await db.all(`
