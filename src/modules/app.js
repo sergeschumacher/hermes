@@ -4024,6 +4024,13 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 detached: true,
                 stdio: 'ignore'
             });
+
+            // Handle spawn errors (e.g., VLC not installed)
+            vlc.on('error', (err) => {
+                logger?.error('play', `Failed to spawn VLC: ${err.message}`);
+                // Don't crash - error is already logged
+            });
+
             vlc.unref();
 
             logger?.info('play', `Opening stream in VLC: ${url}`);
@@ -4724,6 +4731,13 @@ function setupRadarrApi() {
                 detached: true,
                 stdio: 'ignore'
             });
+
+            // Handle spawn errors (e.g., VLC not installed)
+            vlc.on('error', (err) => {
+                logger?.error('play', `Failed to spawn VLC: ${err.message}`);
+                // Don't crash - error is already logged
+            });
+
             vlc.unref();
 
             logger?.info('play', `Opening stream in VLC: ${url}`);
