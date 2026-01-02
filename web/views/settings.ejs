@@ -597,6 +597,29 @@
                 <div id="scheduler-status">Loading scheduler status...</div>
             </div>
         </div>
+
+        <!-- Database Maintenance -->
+        <div class="card border-red-900/50">
+            <div class="p-4 border-b border-red-900/50 bg-red-900/10">
+                <h2 class="text-lg font-semibold text-red-400">Database Maintenance</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <p class="text-sm text-dark-400">
+                    If you encounter database schema errors or corruption, you can reset the content database.
+                    This will delete all media entries, EPG data, and enrichment cache. Your sources and settings will be preserved.
+                    After reset, sync your sources to rebuild the database.
+                </p>
+                <div class="flex items-center gap-4">
+                    <button onclick="resetContentDatabase()" class="btn bg-red-600 hover:bg-red-700 text-white">
+                        <svg class="w-4 h-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                        </svg>
+                        Reset Content Database
+                    </button>
+                    <span id="db-reset-status" class="text-sm text-dark-400"></span>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Save Button -->
@@ -1391,6 +1414,38 @@
         } catch (err) {
             console.error('Failed to load scheduler status:', err);
             document.getElementById('scheduler-status').textContent = 'Failed to load status';
+        }
+    }
+
+    async function resetContentDatabase() {
+        const confirmed = confirm('WARNING: This will delete ALL media entries, EPG data, and enrichment cache. Your sources and settings will be preserved. You will need to sync your sources again to rebuild the database. Are you sure you want to continue?');
+
+        if (!confirmed) return;
+
+        const statusEl = document.getElementById('db-reset-status');
+        statusEl.textContent = 'Resetting database...';
+        statusEl.className = 'text-sm text-yellow-400';
+
+        try {
+            const response = await fetch('/api/db/reset-content', { method: 'POST' });
+            const result = await response.json();
+
+            if (result.success) {
+                statusEl.textContent = 'Database reset complete. Please sync your sources.';
+                statusEl.className = 'text-sm text-green-400';
+                if (window.showToast) {
+                    showToast('Content database reset successfully', 'success');
+                }
+            } else {
+                throw new Error(result.error || 'Reset failed');
+            }
+        } catch (err) {
+            console.error('Database reset failed:', err);
+            statusEl.textContent = 'Reset failed: ' + err.message;
+            statusEl.className = 'text-sm text-red-400';
+            if (window.showToast) {
+                showToast('Database reset failed: ' + err.message, 'error');
+            }
         }
     }
 

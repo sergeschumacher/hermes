@@ -2670,6 +2670,51 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         res.json(updated);
     });
 
+    // Database maintenance endpoints
+    router.post('/db/reset-content', async (req, res) => {
+        try {
+            logger.warn('db', 'Content database reset requested');
+
+            // Tables to drop (content tables, not config/sources)
+            const contentTables = [
+                'media',
+                'media_trailers',
+                'media_people',
+                'people',
+                'seasons',
+                'episodes',
+                'epg_programs',
+                'epg_channel_cache',
+                'enrichment_queue',
+                'enrichment_cache',
+                'tmdb_cache',
+                'channel_mappings',
+                'hdhr_channels',
+                'source_samples',
+                'm3u_history'
+            ];
+
+            // Drop each table
+            for (const table of contentTables) {
+                try {
+                    await modules.db.run(`DROP TABLE IF EXISTS ${table}`);
+                    logger.info('db', `Dropped table: ${table}`);
+                } catch (err) {
+                    logger.warn('db', `Failed to drop ${table}: ${err.message}`);
+                }
+            }
+
+            // Note: We don't delete migrations because all use IF NOT EXISTS
+            // Dropped tables will be recreated, sources/settings tables will be preserved
+
+            logger.info('db', 'Content database reset complete');
+            res.json({ success: true, message: 'Content database reset. Please restart the application and sync sources.' });
+        } catch (err) {
+            logger.error('db', 'Content database reset failed', { error: err.message });
+            res.status(500).json({ success: false, error: err.message });
+        }
+    });
+
     // People endpoints
     router.get('/people/:id', async (req, res) => {
         try {
@@ -4794,11 +4839,15 @@ function setupSocket() {
 
 function setupSyncEventRelay() {
     // Forward sync events from IPTV module to socket.io clients
+    logger.info('app', 'Setting up sync event relay');
+
     app.on('sync:start', (data) => {
+        logger.debug('app', `Relay sync:start for source ${data.source}`);
         io.emit('sync:source:start', { sourceId: data.source, sourceName: data.sourceName });
     });
 
     app.on('sync:progress', (data) => {
+        logger.debug('app', `Relay sync:progress: ${data.message} (${data.percent}%)`);
         io.emit('sync:source:progress', {
             sourceId: data.source,
             step: data.step,

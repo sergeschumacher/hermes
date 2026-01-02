@@ -5,7 +5,7 @@ const path = require('path');
 let logger = null;
 let db = null;
 let settings = null;
-let app = null;
+let allModules = null;  // Store modules ref for dynamic app access
 
 // Track sync status for each source (persists across page navigation)
 const syncStatus = {};
@@ -243,11 +243,11 @@ async function syncXtreamSource(source) {
     const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
 
     // Emit start event
-    app?.emit('sync:start', { source: source.id, sourceName: source.name });
+    allModules?.app?.emit('sync:source:start', { sourceId: source.id, sourceName: source.name });
     updateSyncStatus(source.id, { step: 'auth', message: 'Authenticating...', percent: 0, syncing: true, sourceType: 'xtream', stats });
 
     // Test connection first
-    app?.emit('sync:progress', { source: source.id, step: 'auth', message: 'Authenticating...', percent: 0 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'auth', message: 'Authenticating...', percent: 0 });
     const authUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}`;
     const authResponse = await fetchWithRetry(authUrl, { headers }, 3, source);
 
@@ -259,7 +259,7 @@ async function syncXtreamSource(source) {
 
     // Fetch categories first to map category_id to category_name
     updateSyncStatus(source.id, { step: 'categories', message: 'Fetching categories...', percent: 5 });
-    app?.emit('sync:progress', { source: source.id, step: 'categories', message: 'Fetching categories...', percent: 5 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'categories', message: 'Fetching categories...', percent: 5 });
 
     // Fetch all category types (live, VOD, series) and merge into one map
     const categoryMap = {};
@@ -289,14 +289,14 @@ async function syncXtreamSource(source) {
 
     // Sync Live TV (10-40%)
     updateSyncStatus(source.id, { step: 'live', message: 'Fetching live channels...', percent: 10 });
-    app?.emit('sync:progress', { source: source.id, step: 'live', message: 'Fetching live channels...', percent: 10 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: 'Fetching live channels...', percent: 10 });
     const liveUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_live_streams`;
     const liveResponse = await fetchWithRetry(liveUrl, { headers }, 3, source);
     const liveChannels = liveResponse.data || [];
 
     logger.info('iptv', `Found ${liveChannels.length} live channels`);
     updateSyncStatus(source.id, { step: 'live', message: `Saving ${liveChannels.length} live channels...`, percent: 12, total: liveChannels.length });
-    app?.emit('sync:progress', { source: source.id, step: 'live', message: `Saving ${liveChannels.length} live channels...`, total: liveChannels.length, percent: 12 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: `Saving ${liveChannels.length} live channels...`, total: liveChannels.length, percent: 12 });
 
     let liveCount = 0, movieCount = 0, seriesCount = 0;
 
@@ -352,7 +352,7 @@ async function syncXtreamSource(source) {
             const livePercent = 12 + Math.round(((i + 1) / liveChannels.length) * 28);
             const msg = `Channels: ${i + 1}/${liveChannels.length}`;
             updateSyncStatus(source.id, { step: 'live', message: msg, percent: livePercent, current: i + 1, total: liveChannels.length });
-            app?.emit('sync:progress', { source: source.id, step: 'live', message: msg, current: i + 1, total: liveChannels.length, percent: livePercent });
+            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: msg, current: i + 1, total: liveChannels.length, percent: livePercent });
         }
     }
 
@@ -361,7 +361,7 @@ async function syncXtreamSource(source) {
 
     // Sync VOD (40-70%)
     updateSyncStatus(source.id, { step: 'vod', message: 'Fetching movies...', percent: 40 });
-    app?.emit('sync:progress', { source: source.id, step: 'vod', message: 'Fetching movies...', percent: 40 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: 'Fetching movies...', percent: 40 });
     const vodUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_vod_streams`;
     // Use longer timeout for VOD - some providers have large catalogs (30MB+)
     const vodResponse = await fetchWithRetry(vodUrl, { headers, timeout: 120000 }, 3, source);
@@ -369,7 +369,7 @@ async function syncXtreamSource(source) {
 
     logger.info('iptv', `Found ${vodItems.length} VOD items`);
     updateSyncStatus(source.id, { step: 'vod', message: `Saving ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
-    app?.emit('sync:progress', { source: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
     let vodSaved = 0, vodSkipped = 0;
     // Use transaction for faster bulk inserts
@@ -436,7 +436,7 @@ async function syncXtreamSource(source) {
             const vodPercent = 42 + Math.round(((i + 1) / vodItems.length) * 28);
             const msg = `Movies: ${vodSaved} saved, ${vodSkipped} filtered`;
             updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: i + 1, total: vodItems.length });
-            app?.emit('sync:progress', { source: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
+            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
         }
     }
     await db.run('COMMIT');
@@ -444,7 +444,7 @@ async function syncXtreamSource(source) {
 
     // Sync Series (70-100%)
     updateSyncStatus(source.id, { step: 'series', message: 'Fetching series...', percent: 70 });
-    app?.emit('sync:progress', { source: source.id, step: 'series', message: 'Fetching series...', percent: 70 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: 'Fetching series...', percent: 70 });
     const seriesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series`;
     // Use longer timeout for series - some providers have large catalogs
     const seriesResponse = await fetchWithRetry(seriesUrl, { headers, timeout: 120000 }, 3, source);
@@ -452,7 +452,7 @@ async function syncXtreamSource(source) {
 
     logger.info('iptv', `Found ${seriesList.length} series`);
     updateSyncStatus(source.id, { step: 'series', message: `Processing ${seriesList.length} series...`, percent: 72, total: seriesList.length });
-    app?.emit('sync:progress', { source: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
     let seriesSaved = 0, seriesSkipped = 0;
     // Use transaction for faster bulk inserts
@@ -472,7 +472,7 @@ async function syncXtreamSource(source) {
                 const seriesPercent = 72 + Math.round(((i + 1) / seriesList.length) * 28);
                 const msg = `Series: ${seriesSaved} saved, ${seriesSkipped} filtered`;
                 updateSyncStatus(source.id, { step: 'series', message: msg, percent: seriesPercent, current: i + 1, total: seriesList.length });
-                app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
+                allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
             }
             continue; // Skip content not in preferred languages
         }
@@ -534,6 +534,11 @@ async function syncXtreamSource(source) {
                 mediaId = existingMedia?.id;
             }
 
+            // Skip episode insertion if we couldn't get the media ID
+            if (!mediaId) {
+                logger.warn('iptv', `Could not find media_id for series ${series.series_id}, skipping episodes`);
+            } else {
+
             for (const [season, episodes] of Object.entries(episodesData)) {
                 for (const ep of episodes) {
                     const ext = ep.container_extension || 'mkv';
@@ -558,6 +563,7 @@ async function syncXtreamSource(source) {
                     ]);
                 }
             }
+            } // end else (mediaId exists)
         } catch (err) {
             logger.warn('iptv', `Failed to fetch episodes for series ${series.series_id}: ${err.message}`);
         }
@@ -567,7 +573,7 @@ async function syncXtreamSource(source) {
             const seriesPercent = 72 + Math.round(((i + 1) / seriesList.length) * 28);
             const msg = `Series: ${seriesSaved} saved, ${seriesSkipped} filtered`;
             updateSyncStatus(source.id, { step: 'series', message: msg, percent: seriesPercent, current: i + 1, total: seriesList.length });
-            app?.emit('sync:progress', { source: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
+            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: seriesPercent });
         }
     }
     await db.run('COMMIT');
@@ -575,7 +581,7 @@ async function syncXtreamSource(source) {
 
     // Mark items not seen in this sync as inactive
     updateSyncStatus(source.id, { step: 'cleanup', message: 'Marking removed items...', percent: 98 });
-    app?.emit('sync:progress', { source: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
 
     const inactiveResult = await db.run(`
         UPDATE media SET is_active = 0
@@ -588,7 +594,7 @@ async function syncXtreamSource(source) {
 
     logger.info('iptv', `Sync complete for ${source.name}: +${stats.added} added, ~${stats.updated} updated, =${stats.unchanged} unchanged, -${stats.removed} removed`);
     clearSyncStatus(source.id);
-    app?.emit('sync:complete', { source: source.id, stats });
+    allModules?.app?.emit('sync:source:complete', { sourceId: source.id, stats });
 }
 
 async function syncM3USource(source) {
@@ -603,9 +609,9 @@ async function syncM3USource(source) {
     const stats = { added: 0, updated: 0, unchanged: 0, removed: 0 };
 
     // Emit start event
-    app?.emit('sync:start', { source: source.id, sourceName: source.name });
+    allModules?.app?.emit('sync:source:start', { sourceId: source.id, sourceName: source.name });
     updateSyncStatus(source.id, { step: 'fetch', message: 'Checking for cached M3U...', percent: 0, syncing: true, sourceType: 'm3u', stats });
-    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Checking for cached M3U...', percent: 0 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'fetch', message: 'Checking for cached M3U...', percent: 0 });
 
     let m3uContent = null;
     let usedCache = false;
@@ -645,7 +651,7 @@ async function syncM3USource(source) {
     // If no cache, fetch from URL
     if (!m3uContent) {
         updateSyncStatus(source.id, { step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
-        app?.emit('sync:progress', { source: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'fetch', message: 'Fetching M3U playlist...', percent: 0 });
 
         try {
             const response = await fetchWithRetry(source.url, { headers, timeout: 60000 }, 3, source);
@@ -674,7 +680,7 @@ async function syncM3USource(source) {
 
                     logger.info('iptv', `Using fallback cached M3U: ${latestFile} (${ageDays} days old)`);
                     updateSyncStatus(source.id, { step: 'fetch', message: `Using cached M3U (${ageDays}d old, provider unavailable)...`, percent: 5 });
-                    app?.emit('sync:progress', { source: source.id, step: 'fetch', message: `Using cached M3U (${ageDays}d old)...`, percent: 5 });
+                    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'fetch', message: `Using cached M3U (${ageDays}d old)...`, percent: 5 });
 
                     m3uContent = await fs.readFile(filePath, 'utf8');
                     usedCache = true;
@@ -742,7 +748,7 @@ async function syncM3USource(source) {
 
     // Parse M3U (10%)
     updateSyncStatus(source.id, { step: 'parse', message: 'Parsing playlist...', percent: 10 });
-    app?.emit('sync:progress', { source: source.id, step: 'parse', message: 'Parsing playlist...', percent: 10 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'parse', message: 'Parsing playlist...', percent: 10 });
 
     // Get custom parser config if available
     let parserConfig = null;
@@ -796,7 +802,7 @@ async function syncM3USource(source) {
 
     const totalItems = seriesMap.size + nonEpisodeChannels.length;
     updateSyncStatus(source.id, { step: 'save', message: `Saving ${totalItems} items...`, percent: 20, total: totalItems });
-    app?.emit('sync:progress', { source: source.id, step: 'save', message: `Saving ${totalItems} items...`, total: totalItems, percent: 20 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'save', message: `Saving ${totalItems} items...`, total: totalItems, percent: 20 });
 
     let processedCount = 0;
     let savedCount = 0, skippedCount = 0;
@@ -944,7 +950,7 @@ async function syncM3USource(source) {
         const savePercent = 20 + Math.round((processedCount / totalItems) * 40); // Series = 20-60%
         const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
         updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-        app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
     }
 
     // Prepare non-episode channel data
@@ -1047,7 +1053,7 @@ async function syncM3USource(source) {
         const savePercent = 60 + Math.round(((processedCount - seriesData.length) / channelData.length) * 38); // Channels = 60-98%
         const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
         updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-        app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
     }
 
     // Log classification breakdown
@@ -1055,7 +1061,7 @@ async function syncM3USource(source) {
 
     // Mark items not seen in this sync as inactive
     updateSyncStatus(source.id, { step: 'cleanup', message: 'Marking removed items...', percent: 98 });
-    app?.emit('sync:progress', { source: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'cleanup', message: 'Marking removed items...', percent: 98 });
 
     const inactiveResult = await db.run(`
         UPDATE media SET is_active = 0
@@ -1068,7 +1074,7 @@ async function syncM3USource(source) {
 
     logger.info('iptv', `Sync complete for ${source.name}: +${stats.added} added, ~${stats.updated} updated, =${stats.unchanged} unchanged, -${stats.removed} removed`);
     clearSyncStatus(source.id);
-    app?.emit('sync:complete', { source: source.id, stats });
+    allModules?.app?.emit('sync:source:complete', { sourceId: source.id, stats });
 }
 
 // Default parser config for standard M3U format
@@ -1473,7 +1479,7 @@ module.exports = {
         logger = modules.logger;
         db = modules.db;
         settings = modules.settings;
-        app = modules.app;
+        allModules = modules;  // Store ref for dynamic app access
     },
 
     testSource: async (source) => {
@@ -1536,7 +1542,7 @@ module.exports = {
         } catch (err) {
             logger.error('iptv', `Sync failed for ${source.name}: ${err.message}`);
             clearSyncStatus(source.id);
-            app?.emit('sync:error', { source: source.id, error: err.message });
+            allModules?.app?.emit('sync:source:error', { sourceId: source.id, error: err.message });
             throw err;
         }
     },
