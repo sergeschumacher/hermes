@@ -117,9 +117,9 @@ function extractCleanTitle(title) {
     clean = clean.replace(/^24\/7\s+/i, '');
     clean = clean.replace(/^\d+\/\d+\s*/i, '');
 
-    // Extract and remove country/language prefixes like "UK:", "DE:", "IT|", "PRIME:", "EN -", "LAT -"
+    // Extract and remove country/language prefixes like "UK:", "DE:", "IT|", "PRIME:", "EN -", "LAT -", "DE ★"
     // Capture the language hint before removing (only if in preferred languages)
-    const langPrefixMatch = clean.match(/^([A-Z]{2,6})\s*[-:|]\s*/i);
+    const langPrefixMatch = clean.match(/^([A-Z]{2,6})\s*[-:|★☆]\s*/i);
     if (langPrefixMatch) {
         const prefix = langPrefixMatch[1].toUpperCase();
         const mappedLang = LANG_PREFIX_MAP[prefix];
@@ -128,7 +128,7 @@ function extractCleanTitle(title) {
         if (mappedLang && (!allowedLangs || allowedLangs.includes(mappedLang))) {
             language = mappedLang;
         }
-        clean = clean.replace(/^[A-Z]{2,6}\s*[-:|]\s*/i, '');
+        clean = clean.replace(/^[A-Z]{2,6}\s*[-:|★☆]\s*/i, '');
     }
 
     // Remove quality indicators
@@ -141,8 +141,17 @@ function extractCleanTitle(title) {
 
     // Remove year in parentheses but capture it
     const yearMatch = clean.match(/\((\d{4})\)?/);
-    const year = yearMatch ? parseInt(yearMatch[1]) : null;
+    let year = yearMatch ? parseInt(yearMatch[1]) : null;
     clean = clean.replace(/\s*\(\d{4}\)?\s*/g, ' ');
+
+    // Also extract year from "- YYYY" format at end of title (common in IPTV)
+    if (!year) {
+        const dashYearMatch = clean.match(/\s*-\s*(\d{4})\s*$/);
+        if (dashYearMatch) {
+            year = parseInt(dashYearMatch[1]);
+            clean = clean.replace(/\s*-\s*\d{4}\s*$/, '');
+        }
+    }
 
     // Clean up whitespace
     clean = clean.replace(/\s+/g, ' ').trim();

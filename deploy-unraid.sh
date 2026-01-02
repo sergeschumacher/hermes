@@ -8,7 +8,7 @@ set -e
 # =============================================================================
 # CONFIGURATION - EDIT THESE VALUES
 # =============================================================================
-UNRAID_HOST="192.168.1.XXX"     # Your Unraid IP address
+UNRAID_HOST="192.168.178.201"     # Your Unraid IP address
 UNRAID_USER="root"                # Unraid SSH user (usually root)
 UNRAID_PASS=""                    # Unraid SSH password (leave empty to prompt)
 CONTAINER_NAME="hermes"           # Container name on Unraid
@@ -33,7 +33,7 @@ echo -e "${GREEN}║       Hermes Unraid Deployment             ║${NC}"
 echo -e "${GREEN}╚════════════════════════════════════════════╝${NC}"
 echo ""
 
-# Check if IP is configured
+# Check if IP is configured (placeholder is 192.168.1.XXX)
 if [[ "$UNRAID_HOST" == "192.168.1.XXX" ]]; then
     echo -e "${RED}ERROR: Please edit this script and set UNRAID_HOST to your Unraid IP address${NC}"
     exit 1

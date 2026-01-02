@@ -290,9 +290,13 @@
     }
 </style>
 
+<!-- HLS.js for playing HLS streams in browsers that don't support it natively -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+
 <script>
     // Preview state
     let currentPreviewUrl = null;
+    let currentHls = null;
 
     window.openPreview = function(streamUrl, title, quality, language) {
         if (!streamUrl) {
@@ -314,6 +318,12 @@
         // Get video element and fully reset it
         const video = document.getElementById('preview-video');
 
+        // Cleanup previous HLS instance
+        if (currentHls) {
+            currentHls.destroy();
+            currentHls = null;
+        }
+
         // Remove old event handlers
         video.oncanplay = null;
         video.onerror = null;
@@ -323,32 +333,78 @@
         video.pause();
         video.removeAttribute('src');
         video.innerHTML = '';
-        video.load(); // Reset the element
+        video.load();
 
-        // Build new proxy URL with cache buster
+        // Build proxy URL with cache buster
         const proxyUrl = '/api/stream/proxy?url=' + encodeURIComponent(streamUrl) + '&t=' + Date.now();
 
-        // Create new source element
-        const source = document.createElement('source');
-        source.src = proxyUrl;
-        source.type = 'video/mp4';
-        video.appendChild(source);
+        // Check if stream is HLS
+        const isHls = streamUrl.includes('.m3u8');
 
-        // Handle video events
-        video.onloadeddata = () => {
+        const onVideoReady = () => {
             document.getElementById('preview-loading').classList.add('hidden');
             video.play().catch(e => console.log('Autoplay prevented:', e));
         };
 
-        video.onerror = (e) => {
-            console.error('Video error:', e);
+        const onVideoError = (errorMsg) => {
+            console.error('Video error:', errorMsg);
             document.getElementById('preview-loading').classList.add('hidden');
             document.getElementById('preview-error').classList.remove('hidden');
-            document.getElementById('preview-error-msg').textContent = 'Stream may be unavailable or incompatible';
+            document.getElementById('preview-error-msg').textContent = errorMsg || 'Stream may be unavailable or incompatible';
         };
 
-        // Load the new source
-        video.load();
+        if (isHls) {
+            // Use HLS.js for HLS streams (most browsers don't support HLS natively)
+            if (Hls.isSupported()) {
+                currentHls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: true,
+                    backBufferLength: 30
+                });
+
+                currentHls.loadSource(proxyUrl);
+                currentHls.attachMedia(video);
+
+                currentHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    onVideoReady();
+                });
+
+                currentHls.on(Hls.Events.ERROR, (event, data) => {
+                    if (data.fatal) {
+                        switch (data.type) {
+                            case Hls.ErrorTypes.NETWORK_ERROR:
+                                onVideoError('Network error - stream may be unavailable');
+                                break;
+                            case Hls.ErrorTypes.MEDIA_ERROR:
+                                // Try to recover
+                                currentHls.recoverMediaError();
+                                break;
+                            default:
+                                onVideoError('Stream error: ' + data.details);
+                                break;
+                        }
+                    }
+                });
+            } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                // Safari has native HLS support
+                video.src = proxyUrl;
+                video.onloadeddata = onVideoReady;
+                video.onerror = () => onVideoError('Stream may be unavailable');
+                video.load();
+            } else {
+                onVideoError('Your browser does not support HLS playback');
+            }
+        } else {
+            // Non-HLS streams - use transcoded MP4 from proxy
+            const source = document.createElement('source');
+            source.src = proxyUrl;
+            source.type = 'video/mp4';
+            video.appendChild(source);
+
+            video.onloadeddata = onVideoReady;
+            video.onerror = () => onVideoError('Stream may be unavailable or incompatible');
+            video.load();
+        }
 
         // Show modal
         document.getElementById('preview-modal').classList.remove('hidden');
@@ -357,6 +413,12 @@
 
     window.closePreview = function() {
         const video = document.getElementById('preview-video');
+
+        // Cleanup HLS instance
+        if (currentHls) {
+            currentHls.destroy();
+            currentHls = null;
+        }
 
         // Remove event handlers
         video.oncanplay = null;
@@ -367,7 +429,7 @@
         video.pause();
         video.removeAttribute('src');
         video.innerHTML = '';
-        video.load(); // Reset the element
+        video.load();
 
         document.getElementById('preview-modal').classList.add('hidden');
         document.body.style.overflow = '';

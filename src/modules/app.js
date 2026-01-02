@@ -600,8 +600,9 @@ function setupApiRoutes() {
     });
 
     // Stream proxy for CORS bypass - pipes IPTV streams through server
-    // For HLS streams (.m3u8), proxy directly
-    // For MPEG-TS streams, transcode to HLS on-the-fly with FFmpeg
+    // For HLS streams (.m3u8), rewrite URLs to proxy segments
+    // For TS segments, proxy directly
+    // For other streams, transcode to fMP4 with FFmpeg
     router.get('/stream/proxy', async (req, res) => {
         try {
             const url = req.query.url;
@@ -610,7 +611,8 @@ function setupApiRoutes() {
             }
 
             const isHls = url.includes('.m3u8');
-            logger?.info('stream', `Proxying stream: ${url} (HLS: ${isHls})`);
+            const isSegment = url.includes('.ts') || url.includes('.aac') || url.includes('.m4s');
+            logger?.info('stream', `Proxying stream: ${url} (HLS: ${isHls}, Segment: ${isSegment})`);
 
             // Set CORS headers
             res.setHeader('Access-Control-Allow-Origin', '*');
@@ -623,38 +625,92 @@ function setupApiRoutes() {
                 return res.status(204).end();
             }
 
+            const streamHeaders = {
+                'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
+                'Referer': new URL(url).origin + '/'
+            };
+
             if (isHls) {
-                // Direct proxy for HLS streams
-                const headers = {
-                    'User-Agent': 'VLC/3.0.20 LibVLC/3.0.20',
-                    'Referer': new URL(url).origin + '/'
-                };
+                // For HLS playlists, fetch as text and rewrite URLs to go through proxy
+                const response = await axios({
+                    method: 'get',
+                    url: url,
+                    responseType: 'text',
+                    headers: streamHeaders,
+                    timeout: 30000,
+                    maxRedirects: 5
+                });
+
+                let playlist = response.data;
+                const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+
+                // Rewrite all URLs in the playlist to go through our proxy
+                // Handle both relative and absolute URLs
+                playlist = playlist.split('\n').map(line => {
+                    line = line.trim();
+                    // Skip empty lines and comments (except URI in EXT-X-KEY etc)
+                    if (!line || (line.startsWith('#') && !line.includes('URI="'))) {
+                        // Check for URI= in tags like #EXT-X-KEY
+                        if (line.includes('URI="')) {
+                            return line.replace(/URI="([^"]+)"/, (match, uri) => {
+                                const absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
+                                return `URI="/api/stream/proxy?url=${encodeURIComponent(absoluteUri)}"`;
+                            });
+                        }
+                        return line;
+                    }
+                    // This is a segment URL
+                    if (!line.startsWith('#')) {
+                        const absoluteUrl = line.startsWith('http') ? line : new URL(line, baseUrl).href;
+                        return '/api/stream/proxy?url=' + encodeURIComponent(absoluteUrl);
+                    }
+                    return line;
+                }).join('\n');
+
+                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+                res.send(playlist);
+
+            } else if (isSegment) {
+                // For TS/AAC segments, stream directly
                 if (req.headers.range) {
-                    headers['Range'] = req.headers.range;
+                    streamHeaders['Range'] = req.headers.range;
                 }
 
                 const response = await axios({
                     method: 'get',
                     url: url,
                     responseType: 'stream',
-                    headers: headers,
+                    headers: streamHeaders,
                     timeout: 30000,
                     maxRedirects: 5
                 });
 
-                res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+                // Set appropriate content type
+                if (url.includes('.ts')) {
+                    res.setHeader('Content-Type', 'video/mp2t');
+                } else if (url.includes('.aac')) {
+                    res.setHeader('Content-Type', 'audio/aac');
+                } else if (url.includes('.m4s')) {
+                    res.setHeader('Content-Type', 'video/iso.segment');
+                }
+
                 if (response.headers['content-length']) {
                     res.setHeader('Content-Length', response.headers['content-length']);
                 }
+                if (response.headers['content-range']) {
+                    res.setHeader('Content-Range', response.headers['content-range']);
+                }
+
                 res.status(response.status);
                 response.data.pipe(res);
 
                 response.data.on('error', (err) => {
-                    logger?.error('stream', `Stream error: ${err.message}`);
-                    if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+                    logger?.error('stream', `Segment error: ${err.message}`);
+                    if (!res.headersSent) res.status(500).json({ error: 'Segment error' });
                 });
 
                 req.on('close', () => response.data.destroy());
+
             } else {
                 // For non-HLS streams, we need to transcode to browser-playable format
                 // Use FFmpeg to convert to fragmented MP4 which browsers can play directly

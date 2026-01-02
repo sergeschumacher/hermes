@@ -82,7 +82,15 @@ const defaults = {
         'Kodi/19.4 (Windows NT 10.0; Win64; x64)',
         'ExoPlayer/2.18.1',
         'TiviMate/4.7.0'
-    ]
+    ],
+
+    // HDHomeRun Emulator settings
+    hdhrEnabled: false,                   // Enable HDHomeRun emulator for Plex
+    hdhrPort: 5004,                       // HTTP server port (standard HDHomeRun port)
+    hdhrDeviceId: null,                   // Auto-generated 8-char hex device ID
+    hdhrFriendlyName: 'Hermes HDHR',      // Device name shown in Plex
+    hdhrTunerCount: 2,                    // Number of virtual tuners (concurrent streams)
+    hdhrBaseUrl: null                     // External URL override (auto-detected if null)
 };
 
 function load() {

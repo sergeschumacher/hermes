@@ -136,6 +136,119 @@
             </div>
         </div>
 
+        <!-- HDHomeRun Emulator Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700 flex items-center justify-between">
+                <div>
+                    <h2 class="text-lg font-semibold text-white">HDHomeRun Emulator</h2>
+                    <p class="text-xs text-dark-400">Makes Hermes appear as an HDHomeRun tuner for Plex Live TV</p>
+                </div>
+                <label class="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" id="setting-hdhrEnabled" class="sr-only peer" onchange="toggleHdhr(this.checked)">
+                    <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                </label>
+            </div>
+            <div class="p-4 space-y-4" id="hdhr-settings">
+                <!-- Status -->
+                <div class="bg-dark-700 rounded-lg p-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-dark-400 mb-1">Status</p>
+                            <p class="text-white font-medium" id="hdhr-status">Checking...</p>
+                        </div>
+                        <div id="hdhr-status-indicator" class="w-3 h-3 rounded-full bg-dark-500"></div>
+                    </div>
+                </div>
+
+                <!-- Device Settings -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Device Name</label>
+                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="Hermes HDHR" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Tuner Count</label>
+                        <input type="number" id="setting-hdhrTunerCount" class="input" min="1" max="8" value="2" />
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Base URL (leave blank to auto-detect)</label>
+                    <input type="text" id="setting-hdhrBaseUrl" class="input" placeholder="http://192.168.1.XXX:5004" />
+                    <p class="text-xs text-dark-500 mt-1">Override if Hermes is behind NAT or in Docker</p>
+                </div>
+
+                <!-- Channel Count -->
+                <div class="bg-dark-700 rounded-lg p-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-dark-400">Channels in Lineup</p>
+                            <p class="text-white font-medium" id="hdhr-channel-count">0 channels</p>
+                        </div>
+                        <button onclick="openHdhrChannels()" class="btn btn-secondary btn-sm">Manage Channels</button>
+                    </div>
+                </div>
+
+                <!-- Plex Setup Instructions -->
+                <div class="bg-primary-500/10 rounded-lg p-3 border border-primary-500/20">
+                    <p class="text-sm text-primary-400 font-medium mb-2">Plex Setup Instructions</p>
+                    <ol class="text-xs text-dark-300 space-y-1 list-decimal list-inside">
+                        <li>Enable HDHomeRun emulator above</li>
+                        <li>Add channels using "Manage Channels"</li>
+                        <li>In Plex: Settings > Live TV & DVR > Set Up Plex DVR</li>
+                        <li>Plex should auto-discover "Hermes HDHR"</li>
+                        <li>Add the EPG URL below for guide data</li>
+                    </ol>
+                    <div class="mt-3 pt-2 border-t border-primary-500/20 space-y-2">
+                        <div>
+                            <p class="text-xs text-dark-400">EPG URL (for Plex guide data):</p>
+                            <code class="text-xs text-primary-400 break-all" id="hdhr-epg-url">Loading...</code>
+                        </div>
+                        <div>
+                            <p class="text-xs text-dark-400">Lineup URL (auto-discovered):</p>
+                            <code class="text-xs text-primary-400 break-all" id="hdhr-lineup-url">Loading...</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- HDHR Channel Selection Modal -->
+        <div id="hdhr-channels-modal" class="fixed inset-0 bg-black/50 z-50 hidden items-center justify-center">
+            <div class="bg-dark-800 rounded-lg w-full max-w-4xl max-h-[90vh] overflow-hidden m-4">
+                <div class="p-4 border-b border-dark-700 flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-white">HDHomeRun Channel Lineup</h3>
+                    <button onclick="closeHdhrChannels()" class="text-dark-400 hover:text-white">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="p-4 overflow-y-auto max-h-[calc(90vh-140px)]">
+                    <!-- Quick Actions -->
+                    <div class="flex gap-2 mb-4">
+                        <select id="hdhr-category-select" class="input flex-1">
+                            <option value="">Select a category to add...</option>
+                        </select>
+                        <button onclick="addHdhrCategory()" class="btn btn-primary">Add Category</button>
+                        <button onclick="clearHdhrChannels()" class="btn btn-secondary">Clear All</button>
+                    </div>
+
+                    <!-- Current Lineup -->
+                    <div class="mb-4">
+                        <h4 class="text-sm font-medium text-white mb-2">Current Lineup (<span id="hdhr-lineup-count">0</span> channels)</h4>
+                        <div id="hdhr-lineup" class="space-y-1 max-h-96 overflow-y-auto">
+                            <p class="text-sm text-dark-400">No channels in lineup</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 border-t border-dark-700 flex justify-end gap-2">
+                    <button onclick="rebuildHdhrLineup()" class="btn btn-secondary">Renumber Channels</button>
+                    <button onclick="closeHdhrChannels()" class="btn btn-primary">Done</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Overseerr Settings -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -1893,6 +2006,220 @@
             alert('Failed to connect to Plex: ' + err.message);
         }
     }
+
+    // =====================================================
+    // HDHomeRun Emulator Functions
+    // =====================================================
+
+    async function loadHdhrStatus() {
+        try {
+            const response = await fetch('/api/hdhr/status');
+            const status = await response.json();
+
+            // Update status display
+            const statusEl = document.getElementById('hdhr-status');
+            const indicatorEl = document.getElementById('hdhr-status-indicator');
+            const enabledEl = document.getElementById('setting-hdhrEnabled');
+
+            if (status.running) {
+                statusEl.textContent = 'Running on port ' + (status.port || 5004);
+                indicatorEl.className = 'w-3 h-3 rounded-full bg-green-500';
+            } else if (status.enabled) {
+                statusEl.textContent = 'Enabled but not running';
+                indicatorEl.className = 'w-3 h-3 rounded-full bg-yellow-500';
+            } else {
+                statusEl.textContent = 'Disabled';
+                indicatorEl.className = 'w-3 h-3 rounded-full bg-dark-500';
+            }
+
+            if (enabledEl) {
+                enabledEl.checked = status.enabled;
+            }
+
+            // Update URLs
+            const epgUrlEl = document.getElementById('hdhr-epg-url');
+            const lineupUrlEl = document.getElementById('hdhr-lineup-url');
+            if (epgUrlEl && status.xmltvUrl) {
+                epgUrlEl.textContent = status.xmltvUrl;
+            }
+            if (lineupUrlEl && status.baseUrl) {
+                lineupUrlEl.textContent = status.baseUrl + '/lineup.json';
+            }
+
+            // Load channel count
+            await loadHdhrChannelCount();
+        } catch (err) {
+            console.error('Failed to load HDHR status:', err);
+        }
+    }
+
+    async function loadHdhrChannelCount() {
+        try {
+            const response = await fetch('/api/hdhr/channels');
+            const channels = await response.json();
+            const countEl = document.getElementById('hdhr-channel-count');
+            if (countEl) {
+                countEl.textContent = channels.length + ' channels';
+            }
+        } catch (err) {
+            console.error('Failed to load HDHR channels:', err);
+        }
+    }
+
+    async function toggleHdhr(enabled) {
+        try {
+            await fetch('/api/hdhr/toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled })
+            });
+            await loadHdhrStatus();
+            if (window.showToast) {
+                showToast(enabled ? 'HDHomeRun emulator enabled' : 'HDHomeRun emulator disabled', 'success');
+            }
+        } catch (err) {
+            console.error('Failed to toggle HDHR:', err);
+            if (window.showToast) {
+                showToast('Failed to toggle HDHomeRun emulator', 'error');
+            }
+        }
+    }
+
+    async function openHdhrChannels() {
+        const modal = document.getElementById('hdhr-channels-modal');
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+        await loadHdhrCategories();
+        await loadHdhrLineup();
+    }
+
+    function closeHdhrChannels() {
+        const modal = document.getElementById('hdhr-channels-modal');
+        modal.classList.add('hidden');
+        modal.classList.remove('flex');
+        loadHdhrChannelCount();
+    }
+
+    async function loadHdhrCategories() {
+        try {
+            const response = await fetch('/api/hdhr/categories');
+            const categories = await response.json();
+            const select = document.getElementById('hdhr-category-select');
+            select.innerHTML = '<option value="">Select a category to add...</option>';
+            categories.forEach(cat => {
+                const opt = document.createElement('option');
+                opt.value = cat.category;
+                opt.textContent = cat.category + ' (' + cat.channel_count + ' channels)';
+                select.appendChild(opt);
+            });
+        } catch (err) {
+            console.error('Failed to load HDHR categories:', err);
+        }
+    }
+
+    async function loadHdhrLineup() {
+        try {
+            const response = await fetch('/api/hdhr/channels');
+            const channels = await response.json();
+            const container = document.getElementById('hdhr-lineup');
+            const countEl = document.getElementById('hdhr-lineup-count');
+
+            countEl.textContent = channels.length;
+
+            if (channels.length === 0) {
+                container.innerHTML = '<p class="text-sm text-dark-400">No channels in lineup. Add a category above.</p>';
+                return;
+            }
+
+            container.innerHTML = channels.map(function(ch) {
+                return '<div class="flex items-center justify-between p-2 bg-dark-700 rounded">' +
+                    '<div class="flex items-center gap-3">' +
+                        '<span class="text-sm font-mono text-dark-400 w-8">' + ch.guide_number + '</span>' +
+                        '<span class="text-sm text-white">' + (ch.guide_name || ch.title) + '</span>' +
+                    '</div>' +
+                    '<button onclick="removeHdhrChannel(' + ch.id + ')" class="text-red-400 hover:text-red-300">' +
+                        '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">' +
+                            '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>' +
+                        '</svg>' +
+                    '</button>' +
+                '</div>';
+            }).join('');
+        } catch (err) {
+            console.error('Failed to load HDHR lineup:', err);
+        }
+    }
+
+    async function addHdhrCategory() {
+        const select = document.getElementById('hdhr-category-select');
+        const category = select.value;
+        if (!category) {
+            alert('Please select a category');
+            return;
+        }
+
+        try {
+            // Get current max channel number
+            const channelsResp = await fetch('/api/hdhr/channels');
+            const channels = await channelsResp.json();
+            const startNumber = channels.length > 0
+                ? Math.max(...channels.map(c => parseInt(c.guide_number) || 0)) + 1
+                : 1;
+
+            await fetch('/api/hdhr/categories/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ category, startNumber })
+            });
+            await loadHdhrLineup();
+            select.value = '';
+            if (window.showToast) {
+                showToast('Category added to lineup', 'success');
+            }
+        } catch (err) {
+            console.error('Failed to add category:', err);
+            if (window.showToast) {
+                showToast('Failed to add category', 'error');
+            }
+        }
+    }
+
+    async function removeHdhrChannel(id) {
+        try {
+            await fetch('/api/hdhr/channels/' + id, { method: 'DELETE' });
+            await loadHdhrLineup();
+        } catch (err) {
+            console.error('Failed to remove channel:', err);
+        }
+    }
+
+    async function clearHdhrChannels() {
+        if (!confirm('Are you sure you want to clear all channels from the lineup?')) return;
+
+        try {
+            await fetch('/api/hdhr/channels', { method: 'DELETE' });
+            await loadHdhrLineup();
+            if (window.showToast) {
+                showToast('Lineup cleared', 'success');
+            }
+        } catch (err) {
+            console.error('Failed to clear channels:', err);
+        }
+    }
+
+    async function rebuildHdhrLineup() {
+        try {
+            await fetch('/api/hdhr/lineup/rebuild', { method: 'POST' });
+            await loadHdhrLineup();
+            if (window.showToast) {
+                showToast('Channels renumbered', 'success');
+            }
+        } catch (err) {
+            console.error('Failed to rebuild lineup:', err);
+        }
+    }
+
+    // Load HDHR status on page load
+    loadHdhrStatus();
 
     document.getElementById('source-type').addEventListener('change', (e) => {
         const type = e.target.value;

@@ -798,140 +798,156 @@ async function syncM3USource(source) {
     let processedCount = 0;
     let savedCount = 0, skippedCount = 0;
 
-    // First, save all series with their episodes
-    for (const [key, series] of seriesMap) {
-        // Extract language from category or series name
-        const language = extractLanguageFromText(series.category, series.seriesName);
-
-        // Extract streaming platform (Netflix, Amazon, Disney+, etc.)
-        const platform = extractPlatform(series.category);
-
-        // Check if language is allowed
-        if (!isLanguageAllowed(language)) {
-            skippedCount++;
-            processedCount++;
-            if (processedCount % 50 === 0 || processedCount === totalItems) {
-                const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-                const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
-                updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-                app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
-            }
-            continue; // Skip content not in preferred languages
-        }
-
-        // Calculate episode count per season
-        const seasonEpisodeCounts = {};
-        for (const ep of series.episodes) {
-            seasonEpisodeCounts[ep.season] = (seasonEpisodeCounts[ep.season] || 0) + 1;
-        }
-        const totalEpisodes = series.episodes.length;
-
-        // Create a unique external_id for this series from this source
-        const seriesExternalId = `m3u_series_${key.replace(/[^a-z0-9]/g, '_')}`;
-
-        // Check if item exists and track changes
-        const existing = await db.get(
-            'SELECT id, title FROM media WHERE source_id = ? AND external_id = ?',
-            [source.id, seriesExternalId]
-        );
-
-        // Insert or update the parent series entry
-        const result = await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language, platform, is_active, last_seen_at)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-            ON CONFLICT(source_id, external_id) DO UPDATE SET
-                title = excluded.title,
-                show_name = excluded.show_name,
-                poster = COALESCE(media.poster, excluded.poster),
-                category = COALESCE(excluded.category, media.category),
-                episode_count = excluded.episode_count,
-                language = COALESCE(media.language, excluded.language),
-                platform = COALESCE(excluded.platform, media.platform),
-                is_active = 1,
-                last_seen_at = CURRENT_TIMESTAMP
-        `, [
-            source.id,
-            seriesExternalId,
-            series.seriesName,
-            series.seriesName,  // show_name = seriesName for grouping
-            series.logo,
-            series.category,
-            totalEpisodes,
-            language,
-            platform
-        ]);
-
-        // Track statistics
-        if (!existing) {
-            stats.added++;
-        } else if (existing.title !== series.seriesName) {
-            stats.updated++;
-        } else {
-            stats.unchanged++;
-        }
-
-        // Get the media_id (either from insert or existing)
-        let mediaId = result.lastID;
-        if (!mediaId || result.changes === 0) {
-            // Was an update, need to fetch the ID
-            const existing = await db.get(
-                'SELECT id FROM media WHERE source_id = ? AND external_id = ?',
-                [source.id, seriesExternalId]
-            );
-            mediaId = existing?.id;
-        }
-
-        if (mediaId) {
-            // Insert episodes into the episodes table
-            for (const ep of series.episodes) {
-                await db.run(`
-                    INSERT INTO episodes (media_id, external_id, season, episode, title, stream_url)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(media_id, season, episode) DO UPDATE SET
-                        external_id = excluded.external_id,
-                        title = excluded.title,
-                        stream_url = excluded.stream_url
-                `, [
-                    mediaId,
-                    ep.id || `${ep.season}_${ep.episode}`,
-                    ep.season,
-                    ep.episode,
-                    ep.episodeTitle || ep.name,
-                    ep.url
-                ]);
-            }
-        }
-
-        savedCount++;
-        processedCount++;
-        if (processedCount % 50 === 0 || processedCount === totalItems) {
-            // M3U save progress: 20-100% = 80% range
-            const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-            const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
-            updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-            app?.emit('sync:progress', {
-                source: source.id,
-                step: 'save',
-                message: msg,
-                current: processedCount,
-                total: totalItems,
-                percent: savePercent
-            });
-        }
+    // OPTIMIZATION: Pre-load existing media IDs and titles for this source
+    logger.info('iptv', 'Pre-loading existing media for fast lookup...');
+    const existingMedia = await db.all(
+        'SELECT id, external_id, title, stream_url FROM media WHERE source_id = ?',
+        [source.id]
+    );
+    const existingMap = new Map();
+    for (const item of existingMedia) {
+        existingMap.set(item.external_id, { id: item.id, title: item.title, stream_url: item.stream_url });
     }
+    logger.info('iptv', `Loaded ${existingMap.size} existing media items`);
 
     // Track classification stats
     const classificationStats = { live: 0, movie: 0, series: 0 };
 
-    // Save non-episode channels (movies, series, and live channels)
+    // OPTIMIZATION: Process in batches with transactions
+    const BATCH_SIZE = 500;
+
+    // Prepare series data for batch processing
+    const seriesData = [];
+    for (const [key, series] of seriesMap) {
+        const language = extractLanguageFromText(series.category, series.seriesName);
+        const platform = extractPlatform(series.category);
+
+        if (!isLanguageAllowed(language)) {
+            skippedCount++;
+            processedCount++;
+            continue;
+        }
+
+        const seriesExternalId = `m3u_series_${key.replace(/[^a-z0-9]/g, '_')}`;
+        const totalEpisodes = series.episodes.length;
+        const existing = existingMap.get(seriesExternalId);
+
+        seriesData.push({
+            externalId: seriesExternalId,
+            seriesName: series.seriesName,
+            logo: series.logo,
+            category: series.category,
+            totalEpisodes,
+            language,
+            platform,
+            episodes: series.episodes,
+            existing
+        });
+    }
+
+    // Process series in batches
+    logger.info('iptv', `Processing ${seriesData.length} series in batches of ${BATCH_SIZE}...`);
+    for (let batchStart = 0; batchStart < seriesData.length; batchStart += BATCH_SIZE) {
+        const batch = seriesData.slice(batchStart, batchStart + BATCH_SIZE);
+
+        // Start transaction for this batch
+        await db.run('BEGIN TRANSACTION');
+
+        try {
+            for (const item of batch) {
+                // Insert/update series
+                await db.run(`
+                    INSERT INTO media (source_id, external_id, media_type, title, show_name, poster, category, episode_count, language, platform, is_active, last_seen_at)
+                    VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT(source_id, external_id) DO UPDATE SET
+                        title = excluded.title,
+                        show_name = excluded.show_name,
+                        poster = COALESCE(media.poster, excluded.poster),
+                        category = COALESCE(excluded.category, media.category),
+                        episode_count = excluded.episode_count,
+                        language = COALESCE(media.language, excluded.language),
+                        platform = COALESCE(excluded.platform, media.platform),
+                        is_active = 1,
+                        last_seen_at = CURRENT_TIMESTAMP
+                `, [
+                    source.id,
+                    item.externalId,
+                    item.seriesName,
+                    item.seriesName,
+                    item.logo,
+                    item.category,
+                    item.totalEpisodes,
+                    item.language,
+                    item.platform
+                ]);
+
+                // Track statistics
+                if (!item.existing) {
+                    stats.added++;
+                } else if (item.existing.title !== item.seriesName) {
+                    stats.updated++;
+                } else {
+                    stats.unchanged++;
+                }
+
+                // Get media_id - use cached if available, otherwise query
+                let mediaId = item.existing?.id;
+                if (!mediaId) {
+                    const inserted = await db.get(
+                        'SELECT id FROM media WHERE source_id = ? AND external_id = ?',
+                        [source.id, item.externalId]
+                    );
+                    mediaId = inserted?.id;
+                    // Update cache
+                    if (mediaId) {
+                        existingMap.set(item.externalId, { id: mediaId, title: item.seriesName });
+                    }
+                }
+
+                // Insert episodes for this series
+                if (mediaId && item.episodes.length > 0) {
+                    for (const ep of item.episodes) {
+                        await db.run(`
+                            INSERT INTO episodes (media_id, external_id, season, episode, title, stream_url)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                            ON CONFLICT(media_id, season, episode) DO UPDATE SET
+                                external_id = excluded.external_id,
+                                title = excluded.title,
+                                stream_url = excluded.stream_url
+                        `, [
+                            mediaId,
+                            ep.id || `${ep.season}_${ep.episode}`,
+                            ep.season,
+                            ep.episode,
+                            ep.episodeTitle || ep.name,
+                            ep.url
+                        ]);
+                    }
+                }
+
+                savedCount++;
+                processedCount++;
+            }
+
+            await db.run('COMMIT');
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
+        }
+
+        // Update progress after each batch
+        const savePercent = 20 + Math.round((processedCount / totalItems) * 40); // Series = 20-60%
+        const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
+        updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
+        app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
+    }
+
+    // Prepare non-episode channel data
+    const channelData = [];
     for (let i = 0; i < nonEpisodeChannels.length; i++) {
         const channel = nonEpisodeChannels[i];
 
-        // Use the contentType already detected during M3U parsing (this is the key fix!)
-        // The parseM3U function already detected content type using sophisticated regex patterns
         let mediaType = channel.contentType || 'live';
-
-        // Fallback detection if contentType wasn't set
         if (!channel.contentType) {
             const groupLower = (channel.group || '').toLowerCase();
             if (groupLower.includes('vod') || groupLower.includes('movie') || groupLower.includes('film')) {
@@ -941,86 +957,90 @@ async function syncM3USource(source) {
             }
         }
 
-        // Track classification
         classificationStats[mediaType] = (classificationStats[mediaType] || 0) + 1;
 
-        // Extract language from tvg-language attribute, or from category/title patterns
         const language = channel.language || extractLanguageFromText(channel.group, channel.name);
-
-        // Extract streaming platform (Netflix, Amazon, Disney+, etc.)
         const platform = extractPlatform(channel.group);
 
-        // Only filter movies and series by language (not live channels)
         if (mediaType !== 'live' && !isLanguageAllowed(language)) {
             skippedCount++;
             processedCount++;
-            if (processedCount % 100 === 0 || processedCount === totalItems) {
-                const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-                const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
-                updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-                app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
-            }
-            continue; // Skip content not in preferred languages
+            continue;
         }
 
         const externalId = channel.id || String(i);
+        const existing = existingMap.get(externalId);
 
-        // Check if item exists and track changes
-        const existing = await db.get(
-            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
-            [source.id, externalId]
-        );
-
-        await db.run(`
-            INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, platform, is_active, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
-            ON CONFLICT(source_id, external_id) DO UPDATE SET
-                media_type = excluded.media_type,
-                title = excluded.title,
-                poster = COALESCE(media.poster, excluded.poster),
-                category = excluded.category,
-                stream_url = excluded.stream_url,
-                language = COALESCE(media.language, excluded.language),
-                platform = COALESCE(excluded.platform, media.platform),
-                is_active = 1,
-                last_seen_at = CURRENT_TIMESTAMP
-        `, [
-            source.id,
+        channelData.push({
             externalId,
             mediaType,
-            channel.name,
-            channel.logo,
-            channel.group,
-            channel.url,
+            name: channel.name,
+            logo: channel.logo,
+            group: channel.group,
+            url: channel.url,
             language,
-            platform
-        ]);
+            platform,
+            existing
+        });
+    }
 
-        // Track statistics
-        if (!existing) {
-            stats.added++;
-        } else if (existing.title !== channel.name || existing.stream_url !== channel.url) {
-            stats.updated++;
-        } else {
-            stats.unchanged++;
+    // Process channels in batches
+    logger.info('iptv', `Processing ${channelData.length} channels in batches of ${BATCH_SIZE}...`);
+    for (let batchStart = 0; batchStart < channelData.length; batchStart += BATCH_SIZE) {
+        const batch = channelData.slice(batchStart, batchStart + BATCH_SIZE);
+
+        await db.run('BEGIN TRANSACTION');
+
+        try {
+            for (const item of batch) {
+                await db.run(`
+                    INSERT INTO media (source_id, external_id, media_type, title, poster, category, stream_url, language, platform, is_active, last_seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+                    ON CONFLICT(source_id, external_id) DO UPDATE SET
+                        media_type = excluded.media_type,
+                        title = excluded.title,
+                        poster = COALESCE(media.poster, excluded.poster),
+                        category = excluded.category,
+                        stream_url = excluded.stream_url,
+                        language = COALESCE(media.language, excluded.language),
+                        platform = COALESCE(excluded.platform, media.platform),
+                        is_active = 1,
+                        last_seen_at = CURRENT_TIMESTAMP
+                `, [
+                    source.id,
+                    item.externalId,
+                    item.mediaType,
+                    item.name,
+                    item.logo,
+                    item.group,
+                    item.url,
+                    item.language,
+                    item.platform
+                ]);
+
+                if (!item.existing) {
+                    stats.added++;
+                } else if (item.existing.title !== item.name || item.existing.stream_url !== item.url) {
+                    stats.updated++;
+                } else {
+                    stats.unchanged++;
+                }
+
+                savedCount++;
+                processedCount++;
+            }
+
+            await db.run('COMMIT');
+        } catch (err) {
+            await db.run('ROLLBACK');
+            throw err;
         }
 
-        savedCount++;
-        processedCount++;
-        if (processedCount % 100 === 0 || processedCount === totalItems) {
-            // M3U save progress: 20-100% = 80% range
-            const savePercent = 20 + Math.round((processedCount / totalItems) * 80);
-            const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
-            updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
-            app?.emit('sync:progress', {
-                source: source.id,
-                step: 'save',
-                message: msg,
-                current: processedCount,
-                total: totalItems,
-                percent: savePercent
-            });
-        }
+        // Update progress after each batch
+        const savePercent = 60 + Math.round(((processedCount - seriesData.length) / channelData.length) * 38); // Channels = 60-98%
+        const msg = `Saved: ${savedCount}, Filtered: ${skippedCount}`;
+        updateSyncStatus(source.id, { step: 'save', message: msg, percent: savePercent, current: processedCount, total: totalItems });
+        app?.emit('sync:progress', { source: source.id, step: 'save', message: msg, current: processedCount, total: totalItems, percent: savePercent });
     }
 
     // Log classification breakdown
