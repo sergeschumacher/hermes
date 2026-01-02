@@ -2857,10 +2857,23 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const cacheKey = `${normalizedTitle}|${media.year || ''}|${media.media_type}`;
             await db.run('DELETE FROM enrichment_cache WHERE cache_key = ? OR cache_key LIKE ?',
                 [cacheKey, `${normalizedTitle}|%`]);
-            logger.info('api', `Cleared enrichment cache for: ${media.title}`);
 
-            // Reset enrichment_attempted to allow re-enrichment
-            await db.run('UPDATE media SET enrichment_attempted = NULL, tmdb_id = NULL WHERE id = ?', [mediaId]);
+            // Clear old trailers (they may be from wrong TMDB match)
+            await db.run('DELETE FROM media_trailers WHERE media_id = ?', [mediaId]);
+
+            logger.info('api', `Cleared enrichment cache and trailers for: ${media.title}`);
+
+            // Reset enrichment_attempted and all TMDB data to allow fresh re-enrichment
+            await db.run(`UPDATE media SET
+                enrichment_attempted = NULL,
+                tmdb_id = NULL,
+                poster = NULL,
+                backdrop = NULL,
+                plot = NULL,
+                genres = NULL,
+                rating = NULL,
+                year = NULL
+                WHERE id = ?`, [mediaId]);
 
             // Queue it for enrichment with high priority
             if (modules.enrichment) {
