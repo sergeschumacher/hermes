@@ -701,6 +701,11 @@
             </div>
             <div id="iptv-fields">
                 <div>
+                    <label class="block text-sm text-dark-400 mb-1">EPG URL (Optional)</label>
+                    <input type="text" id="source-epg-url" class="input" placeholder="https://epg.example.com/guide.xml.gz" />
+                    <p class="text-xs text-dark-500 mt-1">XMLTV format. Leave empty for Xtream sources to auto-generate.</p>
+                </div>
+                <div>
                     <label class="block text-sm text-dark-400 mb-1">User Agent</label>
                     <input type="text" id="source-useragent" class="input" placeholder="IBOPlayer" value="IBOPlayer" />
                 </div>
@@ -810,175 +815,95 @@
     </div>
 </div>
 
-<!-- Source Pattern Analyzer Modal -->
-<div id="analyzer-modal" class="modal-overlay hidden">
-    <div class="modal-content max-w-5xl">
-        <div class="p-4 border-b border-dark-700 flex items-center justify-between">
-            <h3 class="text-lg font-semibold text-white">Pattern Analyzer</h3>
-            <button onclick="hideAnalyzerModal()" class="text-dark-400 hover:text-white">
-                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-            </button>
-        </div>
-        <div id="analyzer-content" class="p-4">
-            <!-- Loading state -->
-            <div id="analyzer-loading" class="flex flex-col items-center justify-center py-8">
-                <div class="animate-spin w-8 h-8 border-3 border-primary-500 border-t-transparent rounded-full mb-4"></div>
-                <p class="text-dark-300" id="analyzer-loading-text">Fetching samples from source...</p>
-            </div>
-            <!-- Results (hidden initially) -->
-            <div id="analyzer-results" class="hidden space-y-5">
-                <!-- Instructions -->
-                <div class="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
-                    <div class="flex items-start gap-3">
-                        <svg class="w-5 h-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                        <div class="text-sm text-blue-300">
-                            <p class="font-medium mb-1">How to define patterns:</p>
-                            <p class="text-blue-300/80">Select text in any sample below to mark it as Language, Year, or Title. The system will learn from your selection and apply the pattern to all entries.</p>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Action Buttons -->
-                <div class="flex items-center gap-3">
-                    <button onclick="autoDetectPatterns()" class="btn btn-secondary text-sm" id="auto-detect-btn">
-                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
-                        Auto-Detect
-                    </button>
-                    <button onclick="aiDetectPatterns()" class="btn btn-secondary text-sm" id="ai-detect-btn">
-                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path></svg>
-                        AI Detect
-                    </button>
-                    <button onclick="clearPatternSelection()" class="btn btn-secondary text-sm">
-                        <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
-                        Clear Selection
-                    </button>
-                    <div class="flex-1"></div>
-                    <span class="text-xs text-dark-400" id="analyzer-stats">
-                        <span id="analyzer-movies-count">0</span> Movies,
-                        <span id="analyzer-series-count">0</span> Series,
-                        <span id="analyzer-live-count">0</span> Live TV
-                    </span>
-                </div>
-
-                <!-- Sample Editor -->
-                <div class="bg-dark-800 rounded-lg overflow-hidden">
-                    <div class="border-b border-dark-700 p-3 flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <span class="text-sm font-medium text-white">Sample Entries</span>
-                            <span class="text-xs text-dark-400">Click on text to mark pattern parts</span>
-                        </div>
-                        <div class="flex items-center gap-2">
-                            <span class="text-xs text-dark-400">Fetch more:</span>
-                            <button onclick="fetchMoreSamples('movies')" class="px-2 py-1 text-xs bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30" title="Fetch 5 more movies">+Movies</button>
-                            <button onclick="fetchMoreSamples('series')" class="px-2 py-1 text-xs bg-green-500/20 text-green-300 rounded hover:bg-green-500/30" title="Fetch 5 more series">+Series</button>
-                            <button onclick="fetchMoreSamples('livetv')" class="px-2 py-1 text-xs bg-orange-500/20 text-orange-300 rounded hover:bg-orange-500/30" title="Fetch 5 more live TV">+Live</button>
-                        </div>
-                    </div>
-                    <div class="divide-y divide-dark-700 max-h-[300px] overflow-y-auto" id="analyzer-samples">
-                        <!-- Sample rows populated by JS -->
-                    </div>
-                </div>
-
-                <!-- Pattern Selection Context Menu -->
-                <div id="pattern-context-menu" class="fixed bg-dark-card border border-dark-border rounded-lg shadow-2xl py-1 z-50 hidden min-w-[150px]">
-                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('language')">
-                        <span class="w-3 h-3 rounded-full bg-purple-500"></span>
-                        Language
-                    </button>
-                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('year')">
-                        <span class="w-3 h-3 rounded-full bg-green-500"></span>
-                        Year
-                    </button>
-                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('quality')">
-                        <span class="w-3 h-3 rounded-full bg-yellow-500"></span>
-                        Quality
-                    </button>
-                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('title')">
-                        <span class="w-3 h-3 rounded-full bg-blue-500"></span>
-                        Title
-                    </button>
-                    <div class="border-t border-dark-border my-1"></div>
-                    <button class="w-full px-3 py-2 text-left text-sm text-white flex items-center gap-2 hover:bg-dark-surface" onclick="markSelectionAs('ignore')">
-                        <span class="w-3 h-3 rounded-full bg-dark-500"></span>
-                        Ignore/Remove
-                    </button>
-                </div>
-
-                <!-- Detected Patterns Summary -->
-                <div class="bg-dark-800 rounded-lg p-4">
-                    <h4 class="text-sm font-medium text-white mb-3">Detected Patterns</h4>
-                    <div class="grid grid-cols-3 gap-4">
-                        <div>
-                            <label class="flex items-center gap-2 text-xs text-dark-400 mb-1">
-                                <span class="w-2 h-2 rounded-full bg-purple-500"></span>
-                                Language Pattern
-                            </label>
-                            <input type="text" id="pattern-language" class="input text-xs font-mono" placeholder="e.g. ^([A-Z]{2})\s*[-:★❖]\s*" readonly />
-                        </div>
-                        <div>
-                            <label class="flex items-center gap-2 text-xs text-dark-400 mb-1">
-                                <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                                Year Pattern
-                            </label>
-                            <input type="text" id="pattern-year" class="input text-xs font-mono" placeholder="e.g. [-–]\s*(\d{4})\s*$" readonly />
-                        </div>
-                        <div>
-                            <label class="flex items-center gap-2 text-xs text-dark-400 mb-1">
-                                <span class="w-2 h-2 rounded-full bg-yellow-500"></span>
-                                Quality Pattern
-                            </label>
-                            <input type="text" id="pattern-quality" class="input text-xs font-mono" placeholder="e.g. (4K|FHD|HD|SD)" readonly />
-                        </div>
-                        <div>
-                            <label class="text-xs text-dark-400 mb-1 block">Movie Category Keywords</label>
-                            <input type="text" id="pattern-movies" class="input text-xs font-mono" placeholder="e.g. VOD|MOVIE|FILM" />
-                        </div>
-                        <div>
-                            <label class="text-xs text-dark-400 mb-1 block">Series Category Keywords</label>
-                            <input type="text" id="pattern-series" class="input text-xs font-mono" placeholder="e.g. SERIE|SHOW|SEASON" />
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Preview of Parsed Results -->
-                <div>
-                    <h4 class="text-sm font-medium text-white mb-3">Preview Results</h4>
-                    <div class="overflow-x-auto bg-dark-800 rounded-lg">
-                        <table class="w-full text-xs">
-                            <thead>
-                                <tr class="border-b border-dark-700 text-dark-400">
-                                    <th class="text-left p-2 w-16">Type</th>
-                                    <th class="text-left p-2">Clean Name</th>
-                                    <th class="text-left p-2 w-32">Category</th>
-                                    <th class="text-left p-2 w-16">Year</th>
-                                    <th class="text-left p-2 w-12">Lang</th>
-                                    <th class="text-left p-2 w-16">Quality</th>
-                                </tr>
-                            </thead>
-                            <tbody id="analyzer-preview-body" class="text-white">
-                                <!-- Rows populated by JS -->
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="p-4 border-t border-dark-700 flex items-center gap-2">
-            <span id="analyzer-status" class="text-xs text-dark-400"></span>
-            <div class="flex-1"></div>
-            <button onclick="hideAnalyzerModal()" class="btn btn-secondary">Cancel</button>
-            <button onclick="applyAnalyzedPatterns()" class="btn btn-primary" id="analyzer-apply-btn" disabled>Apply Patterns</button>
-            <button onclick="applyAndReprocess()" class="btn btn-primary" id="analyzer-reprocess-btn" title="Save patterns and reprocess all existing entries">
-                <svg class="w-4 h-4 mr-1.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
-                Apply &amp; Reprocess
-            </button>
-        </div>
-    </div>
-</div>
+<style>
+/* Wizard Step Styles */
+.wizard-step {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+}
+.wizard-step-circle {
+    width: 2rem;
+    height: 2rem;
+    border-radius: 50%;
+    background: var(--dark-700);
+    color: var(--dark-400);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all 0.2s;
+}
+.wizard-step-circle.active {
+    background: var(--primary-500);
+    color: white;
+}
+.wizard-step-circle.completed {
+    background: var(--green-500);
+    color: white;
+}
+.wizard-step-label {
+    font-size: 0.75rem;
+    color: var(--dark-400);
+    white-space: nowrap;
+}
+.wizard-step.active .wizard-step-label {
+    color: white;
+}
+.wizard-step-line {
+    flex: 1;
+    height: 2px;
+    background: var(--dark-700);
+    margin: 0 0.5rem;
+    margin-bottom: 1.5rem;
+}
+.wizard-step-line.completed {
+    background: var(--green-500);
+}
+/* Wizard Step Content */
+.wizard-step-content {
+    display: none;
+}
+.wizard-step-content.active {
+    display: block;
+}
+/* EPG Matching Styles */
+.epg-channel-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border-bottom: 1px solid var(--dark-700);
+}
+.epg-channel-row:hover {
+    background: var(--dark-800);
+}
+.epg-channel-name {
+    flex: 1;
+    font-size: 0.875rem;
+}
+.epg-match-select {
+    width: 200px;
+}
+.epg-match-badge {
+    font-size: 0.75rem;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+}
+.epg-match-badge.matched {
+    background: var(--green-500)/20;
+    color: var(--green-300);
+}
+.epg-match-badge.unmatched {
+    background: var(--yellow-500)/20;
+    color: var(--yellow-300);
+}
+</style>
 
 <script>
-    // Initialize socket.io connection for real-time updates
-    const socket = io();
+    // Socket is initialized globally in app.js (loaded via footer)
 
     const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel'];
     const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
@@ -1636,8 +1561,8 @@
                                     '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>'
                                 }
                             </button>
-                            <button onclick="analyzeSource(\${s.id})" class="btn btn-secondary btn-sm" id="analyze-btn-\${s.id}" title="Analyze patterns for parsing">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                            <button onclick="reprocessTitles(\${s.id})" class="btn btn-secondary btn-sm" id="reprocess-btn-\${s.id}" title="Clean titles (extract year, quality, language, platform)">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>
                             </button>
                             <button onclick="enrichSource(\${s.id})" class="btn btn-secondary btn-sm" id="enrich-btn-\${s.id}" title="Enrich with TMDB posters">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
@@ -1702,6 +1627,7 @@
         document.getElementById('source-username').value = '';
         document.getElementById('source-password').value = '';
         document.getElementById('source-useragent').value = 'IBOPlayer';
+        document.getElementById('source-epg-url').value = '';
         document.getElementById('source-mac').value = '';
         document.getElementById('source-devicekey').value = '';
         document.getElementById('source-simulate-playback').checked = true;
@@ -1748,6 +1674,7 @@
             data.username = document.getElementById('source-username').value;
             data.password = document.getElementById('source-password').value;
             data.user_agent = document.getElementById('source-useragent').value;
+            data.epg_url = document.getElementById('source-epg-url').value || null;
             data.spoofed_mac = document.getElementById('source-mac').value || null;
             data.spoofed_device_key = document.getElementById('source-devicekey').value || null;
             data.simulate_playback = document.getElementById('source-simulate-playback').checked ? 1 : 0;
@@ -1806,6 +1733,7 @@
                 document.getElementById('source-username').value = source.username || '';
                 document.getElementById('source-password').value = source.password || '';
                 document.getElementById('source-useragent').value = source.user_agent || 'IBOPlayer';
+                document.getElementById('source-epg-url').value = source.epg_url || '';
                 document.getElementById('source-mac').value = source.spoofed_mac || '';
                 document.getElementById('source-devicekey').value = source.spoofed_device_key || '';
                 // Player simulation settings (defaults if not set)
@@ -1985,8 +1913,11 @@
             const statusText = data.usedLLM ? 'AI patterns detected' : 'Patterns auto-detected';
             document.getElementById('analyzer-status').textContent = statusText;
 
+            // Enable wizard mode
+            enableWizardMode();
+
             if (window.showToast) {
-                showToast('Samples loaded! Select text to define patterns or use Auto-Detect.', 'success');
+                showToast('Pattern Wizard started! Follow the steps to configure your source.', 'success');
             }
 
         } catch (err) {
@@ -2528,6 +2459,284 @@
         currentAnalyzerPatterns = null;
         currentAnalyzerSamples = null;
         currentSelection = null;
+        // Reset wizard state
+        currentWizardStep = 1;
+        wizardMode = false;
+        document.getElementById('wizard-steps').classList.add('hidden');
+        document.getElementById('legacy-buttons').classList.remove('hidden');
+        document.getElementById('wizard-buttons').classList.add('hidden');
+    }
+
+    // ============================================================
+    // Wizard Navigation Functions
+    // ============================================================
+    let currentWizardStep = 1;
+    let wizardMode = false;
+    let wizardEpgChannels = [];
+    let wizardEpgSuggestions = {};
+
+    function enableWizardMode() {
+        wizardMode = true;
+        currentWizardStep = 1;
+        document.getElementById('wizard-steps').classList.remove('hidden');
+        document.getElementById('legacy-buttons').classList.add('hidden');
+        document.getElementById('wizard-buttons').classList.remove('hidden');
+        updateWizardUI();
+    }
+
+    function updateWizardUI() {
+        // Update step indicators
+        document.querySelectorAll('.wizard-step').forEach((step, index) => {
+            const stepNum = index + 1;
+            const circle = step.querySelector('.wizard-step-circle');
+            circle.classList.remove('active', 'completed');
+            step.classList.remove('active');
+
+            if (stepNum < currentWizardStep) {
+                circle.classList.add('completed');
+                circle.innerHTML = '<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+            } else if (stepNum === currentWizardStep) {
+                circle.classList.add('active');
+                step.classList.add('active');
+                circle.textContent = stepNum;
+            } else {
+                circle.textContent = stepNum;
+            }
+        });
+
+        // Update step lines
+        document.querySelectorAll('.wizard-step-line').forEach((line, index) => {
+            if (index < currentWizardStep - 1) {
+                line.classList.add('completed');
+            } else {
+                line.classList.remove('completed');
+            }
+        });
+
+        // Show/hide step content
+        document.querySelectorAll('.wizard-step-content').forEach(content => {
+            content.classList.remove('active');
+            content.classList.add('hidden');
+        });
+        const stepContent = document.getElementById('wizard-step-' + currentWizardStep);
+        if (stepContent) {
+            stepContent.classList.add('active');
+            stepContent.classList.remove('hidden');
+        }
+
+        // Update button visibility (3 steps total)
+        document.getElementById('wizard-back-btn').style.display = currentWizardStep > 1 ? '' : 'none';
+        document.getElementById('wizard-next-btn').classList.toggle('hidden', currentWizardStep >= 3);
+        document.getElementById('wizard-skip-btn').classList.toggle('hidden', currentWizardStep >= 3);
+        document.getElementById('wizard-finish-btn').classList.toggle('hidden', currentWizardStep < 3);
+
+        // Load step-specific content
+        if (currentWizardStep === 2) {
+            loadEpgChannelsForWizard();
+        } else if (currentWizardStep === 3) {
+            updateReviewStep();
+        }
+    }
+
+    function wizardNextStep() {
+        if (currentWizardStep < 3) {
+            currentWizardStep++;
+            updateWizardUI();
+        }
+    }
+
+    function wizardPrevStep() {
+        if (currentWizardStep > 1) {
+            currentWizardStep--;
+            updateWizardUI();
+        }
+    }
+
+    function wizardSkipStep() {
+        wizardNextStep();
+    }
+
+    async function wizardFinish() {
+        const reprocess = document.getElementById('wizard-reprocess').checked;
+
+        if (reprocess) {
+            await applyAndReprocess();
+        } else {
+            await applyAnalyzedPatterns();
+        }
+    }
+
+    function updateReviewStep() {
+        // Update pattern summary
+        document.getElementById('review-lang-pattern').textContent =
+            document.getElementById('pattern-language').value || 'Not set';
+        document.getElementById('review-year-pattern').textContent =
+            document.getElementById('pattern-year').value || 'Not set';
+        document.getElementById('review-quality-pattern').textContent =
+            document.getElementById('pattern-quality').value || 'Not set';
+        document.getElementById('review-movies-pattern').textContent =
+            document.getElementById('pattern-movies').value || 'Not set';
+        document.getElementById('review-series-pattern').textContent =
+            document.getElementById('pattern-series').value || 'Not set';
+
+        // Update EPG stats
+        const matched = wizardEpgChannels.filter(c => c.tvg_id).length;
+        const unmatched = wizardEpgChannels.filter(c => !c.tvg_id).length;
+        document.getElementById('review-epg-matched').textContent = matched;
+        document.getElementById('review-epg-unmatched').textContent = unmatched;
+    }
+
+    // ============================================================
+    // EPG Matching Functions for Wizard
+    // ============================================================
+    async function loadEpgChannelsForWizard() {
+        if (!currentAnalyzerSourceId) return;
+
+        const container = document.getElementById('epg-channels-list');
+        container.innerHTML = '<p class="text-dark-400 text-center py-8">Loading channels...</p>';
+
+        try {
+            const response = await fetch('/api/sources/' + currentAnalyzerSourceId + '/channels?type=live');
+            const data = await response.json();
+
+            wizardEpgChannels = data.channels || [];
+            renderEpgChannelsList();
+
+            // Update stats
+            const matched = wizardEpgChannels.filter(c => c.tvg_id).length;
+            const unmatched = wizardEpgChannels.length - matched;
+            document.getElementById('epg-matched-count').textContent = matched;
+            document.getElementById('epg-unmatched-count').textContent = unmatched;
+        } catch (err) {
+            container.innerHTML = '<p class="text-red-400 text-center py-8">Failed to load channels: ' + err.message + '</p>';
+        }
+    }
+
+    function renderEpgChannelsList() {
+        const container = document.getElementById('epg-channels-list');
+        const filter = document.getElementById('epg-filter').value;
+        const search = (document.getElementById('epg-channel-search').value || '').toLowerCase();
+
+        let channels = wizardEpgChannels;
+
+        // Apply filters
+        if (filter === 'matched') {
+            channels = channels.filter(c => c.tvg_id);
+        } else if (filter === 'unmatched') {
+            channels = channels.filter(c => !c.tvg_id);
+        }
+
+        if (search) {
+            channels = channels.filter(c => c.title.toLowerCase().includes(search));
+        }
+
+        if (channels.length === 0) {
+            container.innerHTML = '<p class="text-dark-400 text-center py-8">No channels found</p>';
+            return;
+        }
+
+        container.innerHTML = channels.slice(0, 100).map(channel => {
+            const matchStatus = channel.tvg_id ?
+                '<span class="epg-match-badge matched">Matched</span>' :
+                '<span class="epg-match-badge unmatched">Unmatched</span>';
+
+            return \`
+                <div class="epg-channel-row" data-media-id="\${channel.id}">
+                    <span class="epg-channel-name text-white">\${channel.title}</span>
+                    \${matchStatus}
+                    <input type="text" class="input input-sm text-xs w-48"
+                        value="\${channel.tvg_id || ''}"
+                        placeholder="EPG Channel ID"
+                        onchange="updateEpgMapping(\${channel.id}, this.value)" />
+                </div>
+            \`;
+        }).join('');
+
+        if (channels.length > 100) {
+            container.innerHTML += '<p class="text-dark-400 text-center py-2 text-xs">Showing first 100 of ' + channels.length + ' channels</p>';
+        }
+    }
+
+    function filterEpgChannels(search) {
+        renderEpgChannelsList();
+    }
+
+    function filterEpgChannelsByStatus(status) {
+        renderEpgChannelsList();
+    }
+
+    async function updateEpgMapping(mediaId, epgChannelId) {
+        try {
+            await fetch('/api/media/' + mediaId, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tvg_id: epgChannelId || null })
+            });
+
+            // Update local state
+            const channel = wizardEpgChannels.find(c => c.id === mediaId);
+            if (channel) {
+                channel.tvg_id = epgChannelId || null;
+            }
+
+            // Update stats
+            const matched = wizardEpgChannels.filter(c => c.tvg_id).length;
+            const unmatched = wizardEpgChannels.length - matched;
+            document.getElementById('epg-matched-count').textContent = matched;
+            document.getElementById('epg-unmatched-count').textContent = unmatched;
+        } catch (err) {
+            console.error('Failed to update EPG mapping:', err);
+        }
+    }
+
+    async function autoMatchEpgChannels() {
+        const btn = document.getElementById('epg-auto-match-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="animate-spin">⏳</span> Matching...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/epg/match-channels', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceId: currentAnalyzerSourceId })
+            });
+
+            if (response.ok) {
+                await loadEpgChannelsForWizard();
+                document.getElementById('analyzer-status').textContent = 'EPG channels auto-matched';
+            }
+        } catch (err) {
+            document.getElementById('analyzer-status').textContent = 'Auto-match failed: ' + err.message;
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    async function aiMatchEpgChannels() {
+        const btn = document.getElementById('epg-ai-match-btn');
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '<span class="animate-spin">⏳</span> AI Matching...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/epg/match-channels', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceId: currentAnalyzerSourceId, useAI: true })
+            });
+
+            if (response.ok) {
+                await loadEpgChannelsForWizard();
+                document.getElementById('analyzer-status').textContent = 'EPG channels AI-matched';
+            }
+        } catch (err) {
+            document.getElementById('analyzer-status').textContent = 'AI match failed: ' + err.message;
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
     }
 
     // Hide context menu on click outside
@@ -3154,6 +3363,42 @@
             if (window.showToast) showToast('Failed to start enrichment: ' + err.message, 'error');
             const btn = document.getElementById('enrich-btn-' + sourceId);
             if (btn) btn.disabled = false;
+        }
+    }
+
+    async function reprocessTitles(sourceId) {
+        try {
+            const btn = document.getElementById('reprocess-btn-' + sourceId);
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<div class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></div>';
+            }
+
+            const response = await fetch('/api/sources/' + sourceId + '/reprocess-titles', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const result = await response.json();
+
+            if (!response.ok) {
+                throw new Error(result.error || 'Unknown error');
+            }
+
+            if (window.showToast) showToast('Cleaned ' + result.updated + ' titles', 'success');
+
+            // Restore button
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>';
+            }
+        } catch (err) {
+            console.error('Failed to reprocess titles:', err);
+            if (window.showToast) showToast('Failed to clean titles: ' + err.message, 'error');
+            const btn = document.getElementById('reprocess-btn-' + sourceId);
+            if (btn) {
+                btn.disabled = false;
+                btn.innerHTML = '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"></path></svg>';
+            }
         }
     }
 

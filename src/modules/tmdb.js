@@ -821,12 +821,11 @@ module.exports = {
                 }
 
                 if (tmdbData) {
-                    // Update with full TMDB data
+                    // Update with full TMDB data (preserve original_title as raw source title)
                     await db.run(`
                         UPDATE media SET
                             tmdb_id = ?,
                             tagline = ?,
-                            original_title = COALESCE(?, original_title),
                             plot = COALESCE(?, plot),
                             poster = COALESCE(?, poster),
                             backdrop = COALESCE(?, backdrop),
@@ -838,7 +837,7 @@ module.exports = {
                             last_updated = CURRENT_TIMESTAMP
                         WHERE id = ?
                     `, [
-                        tmdbData.id, tmdbData.tagline, tmdbData.original_title, tmdbData.overview,
+                        tmdbData.id, tmdbData.tagline, tmdbData.overview,
                         tmdbData.poster_path, tmdbData.backdrop_path, tmdbData.vote_average,
                         tmdbData.genres, tmdbData.imdb_id, tmdbData.year, tmdbData.runtime,
                         item.id

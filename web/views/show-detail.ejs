@@ -403,7 +403,7 @@
 </div>
 
 <script>
-    const showName = '<%= showName %>';
+    const showName = <%- JSON.stringify(showName) %>;
     let showData = null;
     let tmdbData = null;
     let storedTrailers = []; // Trailers from database

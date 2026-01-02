@@ -1,6 +1,9 @@
 -- Add missing columns and indexes that code expects
 -- Note: SQLite doesn't support IF NOT EXISTS for ALTER TABLE, so we check with pragma
 
+-- Add episode_count column to media table (for series)
+ALTER TABLE media ADD COLUMN episode_count INTEGER;
+
 -- Add unique indexes (these are safe with IF NOT EXISTS)
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_season_ep ON episodes(media_id, season, episode);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_episodes_media_external ON episodes(media_id, external_id);

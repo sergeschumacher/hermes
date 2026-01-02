@@ -57,6 +57,12 @@
                     </select>
                 </div>
 
+                <div class="filter-chip-group hidden xl:block">
+                    <select id="filter-genre" class="filter-select">
+                        <option value="">Genre</option>
+                    </select>
+                </div>
+
                 <div class="filter-chip-group">
                     <select id="filter-recently" class="filter-select">
                         <option value="">Time</option>
@@ -190,6 +196,7 @@
             language: document.getElementById('filter-language').value,
             source: document.getElementById('filter-source').value,
             platform: document.getElementById('filter-platform').value,
+            genre: document.getElementById('filter-genre').value,
             recently: document.getElementById('filter-recently').value,
             sort: document.getElementById('sort-by').value
         };
@@ -199,13 +206,14 @@
     function restoreFilters() {
         try {
             const urlParams = new URLSearchParams(window.location.search);
-            const hasUrlParams = urlParams.has('quality') || urlParams.has('year') || urlParams.has('language') || urlParams.has('source') || urlParams.has('platform') || urlParams.has('sort') || urlParams.has('recently');
+            const hasUrlParams = urlParams.has('quality') || urlParams.has('year') || urlParams.has('language') || urlParams.has('source') || urlParams.has('platform') || urlParams.has('genre') || urlParams.has('sort') || urlParams.has('recently');
             if (hasUrlParams) {
                 if (urlParams.has('quality')) document.getElementById('filter-quality').value = urlParams.get('quality');
                 if (urlParams.has('year')) document.getElementById('filter-year').value = urlParams.get('year');
                 if (urlParams.has('language')) document.getElementById('filter-language').value = urlParams.get('language');
                 if (urlParams.has('source')) document.getElementById('filter-source').value = urlParams.get('source');
                 if (urlParams.has('platform')) document.getElementById('filter-platform').value = urlParams.get('platform');
+                if (urlParams.has('genre')) document.getElementById('filter-genre').value = urlParams.get('genre');
                 if (urlParams.has('recently')) document.getElementById('filter-recently').value = urlParams.get('recently');
                 if (urlParams.has('sort')) document.getElementById('sort-by').value = urlParams.get('sort');
                 return;
@@ -218,6 +226,7 @@
                 if (filters.language) document.getElementById('filter-language').value = filters.language;
                 if (filters.source) document.getElementById('filter-source').value = filters.source;
                 if (filters.platform) document.getElementById('filter-platform').value = filters.platform;
+                if (filters.genre) document.getElementById('filter-genre').value = filters.genre;
                 if (filters.recently) document.getElementById('filter-recently').value = filters.recently;
                 if (filters.sort) document.getElementById('sort-by').value = filters.sort;
             }
@@ -322,6 +331,7 @@
             language: document.getElementById('filter-language').value,
             source: document.getElementById('filter-source').value,
             platform: document.getElementById('filter-platform').value,
+            genre: document.getElementById('filter-genre').value,
             sort: document.getElementById('sort-by').value,
             order: document.getElementById('sort-by').value === 'show_name' ? 'asc' : 'desc',
             limit,
@@ -411,12 +421,19 @@
             platforms.forEach(p => {
                 if (p.platform) platformSelect.innerHTML += \`<option value="\${p.platform}">\${p.platform}</option>\`;
             });
+
+            const genreSelect = document.getElementById('filter-genre');
+            if (filters.genres) {
+                filters.genres.forEach(genre => {
+                    if (genre) genreSelect.innerHTML += \`<option value="\${genre}">\${genre}</option>\`;
+                });
+            }
         } catch (err) { console.error('Failed to load filters:', err); }
     }
 
     // Event listeners
     document.getElementById('series-search-input').addEventListener('input', debounce(() => loadShows(true), 300));
-    ['filter-quality', 'filter-year', 'filter-language', 'filter-source', 'filter-platform', 'filter-recently', 'sort-by'].forEach(id => {
+    ['filter-quality', 'filter-year', 'filter-language', 'filter-source', 'filter-platform', 'filter-genre', 'filter-recently', 'sort-by'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { saveFilters(); loadShows(true); });
     });
     document.getElementById('parse-btn').addEventListener('click', parseSeries);

@@ -357,12 +357,11 @@ module.exports = {
                     }
                 }
 
-                // If Overseerr returned data, update the database
+                // If Overseerr returned data, update the database (preserve original_title as raw source title)
                 if (overseerrData && overseerrData.poster_path) {
                     await db.run(`
                         UPDATE media SET
                             tmdb_id = COALESCE(?, tmdb_id),
-                            original_title = COALESCE(?, original_title),
                             plot = COALESCE(?, plot),
                             poster = ?,
                             backdrop = COALESCE(?, backdrop),
@@ -374,7 +373,7 @@ module.exports = {
                             last_updated = CURRENT_TIMESTAMP
                         WHERE id = ?
                     `, [
-                        overseerrData.id, overseerrData.original_title, overseerrData.overview,
+                        overseerrData.id, overseerrData.overview,
                         overseerrData.poster_path, overseerrData.backdrop_path, overseerrData.vote_average,
                         overseerrData.genres, overseerrData.imdb_id, overseerrData.year,
                         overseerrData.runtime, item.id

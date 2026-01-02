@@ -1107,10 +1107,10 @@ function setupApiRoutes() {
 
     router.post('/sources', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config } = req.body;
+            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url } = req.body;
             const result = await modules.db.run(
-                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null]
+                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null]
             );
             res.json({ id: result.lastID, message: 'Source added' });
         } catch (err) {
@@ -1120,10 +1120,10 @@ function setupApiRoutes() {
 
     router.put('/sources/:id', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config } = req.body;
+            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url } = req.body;
             await modules.db.run(
-                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=?, m3u_parser_config=? WHERE id=?',
-                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, req.params.id]
+                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=?, m3u_parser_config=?, epg_url=? WHERE id=?',
+                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null, req.params.id]
             );
             res.json({ message: 'Source updated' });
         } catch (err) {
@@ -1286,6 +1286,80 @@ function setupApiRoutes() {
         }
     });
 
+    // Reprocess titles - apply parseOriginalTitle to all media for a source
+    router.post('/sources/:id/reprocess-titles', async (req, res) => {
+        try {
+            const sourceId = parseInt(req.params.id);
+            const db = modules.db;
+
+            if (!modules.iptv?.parseOriginalTitle) {
+                return res.status(400).json({ error: 'IPTV module not loaded or parseOriginalTitle not available' });
+            }
+
+            const parseOriginalTitle = modules.iptv.parseOriginalTitle;
+
+            // Get all media for this source
+            const mediaItems = await db.all(
+                'SELECT id, original_title, media_type FROM media WHERE source_id = ?',
+                [sourceId]
+            );
+
+            logger.info('api', `Reprocessing titles for ${mediaItems.length} items in source ${sourceId}`);
+
+            let updated = 0;
+            let skipped = 0;
+
+            // Process in batches
+            await db.run('BEGIN TRANSACTION');
+            for (const item of mediaItems) {
+                if (!item.original_title) {
+                    skipped++;
+                    continue;
+                }
+
+                const parsed = parseOriginalTitle(item.original_title);
+                const cleanedTitle = parsed.title || item.original_title;
+
+                // Update the media record with parsed values
+                // Also update show_name for series (used for grouping)
+                await db.run(`
+                    UPDATE media SET
+                        title = ?,
+                        show_name = CASE WHEN media_type = 'series' THEN ? ELSE show_name END,
+                        year = COALESCE(?, year),
+                        quality = COALESCE(?, quality),
+                        language = COALESCE(?, language),
+                        platform = COALESCE(?, platform)
+                    WHERE id = ?
+                `, [
+                    cleanedTitle,
+                    cleanedTitle,
+                    parsed.year,
+                    parsed.quality,
+                    parsed.language,
+                    parsed.platform,
+                    item.id
+                ]);
+
+                updated++;
+            }
+            await db.run('COMMIT');
+
+            logger.info('api', `Reprocessed titles: ${updated} updated, ${skipped} skipped`);
+
+            res.json({
+                success: true,
+                message: `Reprocessed ${updated} titles`,
+                updated,
+                skipped,
+                total: mediaItems.length
+            });
+        } catch (err) {
+            logger.error('api', `Reprocess titles failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // M3U Parser configuration endpoints
     router.get('/sources/parser-config/default', async (req, res) => {
         try {
@@ -1332,13 +1406,21 @@ function setupApiRoutes() {
     // EPG (Electronic Program Guide) endpoints
     router.post('/sources/:id/sync-epg', async (req, res) => {
         try {
-            const source = await db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            const source = await modules.db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
             if (!source) return res.status(404).json({ error: 'Source not found' });
-            if (!source.epg_url) return res.status(400).json({ error: 'No EPG URL configured for this source' });
+
+            // For Xtream sources, generate EPG URL if not set
+            let epgUrl = source.epg_url;
+            if (!epgUrl && source.type === 'xtream' && source.username && source.password) {
+                epgUrl = `${source.url}/xmltv.php?username=${source.username}&password=${source.password}`;
+            }
+
+            if (!epgUrl) return res.status(400).json({ error: 'No EPG URL configured for this source' });
 
             if (modules.epg) {
-                // Sync EPG in background
-                modules.epg.syncEpg(source).catch(err => {
+                // Sync EPG in background with generated URL
+                const sourceWithEpg = { ...source, epg_url: epgUrl };
+                modules.epg.syncSourceEpg(sourceWithEpg).catch(err => {
                     logger.error('app', `EPG sync failed for ${source.name}: ${err.message}`);
                 });
                 res.json({ success: true, message: 'EPG sync started' });
@@ -1346,6 +1428,49 @@ function setupApiRoutes() {
                 res.status(500).json({ error: 'EPG module not loaded' });
             }
         } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Update tvg_id for live channels from Xtream API (faster than full re-sync)
+    router.post('/sources/:id/update-tvg-ids', async (req, res) => {
+        try {
+            const source = await modules.db.get('SELECT * FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) return res.status(404).json({ error: 'Source not found' });
+
+            if (source.type !== 'xtream') {
+                return res.status(400).json({ error: 'Only Xtream sources support tvg_id update' });
+            }
+
+            // Fetch live channels from Xtream API
+            const axios = require('axios');
+            const baseUrl = source.url.replace(/\/+$/, '');
+            const liveUrl = `${baseUrl}/player_api.php?username=${source.username}&password=${source.password}&action=get_live_streams`;
+
+            logger.info('app', `Fetching live channels from ${source.name} to update tvg_ids...`);
+            const response = await axios.get(liveUrl, { timeout: 60000 });
+            const liveChannels = response.data || [];
+
+            if (!Array.isArray(liveChannels)) {
+                return res.status(500).json({ error: 'Invalid response from Xtream API' });
+            }
+
+            // Update tvg_id for each channel
+            let updated = 0;
+            for (const channel of liveChannels) {
+                if (channel.epg_channel_id) {
+                    const result = await modules.db.run(`
+                        UPDATE media SET tvg_id = ?
+                        WHERE source_id = ? AND external_id = ? AND tvg_id IS NULL
+                    `, [channel.epg_channel_id, source.id, String(channel.stream_id)]);
+                    if (result.changes > 0) updated++;
+                }
+            }
+
+            logger.info('app', `Updated tvg_id for ${updated} channels in ${source.name}`);
+            res.json({ success: true, updated, total: liveChannels.length });
+        } catch (err) {
+            logger.error('app', `Failed to update tvg_ids: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -1381,6 +1506,39 @@ function setupApiRoutes() {
             res.json(result);
         } catch (err) {
             logger.error('app', `Source analysis failed: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Get channels/media from a source
+    router.get('/sources/:id/channels', async (req, res) => {
+        try {
+            const db = modules.db;
+            const sourceId = req.params.id;
+            const mediaType = req.query.type || 'live'; // 'live', 'movie', 'series', or 'all'
+
+            let query = `
+                SELECT id, title, tvg_id, poster, category
+                FROM media
+                WHERE source_id = ?
+            `;
+            const params = [sourceId];
+
+            if (mediaType !== 'all') {
+                query += ' AND media_type = ?';
+                params.push(mediaType);
+            }
+
+            query += ' ORDER BY title LIMIT 1000';
+
+            const channels = await db.all(query, params);
+
+            res.json({
+                channels: channels.slice(0, 500),
+                total: channels.length
+            });
+        } catch (err) {
+            logger.error('app', `Failed to get channels: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -1942,6 +2100,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     // Get EPG sync status
     router.get('/epg/status', async (req, res) => {
         try {
+            const db = modules.db;
             const syncInfo = await db.all(`
                 SELECT es.*, s.name as source_name
                 FROM epg_sync es
@@ -1953,73 +2112,57 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    // Get available EPG countries
-    router.get('/epg/countries', (req, res) => {
-        if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-        res.json(modules.epg.getAvailableCountries());
-    });
-
-    // Get EPG channels (filtered by language + IPTV availability by default)
+    // Get EPG channels for a source
     router.get('/epg/channels', async (req, res) => {
         try {
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-
-            // By default, return filtered channels (only preferred languages + available in IPTV)
-            // Use ?all=true to get all channels (old behavior)
-            const showAll = req.query.all === 'true';
-
-            if (showAll) {
-                const country = req.query.country || null;
-                const channels = await modules.epg.getChannelsWithEpg(country);
-                res.json(channels);
-            } else {
-                const channels = await modules.epg.getFilteredEpgChannels();
-                res.json(channels);
-            }
+            const sourceId = req.query.sourceId ? parseInt(req.query.sourceId) : null;
+            const channels = await modules.epg.getChannelsWithEpg(sourceId);
+            res.json(channels);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
     });
 
-    // Rebuild EPG channel cache (after sync or IPTV refresh)
-    router.post('/epg/rebuild-cache', async (req, res) => {
+    // Get Live TV channels that have EPG mapping (tvg_id set)
+    router.get('/epg/live-channels', async (req, res) => {
         try {
-            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-            const result = await modules.epg.rebuildChannelCache();
-            res.json(result);
+            const db = modules.db;
+            const channels = await db.all(`
+                SELECT id, title, tvg_id, poster, stream_url, category
+                FROM media
+                WHERE media_type = 'live'
+                  AND tvg_id IS NOT NULL
+                  AND tvg_id != ''
+                ORDER BY title
+            `);
+            res.json(channels);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
     });
 
-    // Sync global EPG
-    router.post('/epg/sync-global', async (req, res) => {
+    // Sync EPG for all sources with EPG URLs
+    router.post('/epg/sync-all', async (req, res) => {
         try {
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
 
-            const { countries } = req.body;
-            io?.emit('epg:start', { countries: countries || settings.get('epgCountries') });
+            io?.emit('epg:start', { message: 'Syncing EPG for all sources...' });
 
             // Run sync in background
-            modules.epg.syncGlobalEpg(countries).then(async result => {
-                // Rebuild channel cache after sync
-                try {
-                    await modules.epg.rebuildChannelCache();
-                } catch (err) {
-                    logger?.warn('app', `Failed to rebuild EPG cache: ${err.message}`);
-                }
+            modules.epg.syncAllSourcesEpg().then(result => {
                 io?.emit('epg:complete', result);
             }).catch(err => {
                 io?.emit('epg:error', { error: err.message });
             });
 
-            res.json({ success: true, message: 'Global EPG sync started' });
+            res.json({ success: true, message: 'EPG sync started for all sources' });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
     });
 
-    // Get EPG program guide for a time range
+    // Get EPG program guide for a time range (GET for small requests, POST for large channel lists)
     router.get('/epg/guide', async (req, res) => {
         try {
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
@@ -2035,6 +2178,22 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
+    // POST version for large channel lists (avoids URL length limits)
+    router.post('/epg/guide', async (req, res) => {
+        try {
+            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
+
+            const { start: startStr, end: endStr, channels } = req.body;
+            const start = startStr ? new Date(startStr) : new Date();
+            const end = endStr ? new Date(endStr) : new Date(start.getTime() + 6 * 60 * 60 * 1000);
+
+            const programs = await modules.epg.getProgramGuide(start, end, channels);
+            res.json(programs);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Get EPG program by ID
     router.get('/epg/program/:id', async (req, res) => {
         try {
@@ -2042,57 +2201,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const program = await modules.epg.getProgramById(parseInt(req.params.id));
             if (!program) return res.status(404).json({ error: 'Program not found' });
             res.json(program);
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // AI Channel matching (EPG to IPTV sources)
-    router.post('/epg/match-channels', async (req, res) => {
-        try {
-            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-
-            // First clear invalid tvg_id values (from IPTV source that don't match EPG)
-            const clearResult = await modules.epg.clearInvalidTvgIds();
-
-            // Then run AI matching
-            const result = await modules.epg.matchChannelsWithAI();
-            res.json({ ...result, cleared: clearResult.cleared });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Clear invalid tvg_id values
-    router.post('/epg/clear-invalid-mappings', async (req, res) => {
-        try {
-            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-            const result = await modules.epg.clearInvalidTvgIds();
-            res.json(result);
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Rebuild EPG channel cache (for filtering by IPTV availability)
-    router.post('/epg/rebuild-cache', async (req, res) => {
-        try {
-            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-            io?.emit('epg:progress', { message: 'Rebuilding channel cache...' });
-            const result = await modules.epg.rebuildChannelCache();
-            io?.emit('epg:progress', { message: `Cache rebuilt: ${result.matched} of ${result.total} channels matched` });
-            res.json({ success: true, ...result });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Get channel mappings
-    router.get('/epg/mappings', async (req, res) => {
-        try {
-            if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
-            const mappings = await modules.epg.getChannelMappings();
-            res.json(mappings);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -2718,6 +2826,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 'episodes',
                 'epg_programs',
                 'epg_channel_cache',
+                'epg_sync',
                 'enrichment_queue',
                 'enrichment_cache',
                 'tmdb_cache',
@@ -2737,11 +2846,20 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 }
             }
 
-            // Note: We don't delete migrations because all use IF NOT EXISTS
-            // Dropped tables will be recreated, sources/settings tables will be preserved
+            // Reset migration tracking so tables get recreated on restart
+            // Keep migrations 1-10 (sources, downloads, settings, requests etc.)
+            // Reset migrations 11+ (content tables)
+            await modules.db.run('DELETE FROM migrations WHERE version > 10');
+            logger.info('db', 'Reset migration tracking for content tables');
 
-            logger.info('db', 'Content database reset complete');
-            res.json({ success: true, message: 'Content database reset. Please restart the application and sync sources.' });
+            logger.info('db', 'Content database reset complete - server will exit');
+            res.json({ success: true, message: 'Content database reset. The server will now exit. Please restart it manually.' });
+
+            // Exit after sending response - process manager or user will restart
+            setTimeout(() => {
+                logger.info('db', 'Exiting for database reset...');
+                process.exit(0);
+            }, 500);
         } catch (err) {
             logger.error('db', 'Content database reset failed', { error: err.message });
             res.status(500).json({ success: false, error: err.message });
@@ -2782,6 +2900,16 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
             const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
+            // Get genres - stored as comma-separated values, need to parse and dedupe
+            const genresRows = await modules.db.all(`SELECT DISTINCT genres FROM media WHERE genres IS NOT NULL AND genres != '' ${typeFilter}`, typeParam);
+            const genreSet = new Set();
+            genresRows.forEach(row => {
+                row.genres.split(',').forEach(g => {
+                    const genre = g.trim();
+                    if (genre) genreSet.add(genre);
+                });
+            });
+
             // Filter languages by preferred settings if configured
             const preferredLangs = modules.settings?.get('preferredLanguages') || [];
             let filteredLanguages = languages.map(l => l.language);
@@ -2797,6 +2925,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 qualities: qualities.map(q => q.quality),
                 languages: filteredLanguages,
                 categories: categories.map(c => c.category),
+                genres: Array.from(genreSet).sort(),
                 sources
             });
         } catch (err) {

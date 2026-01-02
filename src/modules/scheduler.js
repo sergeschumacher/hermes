@@ -184,7 +184,8 @@ async function executeTask(task) {
 
     switch (task.task_type) {
         case 'epg_sync':
-            await epg.syncGlobalEpg();
+            // Sync EPG for all sources with EPG URLs configured
+            await epg.syncAllSourcesEpg();
             break;
 
         case 'source_sync':
@@ -732,7 +733,8 @@ async function triggerTask(taskType) {
 
     switch (taskType) {
         case 'epg_sync':
-            await epg.syncGlobalEpg();
+            // Sync EPG for all sources with EPG URLs configured
+            await epg.syncAllSourcesEpg();
             break;
 
         case 'source_sync':

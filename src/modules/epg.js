@@ -8,169 +8,6 @@ let logger = null;
 let db = null;
 let app = null;
 let settings = null;
-let llm = null;  // LLM module for AI channel matching
-
-// Base URL for globetvapp/epg repository
-const EPG_BASE_URL = 'https://raw.githubusercontent.com/globetvapp/epg/main';
-
-// Available countries from globetvapp/epg
-const AVAILABLE_COUNTRIES = [
-    'Albania', 'Argentina', 'Australia', 'Austria', 'Belgium', 'Bolivia', 'Bosnia',
-    'Brazil', 'Bulgaria', 'Canada', 'Caribbean', 'Chile', 'China', 'Colombia',
-    'Costa Rica', 'Croatia', 'Cyprus', 'Czech Republic', 'Denmark', 'Dominican Republic',
-    'Ecuador', 'Egypt', 'El Salvador', 'Estonia', 'Finland', 'France', 'Georgia',
-    'Germany', 'Ghana', 'Greece', 'Guatemala', 'Honduras', 'Hong Kong', 'Hungary',
-    'Iceland', 'India', 'Indonesia', 'Ireland', 'Israel', 'Italy', 'Ivory Coast',
-    'Jamaica', 'Kenya', 'Korea', 'Latvia', 'Lithuania', 'Luxembourg', 'Macau',
-    'Madagascar', 'Malawi', 'Malaysia', 'Malta', 'Mauritius', 'Mexico', 'Mongolia',
-    'Montenegro', 'Morocco', 'Mozambique', 'Namibia', 'Netherlands', 'New Caledonia',
-    'New Zealand', 'Nigeria', 'Norway', 'Pakistan', 'Panama', 'Paraguay', 'Peru',
-    'Philippines', 'Poland', 'Portugal', 'Puerto Rico', 'Qatar', 'Romania', 'Russia',
-    'Saudi Arabia', 'Scotland', 'Serbia', 'Singapore', 'Slovakia', 'Slovenia',
-    'South Africa', 'Spain', 'Sports', 'Sweden', 'Switzerland', 'Taiwan', 'Thailand',
-    'Turkey', 'UAE', 'Uganda', 'Ukraine', 'United Kingdom', 'Uruguay', 'USA',
-    'Uzbekistan', 'Vietnam', 'Zambia'
-];
-
-// Country to language mapping (ISO 639-1)
-const COUNTRY_TO_LANGUAGE = {
-    'Albania': 'sq',
-    'Argentina': 'es',
-    'Australia': 'en',
-    'Austria': 'de',
-    'Belgium': 'nl',
-    'Bolivia': 'es',
-    'Bosnia': 'bs',
-    'Brazil': 'pt',
-    'Bulgaria': 'bg',
-    'Canada': 'en',
-    'Caribbean': 'en',
-    'Chile': 'es',
-    'China': 'zh',
-    'Colombia': 'es',
-    'Costa Rica': 'es',
-    'Croatia': 'hr',
-    'Cyprus': 'el',
-    'Czech Republic': 'cs',
-    'Denmark': 'da',
-    'Dominican Republic': 'es',
-    'Ecuador': 'es',
-    'Egypt': 'ar',
-    'El Salvador': 'es',
-    'Estonia': 'et',
-    'Finland': 'fi',
-    'France': 'fr',
-    'Georgia': 'ka',
-    'Germany': 'de',
-    'Ghana': 'en',
-    'Greece': 'el',
-    'Guatemala': 'es',
-    'Honduras': 'es',
-    'Hong Kong': 'zh',
-    'Hungary': 'hu',
-    'Iceland': 'is',
-    'India': 'hi',
-    'Indonesia': 'id',
-    'Ireland': 'en',
-    'Israel': 'he',
-    'Italy': 'it',
-    'Ivory Coast': 'fr',
-    'Jamaica': 'en',
-    'Kenya': 'en',
-    'Korea': 'ko',
-    'Latvia': 'lv',
-    'Lithuania': 'lt',
-    'Luxembourg': 'de',
-    'Macau': 'zh',
-    'Madagascar': 'fr',
-    'Malawi': 'en',
-    'Malaysia': 'ms',
-    'Malta': 'mt',
-    'Mauritius': 'en',
-    'Mexico': 'es',
-    'Mongolia': 'mn',
-    'Montenegro': 'sr',
-    'Morocco': 'ar',
-    'Mozambique': 'pt',
-    'Namibia': 'en',
-    'Netherlands': 'nl',
-    'New Caledonia': 'fr',
-    'New Zealand': 'en',
-    'Nigeria': 'en',
-    'Norway': 'no',
-    'Pakistan': 'ur',
-    'Panama': 'es',
-    'Paraguay': 'es',
-    'Peru': 'es',
-    'Philippines': 'tl',
-    'Poland': 'pl',
-    'Portugal': 'pt',
-    'Puerto Rico': 'es',
-    'Qatar': 'ar',
-    'Romania': 'ro',
-    'Russia': 'ru',
-    'Saudi Arabia': 'ar',
-    'Scotland': 'en',
-    'Serbia': 'sr',
-    'Singapore': 'en',
-    'Slovakia': 'sk',
-    'Slovenia': 'sl',
-    'South Africa': 'en',
-    'Spain': 'es',
-    'Sports': 'en',  // Sports channels are typically multi-language
-    'Sweden': 'sv',
-    'Switzerland': 'de',
-    'Taiwan': 'zh',
-    'Thailand': 'th',
-    'Turkey': 'tr',
-    'UAE': 'ar',
-    'Uganda': 'en',
-    'Ukraine': 'uk',
-    'United Kingdom': 'en',
-    'Uruguay': 'es',
-    'USA': 'en',
-    'Uzbekistan': 'uz',
-    'Vietnam': 'vi',
-    'Zambia': 'en'
-};
-
-/**
- * Simple Levenshtein similarity (0-1)
- */
-function stringSimilarity(s1, s2) {
-    if (!s1 || !s2) return 0;
-    if (s1 === s2) return 1;
-
-    const longer = s1.length > s2.length ? s1 : s2;
-    const shorter = s1.length > s2.length ? s2 : s1;
-
-    if (longer.length === 0) return 1;
-
-    // Levenshtein distance
-    const costs = [];
-    for (let i = 0; i <= s1.length; i++) {
-        let lastValue = i;
-        for (let j = 0; j <= s2.length; j++) {
-            if (i === 0) {
-                costs[j] = j;
-            } else if (j > 0) {
-                let newValue = costs[j - 1];
-                if (s1.charAt(i - 1) !== s2.charAt(j - 1)) {
-                    newValue = Math.min(Math.min(newValue, lastValue), costs[j]) + 1;
-                }
-                costs[j - 1] = lastValue;
-                lastValue = newValue;
-            }
-        }
-        if (i > 0) costs[s2.length] = lastValue;
-    }
-
-    const distance = costs[s2.length];
-    return (longer.length - distance) / longer.length;
-}
-
-// Simple streaming XML parser for XMLTV format
-// XMLTV format: https://wiki.xmltv.org/index.php/XMLTVFormat
 
 /**
  * Parse XMLTV date format: YYYYMMDDHHmmss +HHMM
@@ -234,10 +71,9 @@ function decodeXmlEntities(str) {
 /**
  * Parse XMLTV content and extract programs
  * @param {string} xmlContent - Raw XMLTV content
- * @param {string} country - Country name for this EPG data
  * @returns {Object} - { channels: [], programs: [] }
  */
-function parseXmltvContent(xmlContent, country = null) {
+function parseXmltvContent(xmlContent) {
     const channels = [];
     const programs = [];
 
@@ -251,8 +87,7 @@ function parseXmltvContent(xmlContent, country = null) {
         channels.push({
             id: channelId,
             name: extractTagContent(channelContent, 'display-name'),
-            icon: extractAttribute(channelContent, 'src') || extractTagContent(channelContent, 'icon'),
-            country
+            icon: extractAttribute(channelContent, 'src') || extractTagContent(channelContent, 'icon')
         });
     }
 
@@ -321,8 +156,7 @@ function parseXmltvContent(xmlContent, country = null) {
             end_time: endTime,
             icon,
             episode_num: episodeNum,
-            rating,
-            country
+            rating
         });
     }
 
@@ -330,25 +164,34 @@ function parseXmltvContent(xmlContent, country = null) {
 }
 
 /**
- * Fetch EPG XML from a URL
- * @param {string} url - URL to fetch
+ * Fetch EPG XML from a URL or local file
+ * @param {string} url - URL to fetch or file:// path
  * @returns {string} - XML content
  */
 async function fetchEpgXml(url) {
     logger.debug('epg', `Fetching EPG from ${url}`);
 
-    const response = await axios({
-        url,
-        method: 'GET',
-        timeout: 120000,  // 2 minute timeout for large files
-        responseType: 'arraybuffer',
-        headers: {
-            'User-Agent': 'Hermes/1.0',
-            'Accept-Encoding': 'gzip, deflate'
-        }
-    });
+    let content;
 
-    let content = response.data;
+    // Support local file paths (file:// or absolute path starting with /)
+    if (url.startsWith('file://') || url.startsWith('/')) {
+        const fs = require('fs').promises;
+        const filePath = url.startsWith('file://') ? url.slice(7) : url;
+        logger.debug('epg', `Reading local EPG file: ${filePath}`);
+        content = await fs.readFile(filePath);
+    } else {
+        const response = await axios({
+            url,
+            method: 'GET',
+            timeout: 120000,  // 2 minute timeout for large files
+            responseType: 'arraybuffer',
+            headers: {
+                'User-Agent': 'Hermes/1.0',
+                'Accept-Encoding': 'gzip, deflate'
+            }
+        });
+        content = response.data;
+    }
 
     // Check if gzipped (magic bytes: 1f 8b)
     if (content[0] === 0x1f && content[1] === 0x8b) {
@@ -360,320 +203,180 @@ async function fetchEpgXml(url) {
 }
 
 /**
- * Get available EPG countries
- * @returns {Array} - List of available country names
+ * Sync EPG from a source's EPG URL
+ * @param {Object} source - Source object with epg_url
+ * @returns {Object} - { success, programCount, channelCount }
  */
-function getAvailableCountries() {
-    return AVAILABLE_COUNTRIES;
-}
-
-/**
- * Build EPG URLs for a country
- * Country files are named like: germany1.xml, germany2.xml, etc.
- * @param {string} country - Country name
- * @returns {Array} - List of URLs to try
- */
-function getCountryEpgUrls(country) {
-    const countryLower = country.toLowerCase().replace(/\s+/g, '');
-    const urls = [];
-
-    // Try up to 5 numbered files for each country
-    for (let i = 1; i <= 5; i++) {
-        urls.push(`${EPG_BASE_URL}/${country}/${countryLower}${i}.xml`);
+async function syncSourceEpg(source) {
+    if (!source.epg_url) {
+        return { success: false, error: 'No EPG URL configured for this source' };
     }
 
-    return urls;
-}
-
-/**
- * Sync EPG for selected countries (global EPG)
- * @param {Array} countries - List of country names to sync
- */
-async function syncGlobalEpg(countries = null) {
-    // Use settings if no countries provided
-    if (!countries) {
-        countries = settings.get('epgCountries') || ['Germany'];
-    }
-
-    logger.info('epg', `Starting global EPG sync for: ${countries.join(', ')}`);
-    app?.emit('epg:start', { countries });
-
-    let totalPrograms = 0;
-    let totalChannels = 0;
+    logger.info('epg', `Starting EPG sync for source: ${source.name}`);
+    app?.emit('epg:start', { sourceId: source.id, sourceName: source.name });
 
     try {
-        // Clear old EPG data (global entries only)
-        await db.run('DELETE FROM epg_programs WHERE source_id IS NULL');
+        const xmlContent = await fetchEpgXml(source.epg_url);
+        const { channels, programs } = parseXmltvContent(xmlContent);
 
-        for (const country of countries) {
-            if (!AVAILABLE_COUNTRIES.includes(country)) {
-                logger.warn('epg', `Unknown country: ${country}, skipping`);
-                continue;
-            }
-
-            const urls = getCountryEpgUrls(country);
-            let countryPrograms = 0;
-            let countryChannels = 0;
-
-            for (const url of urls) {
-                try {
-                    const xmlContent = await fetchEpgXml(url);
-                    const { channels, programs } = parseXmltvContent(xmlContent, country);
-
-                    if (programs.length === 0) {
-                        logger.debug('epg', `No programs in ${url}, trying next`);
-                        continue;
-                    }
-
-                    logger.info('epg', `Parsed ${programs.length} programs from ${url}`);
-
-                    // Filter programs: only keep programs that haven't ended yet
-                    const now = new Date();
-                    const futurePrograms = programs.filter(p => !p.end_time || p.end_time > now);
-
-                    // Insert programs in batches
-                    const batchSize = 500;
-                    for (let i = 0; i < futurePrograms.length; i += batchSize) {
-                        const batch = futurePrograms.slice(i, i + batchSize);
-
-                        for (const program of batch) {
-                            await db.run(`
-                                INSERT INTO epg_programs (channel_id, source_id, title, subtitle, description, category, start_time, end_time, icon, episode_num, rating, country)
-                                VALUES (?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            `, [
-                                program.channel_id,
-                                program.title,
-                                program.subtitle,
-                                program.description,
-                                program.category,
-                                program.start_time?.toISOString(),
-                                program.end_time?.toISOString(),
-                                program.icon,
-                                program.episode_num,
-                                program.rating,
-                                program.country
-                            ]);
-                        }
-
-                        app?.emit('epg:progress', {
-                            country,
-                            message: `${country}: ${Math.min(i + batchSize, futurePrograms.length)}/${futurePrograms.length} programs`,
-                            current: Math.min(i + batchSize, futurePrograms.length),
-                            total: futurePrograms.length
-                        });
-                    }
-
-                    countryPrograms += futurePrograms.length;
-                    countryChannels += new Set(futurePrograms.map(p => p.channel_id)).size;
-
-                } catch (err) {
-                    // File might not exist, continue to next
-                    if (err.response?.status === 404) {
-                        logger.debug('epg', `${url} not found, continuing`);
-                    } else {
-                        logger.warn('epg', `Failed to fetch ${url}: ${err.message}`);
-                    }
-                }
-            }
-
-            logger.info('epg', `${country}: ${countryPrograms} programs, ${countryChannels} channels`);
-            totalPrograms += countryPrograms;
-            totalChannels += countryChannels;
+        if (programs.length === 0) {
+            logger.warn('epg', `No programs found in EPG for ${source.name}`);
+            return { success: true, programCount: 0, channelCount: 0 };
         }
 
-        // Update channel tvg_id in media table for matching
-        // Try to match EPG channel names to live TV channels
-        await matchChannelsToEpg();
+        logger.info('epg', `Parsed ${programs.length} programs, ${channels.length} channels from ${source.name}`);
 
-        logger.info('epg', `Global EPG sync complete: ${totalPrograms} programs, ${totalChannels} channels`);
+        // Filter programs: only keep programs that haven't ended yet
+        const now = new Date();
+        const futurePrograms = programs.filter(p => !p.end_time || p.end_time > now);
+
+        logger.info('epg', `${futurePrograms.length} future programs after filtering`);
+
+        // Clear old EPG data for this source
+        await db.run('DELETE FROM epg_programs WHERE source_id = ?', [source.id]);
+
+        // Insert programs in batches
+        const batchSize = 500;
+        for (let i = 0; i < futurePrograms.length; i += batchSize) {
+            const batch = futurePrograms.slice(i, i + batchSize);
+
+            for (const program of batch) {
+                await db.run(`
+                    INSERT INTO epg_programs (channel_id, source_id, title, subtitle, description, category, start_time, end_time, icon, episode_num, rating)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `, [
+                    program.channel_id,
+                    source.id,
+                    program.title,
+                    program.subtitle,
+                    program.description,
+                    program.category,
+                    program.start_time?.toISOString(),
+                    program.end_time?.toISOString(),
+                    program.icon,
+                    program.episode_num,
+                    program.rating
+                ]);
+            }
+
+            app?.emit('epg:progress', {
+                sourceId: source.id,
+                sourceName: source.name,
+                message: `${source.name}: ${Math.min(i + batchSize, futurePrograms.length)}/${futurePrograms.length} programs`,
+                current: Math.min(i + batchSize, futurePrograms.length),
+                total: futurePrograms.length
+            });
+        }
+
+        const uniqueChannels = new Set(futurePrograms.map(p => p.channel_id)).size;
+
+        // Update epg_sync metadata
+        await db.run(`
+            INSERT OR REPLACE INTO epg_sync (source_id, last_sync, program_count, channel_count)
+            VALUES (?, datetime('now'), ?, ?)
+        `, [source.id, futurePrograms.length, uniqueChannels]);
+
+        logger.info('epg', `EPG sync complete for ${source.name}: ${futurePrograms.length} programs, ${uniqueChannels} channels`);
         app?.emit('epg:complete', {
-            programCount: totalPrograms,
-            channelCount: totalChannels,
-            countries
+            sourceId: source.id,
+            sourceName: source.name,
+            programCount: futurePrograms.length,
+            channelCount: uniqueChannels
         });
 
         return {
             success: true,
-            programCount: totalPrograms,
-            channelCount: totalChannels,
-            countries
+            programCount: futurePrograms.length,
+            channelCount: uniqueChannels
         };
 
     } catch (err) {
-        logger.error('epg', `Global EPG sync failed: ${err.message}`);
-        app?.emit('epg:error', { error: err.message });
-        throw err;
+        logger.error('epg', `EPG sync failed for ${source.name}: ${err.message}`);
+        app?.emit('epg:error', { sourceId: source.id, sourceName: source.name, error: err.message });
+        return { success: false, error: err.message };
     }
 }
 
 /**
- * Normalize channel name for comparison
- * Handles patterns like:
- * - EPG: "3sat.de", "ARTE.de", "RTL Television.de"
- * - IPTV: "DE - 3SAT HD", "DE - ARTE HD", "DE - RTL UHD"
+ * Sync EPG for all sources that have EPG URLs configured
+ * @returns {Object} - { sources: [{ sourceId, success, programCount, channelCount }] }
  */
-function normalizeChannelName(name) {
-    if (!name) return '';
-    return name
-        .toLowerCase()
-        // Remove country prefix patterns (DE ★, UK -, US :, EXYU ★, etc.)
-        .replace(/^[a-z]{2,6}\s*[-:★☆|]\s*/i, '')
-        // Remove trailing symbols like ◉ ● ★
-        .replace(/\s*[◉●★☆]\s*$/g, '')
-        // Remove quality suffixes (HD, SD, FHD, UHD, 4K)
-        .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s*$/gi, '')
-        .replace(/\s*(hd|sd|fhd|uhd|4k|hevc)\s+/gi, ' ')
-        // Replace + with plus
-        .replace(/\s*\+\s*/g, ' plus ')
-        // Remove country suffix like .de, .uk, .us
-        .replace(/\.\w{2}$/i, '')
-        // Remove common suffixes/additions
-        .replace(/\s*\(sky\)\s*/gi, '')
-        .replace(/\s*television\s*/gi, ' ')
-        .replace(/\s*fernsehen\s*/gi, ' ')  // German for "television"
-        .replace(/\s*channel\s*/gi, ' ')
-        .replace(/\s*tv\s*$/gi, '')
-        // Remove special chars but keep spaces and alphanumeric
-        .replace(/[^\w\s]/g, ' ')
-        // Normalize multiple spaces
-        .replace(/\s+/g, ' ')
-        .trim();
-}
+async function syncAllSourcesEpg() {
+    const sources = await db.all('SELECT * FROM sources WHERE epg_url IS NOT NULL AND active = 1');
 
-/**
- * Extract core channel name (main identifier)
- * For matching "ProSieben" with "DE - PROSIEBEN FUN UHD"
- */
-function extractCoreChannelName(name) {
-    if (!name) return '';
-
-    // First normalize
-    let core = normalizeChannelName(name);
-
-    // For IPTV sources, extract main name before variant suffixes
-    // e.g., "prosieben fun" -> "prosieben", "rtl crime" -> "rtl"
-    const variants = ['fun', 'crime', 'passion', 'living', 'gold', 'nitro', 'super', 'maxx', 'neo', 'one', 'alpha', 'zwei', 'plus'];
-    for (const variant of variants) {
-        const idx = core.indexOf(` ${variant}`);
-        if (idx > 0) {
-            core = core.substring(0, idx);
-            break;
-        }
+    if (sources.length === 0) {
+        logger.info('epg', 'No sources with EPG URLs configured');
+        return { sources: [] };
     }
 
-    return core;
-}
+    logger.info('epg', `Syncing EPG for ${sources.length} sources`);
 
-/**
- * Match live TV channels to EPG channel IDs
- */
-async function matchChannelsToEpg() {
-    // Get unique channel IDs from EPG
-    const epgChannels = await db.all(`
-        SELECT DISTINCT channel_id FROM epg_programs WHERE source_id IS NULL
-    `);
-
-    // Get all live TV channels
-    const liveChannels = await db.all(`
-        SELECT id, title, tvg_id FROM media WHERE media_type = 'live'
-    `);
-
-    // First, validate existing tvg_id assignments - clear mismatched ones
-    // This handles IPTV sources that provide wrong tvg_id values
-    let clearedCount = 0;
-    for (const ch of liveChannels) {
-        if (ch.tvg_id) {
-            const channelNorm = normalizeChannelName(ch.title);
-            const tvgNorm = normalizeChannelName(ch.tvg_id);
-
-            // Check if the tvg_id seems to match the channel name
-            // Use word boundary matching to avoid false positives like "a" matching "wdr aachen"
-            const channelWords = channelNorm.split(/\s+/).filter(w => w.length > 1);
-            const tvgWords = tvgNorm.split(/\s+/).filter(w => w.length > 1);
-
-            // Match if exact match, OR if significant words overlap
-            const matches = channelNorm === tvgNorm ||
-                           tvgWords.some(w => channelWords.includes(w)) ||
-                           channelWords.some(w => tvgWords.includes(w));
-
-            if (!matches) {
-                // Clear the mismatched tvg_id
-                await db.run('UPDATE media SET tvg_id = NULL WHERE id = ?', [ch.id]);
-                clearedCount++;
-            }
-        }
+    const results = [];
+    for (const source of sources) {
+        const result = await syncSourceEpg(source);
+        results.push({
+            sourceId: source.id,
+            sourceName: source.name,
+            ...result
+        });
     }
 
-    if (clearedCount > 0) {
-        logger.info('epg', `Cleared ${clearedCount} mismatched tvg_id values`);
-    }
-
-    // Re-fetch channels that now need matching
-    const channelsToMatch = await db.all(`
-        SELECT id, title FROM media WHERE media_type = 'live' AND (tvg_id IS NULL OR tvg_id = '')
-    `);
-
-    let matchCount = 0;
-
-    for (const epgChannel of epgChannels) {
-        const epgNormalized = normalizeChannelName(epgChannel.channel_id);
-        const epgWords = epgNormalized.split(/\s+/).filter(w => w.length > 1);
-
-        for (const liveChannel of channelsToMatch) {
-            const liveNormalized = normalizeChannelName(liveChannel.title);
-            const liveWords = liveNormalized.split(/\s+/).filter(w => w.length > 1);
-
-            // Check for match using word-based matching
-            const matches = epgNormalized === liveNormalized ||
-                           epgWords.some(w => liveWords.includes(w)) ||
-                           liveWords.some(w => epgWords.includes(w));
-
-            if (matches) {
-                await db.run(
-                    'UPDATE media SET tvg_id = ? WHERE id = ? AND (tvg_id IS NULL OR tvg_id = "")',
-                    [epgChannel.channel_id, liveChannel.id]
-                );
-                matchCount++;
-            }
-        }
-    }
-
-    logger.info('epg', `Channel-to-EPG matching complete: ${matchCount} matches found`);
-    return matchCount;
+    return { sources: results };
 }
 
 /**
  * Get current program for a channel
  * @param {string} channelId - The tvg_id of the channel
+ * @param {number} sourceId - Optional source ID to filter EPG data
  * @returns {Object|null} - Current program or null
  */
-async function getCurrentProgram(channelId) {
+async function getCurrentProgram(channelId, sourceId = null) {
     const now = new Date().toISOString();
 
-    return db.get(`
+    let sql = `
         SELECT * FROM epg_programs
         WHERE channel_id = ?
           AND start_time <= ?
           AND (end_time IS NULL OR end_time > ?)
-        ORDER BY start_time DESC LIMIT 1
-    `, [channelId, now, now]);
+    `;
+    const params = [channelId, now, now];
+
+    if (sourceId) {
+        sql += ' AND source_id = ?';
+        params.push(sourceId);
+    }
+
+    sql += ' ORDER BY start_time DESC LIMIT 1';
+
+    return db.get(sql, params);
 }
 
 /**
  * Get upcoming programs for a channel
  * @param {string} channelId - The tvg_id of the channel
  * @param {number} limit - Max programs to return
+ * @param {number} sourceId - Optional source ID to filter EPG data
  * @returns {Array} - List of upcoming programs
  */
-async function getUpcomingPrograms(channelId, limit = 5) {
+async function getUpcomingPrograms(channelId, limit = 5, sourceId = null) {
     const now = new Date().toISOString();
 
-    return db.all(`
+    let sql = `
         SELECT * FROM epg_programs
         WHERE channel_id = ?
           AND start_time > ?
-        ORDER BY start_time ASC LIMIT ?
-    `, [channelId, now, limit]);
+    `;
+    const params = [channelId, now];
+
+    if (sourceId) {
+        sql += ' AND source_id = ?';
+        params.push(sourceId);
+    }
+
+    sql += ' ORDER BY start_time ASC LIMIT ?';
+    params.push(limit);
+
+    return db.all(sql, params);
 }
 
 /**
@@ -681,9 +384,10 @@ async function getUpcomingPrograms(channelId, limit = 5) {
  * @param {Date} startTime - Start of time range
  * @param {Date} endTime - End of time range
  * @param {Array} channelIds - Optional filter by channel IDs
+ * @param {number} sourceId - Optional source ID to filter EPG data
  * @returns {Array} - List of programs in the range
  */
-async function getProgramGuide(startTime, endTime, channelIds = null) {
+async function getProgramGuide(startTime, endTime, channelIds = null, sourceId = null) {
     let sql = `
         SELECT * FROM epg_programs
         WHERE start_time < ?
@@ -691,10 +395,16 @@ async function getProgramGuide(startTime, endTime, channelIds = null) {
     `;
     const params = [endTime.toISOString(), startTime.toISOString()];
 
+    if (sourceId) {
+        sql += ' AND source_id = ?';
+        params.push(sourceId);
+    }
+
     if (channelIds && channelIds.length > 0) {
+        // Case-insensitive matching for channel IDs
         const placeholders = channelIds.map(() => '?').join(',');
-        sql += ` AND channel_id IN (${placeholders})`;
-        params.push(...channelIds);
+        sql += ` AND LOWER(channel_id) IN (${placeholders})`;
+        params.push(...channelIds.map(id => id.toLowerCase()));
     }
 
     sql += ' ORDER BY channel_id, start_time ASC';
@@ -705,30 +415,46 @@ async function getProgramGuide(startTime, endTime, channelIds = null) {
 /**
  * Get EPG data for multiple channels at once
  * @param {Array} channelIds - Array of tvg_id values
+ * @param {number} sourceId - Optional source ID to filter EPG data
  * @returns {Object} - Map of channelId -> { current, next }
  */
-async function getEpgForChannels(channelIds) {
+async function getEpgForChannels(channelIds, sourceId = null) {
     if (!channelIds || channelIds.length === 0) return {};
 
     const now = new Date().toISOString();
     const placeholders = channelIds.map(() => '?').join(',');
 
-    // Get current programs
-    const currentPrograms = await db.all(`
+    // Build query params
+    let currentSql = `
         SELECT * FROM epg_programs
         WHERE channel_id IN (${placeholders})
           AND start_time <= ?
           AND (end_time IS NULL OR end_time > ?)
-        ORDER BY channel_id, start_time DESC
-    `, [...channelIds, now, now]);
+    `;
+    let currentParams = [...channelIds, now, now];
 
-    // Get next programs (one per channel)
-    const nextPrograms = await db.all(`
+    let nextSql = `
         SELECT * FROM epg_programs
         WHERE channel_id IN (${placeholders})
           AND start_time > ?
-        ORDER BY channel_id, start_time ASC
-    `, [...channelIds, now]);
+    `;
+    let nextParams = [...channelIds, now];
+
+    if (sourceId) {
+        currentSql += ' AND source_id = ?';
+        currentParams.push(sourceId);
+        nextSql += ' AND source_id = ?';
+        nextParams.push(sourceId);
+    }
+
+    currentSql += ' ORDER BY channel_id, start_time DESC';
+    nextSql += ' ORDER BY channel_id, start_time ASC';
+
+    // Get current programs
+    const currentPrograms = await db.all(currentSql, currentParams);
+
+    // Get next programs
+    const nextPrograms = await db.all(nextSql, nextParams);
 
     // Build result map
     const result = {};
@@ -755,21 +481,30 @@ async function getEpgForChannels(channelIds) {
 }
 
 /**
- * Get distinct channels that have EPG data
- * @param {string} country - Optional country filter
+ * Get distinct channels that have EPG data for a source
+ * @param {number} sourceId - Source ID
  * @returns {Array} - List of channel IDs with EPG data
  */
-async function getChannelsWithEpg(country = null) {
-    let sql = 'SELECT DISTINCT channel_id, country FROM epg_programs WHERE source_id IS NULL';
+async function getChannelsWithEpg(sourceId = null) {
+    let sql = 'SELECT DISTINCT channel_id FROM epg_programs';
     const params = [];
 
-    if (country) {
-        sql += ' AND country = ?';
-        params.push(country);
+    if (sourceId) {
+        sql += ' WHERE source_id = ?';
+        params.push(sourceId);
     }
 
     sql += ' ORDER BY channel_id';
-    return db.all(sql, params);
+    const rows = await db.all(sql, params);
+
+    // Extract country from channel_id suffix (e.g., "ARD.de" -> "DE")
+    return rows.map(row => {
+        const match = row.channel_id.match(/\.([a-z]{2})$/i);
+        return {
+            channel_id: row.channel_id,
+            country: match ? match[1].toUpperCase() : null
+        };
+    });
 }
 
 /**
@@ -782,366 +517,40 @@ async function getProgramById(programId) {
 }
 
 /**
- * Match EPG channels to IPTV sources using AI
- * @returns {Object} - { matched: number, skipped: boolean }
+ * Get EPG sync status for all sources
+ * @returns {Array} - List of sync status per source
  */
-async function matchChannelsWithAI() {
-    if (!llm?.isConfigured()) {
-        return { matched: 0, skipped: true };
-    }
-
-    logger?.info('epg', 'Starting AI channel matching...');
-
-    try {
-        // Get unmatched EPG channels (not already in channel_mappings)
-        const epgChannels = await db.all(`
-            SELECT DISTINCT channel_id FROM epg_programs
-            WHERE channel_id NOT IN (
-                SELECT epg_channel_id FROM channel_mappings
-            )
-            LIMIT 200
-        `);
-
-        if (epgChannels.length === 0) {
-            logger?.info('epg', 'No unmatched EPG channels found');
-            return { matched: 0, skipped: false };
-        }
-
-        // Get source channel names (live TV)
-        const sourceChannels = await db.all(`
-            SELECT DISTINCT title FROM media
-            WHERE (media_type = 'live' OR category LIKE '%LIVE%' OR category LIKE '%GENERAL%' OR category LIKE '%SPORT%')
-            AND title IS NOT NULL AND title != ''
-            LIMIT 500
-        `);
-
-        if (sourceChannels.length === 0) {
-            logger?.info('epg', 'No source channels found');
-            return { matched: 0, skipped: false };
-        }
-
-        logger?.info('epg', `Matching ${epgChannels.length} EPG channels against ${sourceChannels.length} sources`);
-
-        // Use LLM to match channels
-        const matches = await llm.matchChannels(
-            epgChannels.map(c => c.channel_id),
-            sourceChannels.map(c => c.title)
-        );
-
-        // Store mappings
-        let storedCount = 0;
-        for (const match of matches) {
-            try {
-                await db.run(`
-                    INSERT OR REPLACE INTO channel_mappings
-                    (epg_channel_id, source_channel_name, confidence)
-                    VALUES (?, ?, ?)
-                `, [match.epg, match.source, match.confidence]);
-                storedCount++;
-            } catch (err) {
-                logger?.warn('epg', `Failed to store mapping: ${err.message}`);
-            }
-        }
-
-        // Apply mappings to update media.tvg_id
-        await applyChannelMappings();
-
-        logger?.info('epg', `AI channel matching complete: ${storedCount} mappings stored`);
-        return { matched: storedCount, skipped: false };
-
-    } catch (err) {
-        logger?.error('epg', `AI channel matching failed: ${err.message}`);
-        throw err;
-    }
+async function getEpgSyncStatus() {
+    return db.all(`
+        SELECT
+            s.id as source_id,
+            s.name as source_name,
+            s.epg_url,
+            es.last_sync,
+            es.program_count,
+            es.channel_count
+        FROM sources s
+        LEFT JOIN epg_sync es ON s.id = es.source_id
+        WHERE s.epg_url IS NOT NULL AND s.active = 1
+        ORDER BY s.name
+    `);
 }
 
 /**
- * Apply stored channel mappings to update media.tvg_id
- * Overwrites existing tvg_id values if they don't match any EPG channels
+ * Clean up old EPG programs (expired)
+ * @returns {Object} - { deleted: number }
  */
-async function applyChannelMappings() {
-    const mappings = await db.all('SELECT * FROM channel_mappings WHERE confidence >= 0.7');
-
-    // Get list of valid EPG channel IDs
-    const validEpgChannels = await db.all('SELECT DISTINCT channel_id FROM epg_programs');
-    const validEpgSet = new Set(validEpgChannels.map(c => c.channel_id));
-
-    let updated = 0;
-    for (const mapping of mappings) {
-        // Update channels that either:
-        // 1. Have no tvg_id
-        // 2. Have a tvg_id that doesn't match any EPG channel (invalid)
-        const candidates = await db.all(`
-            SELECT id, tvg_id FROM media
-            WHERE title LIKE ?
-        `, [`%${mapping.source_channel_name}%`]);
-
-        for (const candidate of candidates) {
-            // Skip if current tvg_id is valid and matches EPG
-            if (candidate.tvg_id && validEpgSet.has(candidate.tvg_id)) {
-                continue;
-            }
-
-            // Update with new mapping
-            const result = await db.run(`
-                UPDATE media SET tvg_id = ? WHERE id = ?
-            `, [mapping.epg_channel_id, candidate.id]);
-
-            if (result.changes > 0) {
-                updated++;
-            }
-        }
-    }
-
-    if (updated > 0) {
-        logger?.info('epg', `Applied channel mappings: ${updated} media items updated`);
-    }
-
-    return { updated };
-}
-
-/**
- * Get all channel mappings
- */
-async function getChannelMappings() {
-    return db.all('SELECT * FROM channel_mappings ORDER BY confidence DESC');
-}
-
-/**
- * Clear invalid tvg_id values from media (ones that don't match any EPG channels)
- * This allows AI matching to fix bad tvg_id values from IPTV sources
- */
-async function clearInvalidTvgIds() {
-    // Get all valid EPG channel IDs
-    const validEpgChannels = await db.all('SELECT DISTINCT channel_id FROM epg_programs');
-    const validEpgIds = validEpgChannels.map(c => c.channel_id);
-
-    if (validEpgIds.length === 0) {
-        logger?.warn('epg', 'No EPG channels found, skipping tvg_id cleanup');
-        return { cleared: 0 };
-    }
-
-    // Clear tvg_id values that don't match any EPG channel
-    const placeholders = validEpgIds.map(() => '?').join(',');
+async function cleanupOldPrograms() {
     const result = await db.run(`
-        UPDATE media SET tvg_id = NULL
-        WHERE media_type = 'live'
-          AND tvg_id IS NOT NULL
-          AND tvg_id != ''
-          AND tvg_id NOT IN (${placeholders})
-    `, validEpgIds);
-
-    logger?.info('epg', `Cleared ${result.changes} invalid tvg_id values`);
-    return { cleared: result.changes };
-}
-
-/**
- * Find matching IPTV channels for an EPG channel using multiple strategies
- * @param {string} epgChannelId - EPG channel ID (e.g., "rtl2.de")
- * @returns {Array} - Matching media items
- */
-async function findMatchingIptvChannels(epgChannelId) {
-    // Strategy 1: Direct tvg_id match
-    let matches = await db.all(`
-        SELECT id, title, stream_url, source_id FROM media
-        WHERE media_type = 'live' AND tvg_id = ?
-    `, [epgChannelId]);
-
-    if (matches.length > 0) return matches;
-
-    // Strategy 2: Check channel_mappings table (LLM-generated)
-    const mapping = await db.get(`
-        SELECT source_channel_name FROM channel_mappings
-        WHERE epg_channel_id = ? AND confidence >= 0.7
-    `, [epgChannelId]);
-
-    if (mapping) {
-        matches = await db.all(`
-            SELECT id, title, stream_url, source_id FROM media
-            WHERE media_type = 'live' AND title LIKE ?
-        `, [`%${mapping.source_channel_name}%`]);
-        if (matches.length > 0) return matches;
-    }
-
-    // Strategy 3: Improved string matching on normalized names
-    const normalizedEpg = normalizeChannelName(epgChannelId);
-    const coreEpg = extractCoreChannelName(epgChannelId);
-
-    // Get all live channels
-    const allLiveChannels = await db.all(`
-        SELECT id, title, stream_url, source_id FROM media
-        WHERE media_type = 'live' AND title IS NOT NULL
-        AND title NOT LIKE '####%' AND title NOT LIKE '====%'
+        DELETE FROM epg_programs
+        WHERE end_time IS NOT NULL AND end_time < datetime('now', '-1 day')
     `);
 
-    const fuzzyMatches = [];
-    for (const ch of allLiveChannels) {
-        const normalizedTitle = normalizeChannelName(ch.title);
-        const coreTitle = extractCoreChannelName(ch.title);
-
-        // Skip empty/invalid titles
-        if (!normalizedTitle || normalizedTitle.length < 2) continue;
-
-        // Check exact normalized match
-        if (normalizedEpg === normalizedTitle) {
-            fuzzyMatches.push({ ...ch, matchScore: 1.0 });
-            continue;
-        }
-
-        // Check core name exact match (e.g., "3sat" === "3sat")
-        if (coreEpg === coreTitle && coreEpg.length >= 3) {
-            fuzzyMatches.push({ ...ch, matchScore: 0.95 });
-            continue;
-        }
-
-        // Check if EPG core name is contained in IPTV title
-        // e.g., "arte" in "arte" (normalized)
-        if (coreEpg.length >= 3 && normalizedTitle.includes(coreEpg)) {
-            fuzzyMatches.push({ ...ch, matchScore: 0.9 });
-            continue;
-        }
-
-        // Check if IPTV core starts with EPG core
-        // e.g., "rtl" matches "rtl crime"
-        if (coreEpg.length >= 3 && coreTitle.startsWith(coreEpg)) {
-            fuzzyMatches.push({ ...ch, matchScore: 0.85 });
-            continue;
-        }
-
-        // Check string similarity on normalized names
-        const similarity = stringSimilarity(normalizedEpg, normalizedTitle);
-        if (similarity >= 0.8) {
-            fuzzyMatches.push({ ...ch, matchScore: similarity });
-            continue;
-        }
-
-        // Check similarity on core names
-        const coreSimilarity = stringSimilarity(coreEpg, coreTitle);
-        if (coreSimilarity >= 0.85) {
-            fuzzyMatches.push({ ...ch, matchScore: coreSimilarity * 0.9 });
-        }
+    if (result.changes > 0) {
+        logger.info('epg', `Cleaned up ${result.changes} expired EPG programs`);
     }
 
-    // Sort by match score and return
-    return fuzzyMatches.sort((a, b) => (b.matchScore || 0) - (a.matchScore || 0));
-}
-
-/**
- * Get filtered EPG channels (only preferred languages + have IPTV source)
- * @returns {Array} - Filtered channels with IPTV availability info
- */
-async function getFilteredEpgChannels() {
-    const preferredLanguages = settings?.get('preferredLanguages') || ['de', 'en'];
-
-    // Try to use cache first
-    const cachedChannels = await db.all(`
-        SELECT * FROM epg_channel_cache
-        WHERE has_iptv_source = 1
-        AND language IN (${preferredLanguages.map(() => '?').join(',')})
-        ORDER BY channel_id
-    `, preferredLanguages);
-
-    if (cachedChannels.length > 0) {
-        return cachedChannels.map(c => ({
-            channel_id: c.channel_id,
-            country: c.country,
-            language: c.language,
-            iptv_sources: JSON.parse(c.iptv_media_ids || '[]').length
-        }));
-    }
-
-    // No cache, build fresh (slower)
-    logger?.info('epg', 'Building filtered EPG channels (no cache)');
-    return await buildFilteredChannels(preferredLanguages);
-}
-
-/**
- * Build filtered channels list (without cache)
- */
-async function buildFilteredChannels(preferredLanguages) {
-    const epgChannels = await db.all(`
-        SELECT DISTINCT channel_id, country FROM epg_programs
-        WHERE source_id IS NULL
-    `);
-
-    const filteredChannels = [];
-
-    for (const ch of epgChannels) {
-        // Filter 1: Language check
-        const language = COUNTRY_TO_LANGUAGE[ch.country];
-        if (language && !preferredLanguages.includes(language)) {
-            continue;
-        }
-
-        // Filter 2: IPTV source check
-        const iptvMatches = await findMatchingIptvChannels(ch.channel_id);
-        if (iptvMatches.length === 0) {
-            continue;
-        }
-
-        filteredChannels.push({
-            channel_id: ch.channel_id,
-            country: ch.country,
-            language: language || 'unknown',
-            iptv_sources: iptvMatches.length,
-            iptv_media_ids: iptvMatches.map(m => m.id)
-        });
-    }
-
-    return filteredChannels;
-}
-
-/**
- * Rebuild the EPG channel cache
- * Call after EPG sync, IPTV refresh, or AI channel matching
- */
-async function rebuildChannelCache() {
-    logger?.info('epg', 'Rebuilding EPG channel cache...');
-
-    const preferredLanguages = settings?.get('preferredLanguages') || ['de', 'en'];
-
-    // Get all EPG channels
-    const epgChannels = await db.all(`
-        SELECT DISTINCT channel_id, country FROM epg_programs
-        WHERE source_id IS NULL
-    `);
-
-    // Clear old cache
-    await db.run('DELETE FROM epg_channel_cache');
-
-    let cachedCount = 0;
-    let matchedCount = 0;
-
-    for (const ch of epgChannels) {
-        const language = COUNTRY_TO_LANGUAGE[ch.country] || 'unknown';
-        const iptvMatches = await findMatchingIptvChannels(ch.channel_id);
-        const hasSource = iptvMatches.length > 0;
-
-        await db.run(`
-            INSERT INTO epg_channel_cache (channel_id, country, language, has_iptv_source, iptv_media_ids)
-            VALUES (?, ?, ?, ?, ?)
-        `, [
-            ch.channel_id,
-            ch.country,
-            language,
-            hasSource ? 1 : 0,
-            JSON.stringify(iptvMatches.map(m => m.id))
-        ]);
-
-        cachedCount++;
-        if (hasSource) matchedCount++;
-    }
-
-    logger?.info('epg', `EPG cache rebuilt: ${cachedCount} channels, ${matchedCount} with IPTV sources`);
-
-    return { total: cachedCount, matched: matchedCount };
-}
-
-/**
- * Get language for a country
- */
-function getLanguageForCountry(country) {
-    return COUNTRY_TO_LANGUAGE[country] || null;
+    return { deleted: result.changes };
 }
 
 module.exports = {
@@ -1150,12 +559,11 @@ module.exports = {
         db = modules.db;
         app = modules.app;
         settings = modules.settings;
-        llm = modules.llm;  // LLM module for AI channel matching
     },
 
-    // Global EPG sync
-    syncGlobalEpg,
-    getAvailableCountries,
+    // EPG sync
+    syncSourceEpg,
+    syncAllSourcesEpg,
 
     // Program queries
     getCurrentProgram,
@@ -1165,20 +573,11 @@ module.exports = {
     getChannelsWithEpg,
     getProgramById,
 
-    // AI Channel matching
-    matchChannelsWithAI,
-    applyChannelMappings,
-    getChannelMappings,
-    clearInvalidTvgIds,
-
-    // Filtered EPG channels (language + IPTV availability)
-    getFilteredEpgChannels,
-    findMatchingIptvChannels,
-    rebuildChannelCache,
-    getLanguageForCountry,
+    // Status and maintenance
+    getEpgSyncStatus,
+    cleanupOldPrograms,
 
     // Utilities
     parseXmltvContent,
-    parseXmltvDate,
-    matchChannelsToEpg
+    parseXmltvDate
 };

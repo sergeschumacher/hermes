@@ -32,6 +32,115 @@ function allAsync(sql, params = []) {
     });
 }
 
+// Map of tables to the migration version that creates them
+const TABLE_MIGRATIONS = {
+    'sources': 1,
+    'media': 1,
+    'episodes': 1,
+    'people': 1,
+    'media_people': 1,
+    'downloads': 1,
+    'requests': 3,
+    'tmdb_cache': 4,
+    'logs': 7,
+    'epg_programs': 11,
+    'epg_sync': 11,
+    'scheduled_recordings': 12,
+    'scheduler_tasks': 12,
+    'transcode_queue': 15,
+    'media_trailers': 18,
+    'enrichment_queue': 19,
+    'channel_mappings': 20,
+    'epg_channel_cache': 22,
+    'seasons': 23,
+    'enrichment_cache': 26,
+    'source_samples': 27,
+    'hdhr_channels': 29,
+    'hdhr_category_rules': 29
+};
+
+// Map of table.column to migration version that adds them
+const COLUMN_MIGRATIONS = {
+    'media.show_name': 2,
+    'media.season_number': 2,
+    'media.episode_number': 2,
+    'media.show_language': 2,
+    'media.episode_count': 14,
+    'media.is_active': 24,
+    'media.last_seen_at': 24,
+    'media.platform': 25,
+    'sources.m3u_parser_config': 30,
+};
+
+async function verifyTables() {
+    // Get list of existing tables
+    const tables = await allAsync(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    );
+    const existingTables = new Set(tables.map(t => t.name));
+
+    // Check for missing tables and reset their migrations
+    const missingMigrations = new Set();
+    for (const [table, version] of Object.entries(TABLE_MIGRATIONS)) {
+        if (!existingTables.has(table)) {
+            logger?.warn('db', `Missing table: ${table} (migration ${version})`);
+            missingMigrations.add(version);
+        }
+    }
+
+    // Reset migrations for missing tables
+    if (missingMigrations.size > 0) {
+        const versions = Array.from(missingMigrations);
+        logger?.info('db', `Resetting migrations for missing tables: ${versions.join(', ')}`);
+        for (const version of versions) {
+            await runAsync('DELETE FROM migrations WHERE version = ?', [version]);
+        }
+    }
+
+    return missingMigrations.size;
+}
+
+async function verifyColumns() {
+    const missingMigrations = new Set();
+
+    // Group columns by table
+    const tableColumns = {};
+    for (const key of Object.keys(COLUMN_MIGRATIONS)) {
+        const [table, column] = key.split('.');
+        if (!tableColumns[table]) tableColumns[table] = [];
+        tableColumns[table].push(column);
+    }
+
+    // Check each table's columns
+    for (const [table, columns] of Object.entries(tableColumns)) {
+        try {
+            const info = await allAsync(`PRAGMA table_info(${table})`);
+            const existingColumns = new Set(info.map(c => c.name));
+
+            for (const column of columns) {
+                if (!existingColumns.has(column)) {
+                    const version = COLUMN_MIGRATIONS[`${table}.${column}`];
+                    logger?.warn('db', `Missing column: ${table}.${column} (migration ${version})`);
+                    missingMigrations.add(version);
+                }
+            }
+        } catch (err) {
+            // Table doesn't exist - will be handled by verifyTables
+        }
+    }
+
+    // Reset migrations for missing columns
+    if (missingMigrations.size > 0) {
+        const versions = Array.from(missingMigrations);
+        logger?.info('db', `Resetting migrations for missing columns: ${versions.join(', ')}`);
+        for (const version of versions) {
+            await runAsync('DELETE FROM migrations WHERE version = ?', [version]);
+        }
+    }
+
+    return missingMigrations.size;
+}
+
 async function applyMigrations() {
     // Create migrations table if not exists
     await runAsync(`
@@ -42,9 +151,21 @@ async function applyMigrations() {
         )
     `);
 
-    // Get current version
-    const current = await getAsync('SELECT MAX(version) as version FROM migrations');
-    const currentVersion = current?.version || 0;
+    // Verify tables exist and reset migrations if needed
+    const tableResetCount = await verifyTables();
+    if (tableResetCount > 0) {
+        logger?.info('db', `Will re-run ${tableResetCount} migrations to restore missing tables`);
+    }
+
+    // Verify columns exist and reset migrations if needed
+    const columnResetCount = await verifyColumns();
+    if (columnResetCount > 0) {
+        logger?.info('db', `Will re-run ${columnResetCount} migrations to restore missing columns`);
+    }
+
+    // Get all applied migrations
+    const applied = await allAsync('SELECT version FROM migrations');
+    const appliedVersions = new Set(applied.map(m => m.version));
 
     // Get SQL files
     const sqlFiles = fs.readdirSync(PATHS.sql)
@@ -53,7 +174,8 @@ async function applyMigrations() {
 
     for (const file of sqlFiles) {
         const version = parseInt(file.split('_')[0]);
-        if (version > currentVersion) {
+        // Run migration if not already applied (handles both new and reset migrations)
+        if (!appliedVersions.has(version)) {
             logger?.info('db', `Applying migration: ${file}`);
             const sql = fs.readFileSync(path.join(PATHS.sql, file), 'utf8');
 
