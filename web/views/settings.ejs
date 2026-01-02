@@ -2010,7 +2010,7 @@
         }
 
         // Fallback: just match what was selected
-        return '^(' + text.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + ')\\\\s*';
+        return '^(' + text.replace(/[.*+?^$\{\}()|[\\]\\\\]/g, '\\\\$&') + ')\\\\s*';
     }
 
     function generateYearPattern(text) {
