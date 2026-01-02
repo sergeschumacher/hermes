@@ -2850,6 +2850,15 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 return res.status(404).json({ error: 'Media not found' });
             }
 
+            // Clear enrichment cache for this item (generate cache key same way as enrichment module)
+            const normalizedTitle = media.title?.toLowerCase()
+                .replace(/[^a-z0-9]/g, '')
+                .substring(0, 100) || '';
+            const cacheKey = `${normalizedTitle}|${media.year || ''}|${media.media_type}`;
+            await db.run('DELETE FROM enrichment_cache WHERE cache_key = ? OR cache_key LIKE ?',
+                [cacheKey, `${normalizedTitle}|%`]);
+            logger.info('api', `Cleared enrichment cache for: ${media.title}`);
+
             // Reset enrichment_attempted to allow re-enrichment
             await db.run('UPDATE media SET enrichment_attempted = NULL, tmdb_id = NULL WHERE id = ?', [mediaId]);
 
