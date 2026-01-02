@@ -690,7 +690,18 @@ async function processMediaItem(media, options = {}) {
                         }
 
                         if (verifiedDetails && verifiedDetails.id) {
-                            searchResults = [{ id: verifiedDetails.id, ...verifiedDetails }];
+                            // Verify the returned title actually matches what LLM identified
+                            const detailTitle = (verifiedDetails.title || verifiedDetails.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                            const expectedTitle = translatedTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+                            if (detailTitle.includes(expectedTitle) || expectedTitle.includes(detailTitle) ||
+                                (detailTitle.length > 3 && expectedTitle.length > 3 &&
+                                 (detailTitle.startsWith(expectedTitle.substring(0, 5)) || expectedTitle.startsWith(detailTitle.substring(0, 5))))) {
+                                searchResults = [{ id: verifiedDetails.id, ...verifiedDetails }];
+                                logger?.info('enrichment', `LLM TMDB ID verified: ${llmIdentified.tmdbId} -> "${verifiedDetails.title || verifiedDetails.name}"`);
+                            } else {
+                                logger?.warn('enrichment', `LLM TMDB ID mismatch: expected "${translatedTitle}" but got "${verifiedDetails.title || verifiedDetails.name}" - will search instead`);
+                            }
                         }
                     } catch (verifyError) {
                         logger?.warn('enrichment', `LLM TMDB ID verification failed: ${verifyError.message}`);
