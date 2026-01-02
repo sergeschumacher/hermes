@@ -578,6 +578,27 @@ function setupApiRoutes() {
         router.handle(req, res, next);
     });
 
+    // Live TV channel counts per category
+    router.get('/livetv/counts', async (req, res) => {
+        try {
+            const db = modules.db;
+            const result = await db.all(`
+                SELECT category, COUNT(*) as count
+                FROM media
+                WHERE media_type = 'live' AND category IS NOT NULL AND category != ''
+                GROUP BY category
+            `);
+
+            const counts = {};
+            for (const row of result) {
+                counts[row.category] = row.count;
+            }
+            res.json(counts);
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Stream proxy for CORS bypass - pipes IPTV streams through server
     // For HLS streams (.m3u8), proxy directly
     // For MPEG-TS streams, transcode to HLS on-the-fly with FFmpeg
