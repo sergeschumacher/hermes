@@ -869,7 +869,8 @@ function setupApiRoutes() {
                 params.push(parseInt(source));
             }
             if (platform) {
-                sql += ' AND platform = ?';
+                // Platform filter now uses category field
+                sql += ' AND category = ?';
                 params.push(platform);
             }
 
@@ -3288,7 +3289,8 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 params.push(parseInt(source));
             }
             if (platform) {
-                whereClause += ' AND platform = ?';
+                // Platform filter now uses category field
+                whereClause += ' AND category = ?';
                 params.push(platform);
             }
 
@@ -3358,16 +3360,16 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    // Get available platforms for filter dropdown
+    // Get available categories for filter dropdown (was platforms)
     router.get('/platforms', async (req, res) => {
         try {
             const db = modules.db;
             const { type } = req.query;
 
             let sql = `
-                SELECT platform, COUNT(*) as count
+                SELECT category, COUNT(*) as count
                 FROM media
-                WHERE platform IS NOT NULL
+                WHERE category IS NOT NULL AND category != ''
             `;
             const params = [];
 
@@ -3376,10 +3378,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 params.push(type);
             }
 
-            sql += ' GROUP BY platform ORDER BY count DESC';
+            sql += ' GROUP BY category ORDER BY count DESC';
 
-            const platforms = await db.all(sql, params);
-            res.json(platforms);
+            const categories = await db.all(sql, params);
+            // Map to platform field for backwards compatibility with frontend
+            res.json(categories.map(c => ({ platform: c.category, count: c.count })));
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -4789,6 +4792,32 @@ function setupSocket() {
     }
 }
 
+function setupSyncEventRelay() {
+    // Forward sync events from IPTV module to socket.io clients
+    app.on('sync:start', (data) => {
+        io.emit('sync:source:start', { sourceId: data.source, sourceName: data.sourceName });
+    });
+
+    app.on('sync:progress', (data) => {
+        io.emit('sync:source:progress', {
+            sourceId: data.source,
+            step: data.step,
+            message: data.message,
+            percent: data.percent,
+            current: data.current,
+            total: data.total
+        });
+    });
+
+    app.on('sync:complete', (data) => {
+        io.emit('sync:source:complete', { sourceId: data.source, stats: data.stats });
+    });
+
+    app.on('sync:error', (data) => {
+        io.emit('sync:source:error', { sourceId: data.source, error: data.error });
+    });
+}
+
 module.exports = {
     init: async (mods) => {
         modules = mods;
@@ -4804,6 +4833,7 @@ module.exports = {
 
         setupRoutes();
         setupSocket();
+        setupSyncEventRelay();
 
         const port = settings.get('port');
         return new Promise((resolve) => {

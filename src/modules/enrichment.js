@@ -402,13 +402,196 @@ async function searchWithFallback(cleanTitle, year, language, mediaType) {
 }
 
 /**
+ * Fetch TMDB details by ID and apply to media record
+ * Used when tmdb_id is already known (e.g., manually set or from cache)
+ */
+async function fetchAndApplyTmdbDetails(media, tmdbId, options = {}) {
+    const { highPriority = false } = options;
+    const fetchFullDetails = highPriority || !CONFIG.skipSeasonFetch;
+
+    // Create rate limiter if needed
+    if (!rateLimiter) {
+        rateLimiter = new RateLimiter(CONFIG.rateLimit, CONFIG.rateLimitWindow);
+    }
+
+    await rateLimiter.acquire(1);
+    let details;
+    if (media.media_type === 'movie') {
+        details = await tmdb.getMovie(tmdbId);
+    } else {
+        details = await tmdb.getTv(tmdbId);
+    }
+
+    if (!details || !details.id) {
+        throw new Error(`TMDB ID ${tmdbId} not found`);
+    }
+
+    // Update media record with fetched details
+    const posterPath = details.poster_path;
+    const backdropPath = details.backdrop_path;
+
+    await db.run(`
+        UPDATE media SET
+            tmdb_id = ?,
+            tagline = COALESCE(?, tagline),
+            plot = COALESCE(?, plot),
+            poster = COALESCE(?, poster),
+            backdrop = COALESCE(?, backdrop),
+            rating = COALESCE(?, rating),
+            genres = COALESCE(?, genres),
+            year = COALESCE(?, year),
+            runtime = COALESCE(?, runtime),
+            imdb_id = COALESCE(?, imdb_id),
+            number_of_seasons = COALESCE(?, number_of_seasons),
+            number_of_episodes = COALESCE(?, number_of_episodes),
+            enrichment_attempted = CURRENT_TIMESTAMP,
+            last_updated = CURRENT_TIMESTAMP
+        WHERE id = ?
+    `, [
+        details.id, details.tagline, details.overview,
+        posterPath, backdropPath,
+        details.vote_average, details.genres, details.year, details.runtime,
+        details.imdb_id, details.number_of_seasons || null, details.number_of_episodes || null,
+        media.id
+    ]);
+
+    // Handle trailers, seasons, cast in high priority mode
+    let trailerCount = 0;
+    let seasonCount = 0;
+    let episodeCount = 0;
+
+    if (fetchFullDetails) {
+        // Store trailers
+        if (details.trailers && details.trailers.length > 0) {
+            for (const trailer of details.trailers.slice(0, 5)) {
+                try {
+                    await db.run(`
+                        INSERT OR IGNORE INTO media_trailers
+                        (media_id, youtube_key, name, type, official, published_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    `, [
+                        media.id, trailer.youtube_key, trailer.name,
+                        trailer.type, trailer.official, trailer.published_at
+                    ]);
+                    trailerCount++;
+                } catch (err) { /* ignore duplicates */ }
+            }
+        }
+
+        // Store cast/crew
+        if (details.cast || details.crew) {
+            for (const person of [...(details.cast || []), ...(details.crew || [])]) {
+                try {
+                    await db.run(`
+                        INSERT OR REPLACE INTO people (tmdb_id, name, profile_path, known_for)
+                        VALUES (?, ?, ?, ?)
+                    `, [person.id, person.name, person.profile_path, person.job || 'Acting']);
+
+                    const personRecord = await db.get('SELECT id FROM people WHERE tmdb_id = ?', [person.id]);
+                    if (personRecord) {
+                        const role = person.job ? 'crew' : 'cast';
+                        await db.run(`
+                            INSERT OR IGNORE INTO media_people (media_id, person_id, role, character, credit_order)
+                            VALUES (?, ?, ?, ?, ?)
+                        `, [media.id, personRecord.id, role, person.character || person.job, person.order || 999]);
+                    }
+                } catch (err) { /* ignore errors */ }
+            }
+        }
+
+        // Fetch seasons for TV shows
+        if (media.media_type === 'series' && details.seasons && details.seasons.length > 0) {
+            for (const season of details.seasons) {
+                if (season.season_number === 0) continue;
+                try {
+                    await db.run(`
+                        INSERT OR REPLACE INTO seasons
+                        (media_id, tmdb_id, season_number, name, overview, poster, air_date, episode_count, vote_average)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `, [
+                        media.id, season.id, season.season_number, season.name,
+                        season.overview, season.poster_path, season.air_date,
+                        season.episode_count, season.vote_average
+                    ]);
+                    seasonCount++;
+
+                    // Fetch episode details
+                    await rateLimiter.acquire(1);
+                    const seasonDetails = await tmdb.getSeason(details.id, season.season_number);
+                    if (seasonDetails && seasonDetails.episodes) {
+                        for (const episode of seasonDetails.episodes) {
+                            try {
+                                await db.run(`
+                                    INSERT OR REPLACE INTO episodes
+                                    (media_id, tmdb_id, season, episode, title, overview, air_date, runtime, still_path, vote_average, vote_count)
+                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                `, [
+                                    media.id, episode.id, season.season_number, episode.episode_number,
+                                    episode.name, episode.overview, episode.air_date, episode.runtime,
+                                    episode.still_path, episode.vote_average, episode.vote_count || 0
+                                ]);
+                                episodeCount++;
+                            } catch (epErr) { /* ignore */ }
+                        }
+                    }
+                } catch (seasonErr) {
+                    logger?.warn('enrichment', `Failed to store season ${season.season_number}: ${seasonErr.message}`);
+                }
+            }
+        }
+    }
+
+    // Propagate to other entries with same show_name
+    if (CONFIG.propagateTmdbId && media.media_type === 'series' && media.show_name) {
+        await db.run(`
+            UPDATE media SET
+                tmdb_id = ?,
+                poster = COALESCE(?, poster),
+                backdrop = COALESCE(?, backdrop),
+                plot = COALESCE(?, plot),
+                rating = COALESCE(?, rating),
+                enrichment_attempted = CURRENT_TIMESTAMP
+            WHERE show_name = ?
+            AND id != ?
+            AND tmdb_id IS NULL
+        `, [details.id, posterPath, backdropPath, details.overview, details.vote_average, media.show_name, media.id]);
+    }
+
+    // Cache the enrichment data
+    const extracted = tmdb.extractCleanTitle(media.title);
+    const cleanTitle = extracted?.title || media.title;
+    const year = media.year || extracted?.year;
+
+    await saveToEnrichmentCache(cleanTitle, year, media.media_type, {
+        id: details.id,
+        poster: posterPath,
+        backdrop: backdropPath,
+        rating: details.vote_average,
+        plot: details.overview,
+        tagline: details.tagline,
+        genres: details.genres,
+        runtime: details.runtime,
+        imdb_id: details.imdb_id
+    });
+
+    return { tmdbId: details.id, trailerCount, seasonCount, episodeCount };
+}
+
+/**
  * Process a single media item
  * @param {Object} media - The media item to process
  * @param {Object} options - Processing options
  * @param {boolean} options.highPriority - If true, fetch full details and use LLM fallback
+ * @param {boolean} options.useExistingTmdbId - If true, use media.tmdb_id directly without searching
  */
 async function processMediaItem(media, options = {}) {
-    const { highPriority = false } = options;
+    const { highPriority = false, useExistingTmdbId = true } = options;
+
+    // If media already has a tmdb_id and we should use it, fetch details directly
+    if (useExistingTmdbId && media.tmdb_id) {
+        logger?.info('enrichment', `Using existing TMDB ID ${media.tmdb_id} for: ${media.title}`);
+        return await fetchAndApplyTmdbDetails(media, media.tmdb_id, { highPriority });
+    }
 
     // Extract clean title with language hint
     const extracted = tmdb.extractCleanTitle(media.title);

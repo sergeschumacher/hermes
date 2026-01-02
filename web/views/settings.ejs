@@ -954,6 +954,9 @@
 </div>
 
 <script>
+    // Initialize socket.io connection for real-time updates
+    const socket = io();
+
     const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel'];
     const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
 
@@ -2726,10 +2729,13 @@
             const channels = await response.json();
             const countEl = document.getElementById('hdhr-channel-count');
             if (countEl) {
-                countEl.textContent = channels.length + ' channels';
+                const count = Array.isArray(channels) ? channels.length : 0;
+                countEl.textContent = count + ' channels';
             }
         } catch (err) {
             console.error('Failed to load HDHR channels:', err);
+            const countEl = document.getElementById('hdhr-channel-count');
+            if (countEl) countEl.textContent = '0 channels';
         }
     }
 
