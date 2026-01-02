@@ -117,7 +117,7 @@ function getLineupStatus() {
 async function getLineup() {
     const baseUrl = getBaseUrl();
 
-    // Get enabled HDHR channels
+    // Get enabled HDHR channels (only from active sources)
     const channels = await db.all(`
         SELECT
             h.id,
@@ -130,7 +130,8 @@ async function getLineup() {
             m.tvg_id
         FROM hdhr_channels h
         JOIN media m ON h.media_id = m.id
-        WHERE h.enabled = 1
+        JOIN sources s ON m.source_id = s.id
+        WHERE h.enabled = 1 AND s.active = 1
         ORDER BY CAST(h.guide_number AS REAL), h.guide_number
     `);
 
@@ -159,8 +160,8 @@ async function getChannelByNumber(guideNumber) {
             s.spoofed_device_key
         FROM hdhr_channels h
         JOIN media m ON h.media_id = m.id
-        LEFT JOIN sources s ON m.source_id = s.id
-        WHERE h.guide_number = ? AND h.enabled = 1
+        JOIN sources s ON m.source_id = s.id
+        WHERE h.guide_number = ? AND h.enabled = 1 AND s.active = 1
     `, [guideNumber]);
 }
 
@@ -175,7 +176,8 @@ async function generateXmltv() {
             m.tvg_id
         FROM hdhr_channels h
         JOIN media m ON h.media_id = m.id
-        WHERE h.enabled = 1
+        JOIN sources s ON m.source_id = s.id
+        WHERE h.enabled = 1 AND s.active = 1
         ORDER BY CAST(h.guide_number AS REAL)
     `);
 
@@ -510,7 +512,7 @@ function buildDiscoveryResponse() {
 
 // ============== Public API Functions ==============
 
-// Get all live channels available for HDHR
+// Get all live channels available for HDHR (only from active sources)
 async function getAvailableChannels() {
     return await db.all(`
         SELECT
@@ -526,14 +528,14 @@ async function getAvailableChannels() {
             h.guide_name,
             h.enabled as hdhr_enabled
         FROM media m
-        LEFT JOIN sources s ON m.source_id = s.id
+        JOIN sources s ON m.source_id = s.id
         LEFT JOIN hdhr_channels h ON m.id = h.media_id
-        WHERE m.media_type = 'live' AND m.is_active = 1
+        WHERE m.media_type = 'live' AND m.is_active = 1 AND s.active = 1
         ORDER BY m.category, m.title
     `);
 }
 
-// Get enabled HDHR channels
+// Get enabled HDHR channels (only from active sources)
 async function getEnabledChannels() {
     return await db.all(`
         SELECT
@@ -548,22 +550,24 @@ async function getEnabledChannels() {
             m.tvg_id
         FROM hdhr_channels h
         JOIN media m ON h.media_id = m.id
-        WHERE h.enabled = 1
+        JOIN sources s ON m.source_id = s.id
+        WHERE h.enabled = 1 AND s.active = 1
         ORDER BY CAST(h.guide_number AS REAL)
     `);
 }
 
-// Get categories with channel counts
+// Get categories with channel counts (only from active sources)
 async function getCategories() {
     return await db.all(`
         SELECT
-            category,
+            m.category,
             COUNT(*) as channel_count,
-            source_id
-        FROM media
-        WHERE media_type = 'live' AND is_active = 1 AND category IS NOT NULL
-        GROUP BY category, source_id
-        ORDER BY category
+            m.source_id
+        FROM media m
+        JOIN sources s ON m.source_id = s.id
+        WHERE m.media_type = 'live' AND m.is_active = 1 AND m.category IS NOT NULL AND s.active = 1
+        GROUP BY m.category, m.source_id
+        ORDER BY m.category
     `);
 }
 
@@ -589,20 +593,21 @@ async function toggleChannel(hdhrId, enabled) {
     await db.run('UPDATE hdhr_channels SET enabled = ? WHERE id = ?', [enabled ? 1 : 0, hdhrId]);
 }
 
-// Add channels by category
+// Add channels by category (only from active sources)
 async function addChannelsByCategory(category, sourceId = null, startNumber = 1) {
     let query = `
-        SELECT id, title FROM media
-        WHERE media_type = 'live' AND is_active = 1 AND category = ?
+        SELECT m.id, m.title FROM media m
+        JOIN sources s ON m.source_id = s.id
+        WHERE m.media_type = 'live' AND m.is_active = 1 AND m.category = ? AND s.active = 1
     `;
     const params = [category];
 
     if (sourceId) {
-        query += ' AND source_id = ?';
+        query += ' AND m.source_id = ?';
         params.push(sourceId);
     }
 
-    query += ' ORDER BY title';
+    query += ' ORDER BY m.title';
 
     const channels = await db.all(query, params);
     let number = startNumber;

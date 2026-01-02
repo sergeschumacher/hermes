@@ -115,7 +115,7 @@
 <script>
     // Proxy image helper
     function proxyImage(url) {
-        if (!url) return '/static/images/no-poster.png';
+        if (!url) return '/static/images/no-poster.svg';
         return '/api/proxy/image?url=' + encodeURIComponent(url);
     }
 
@@ -231,7 +231,7 @@
 
     // Create card HTML
     function createCard(item) {
-        const posterUrl = item.poster_url ? proxyImage(item.poster_url) : '/static/images/no-poster.png';
+        const posterUrl = item.poster_url ? proxyImage(item.poster_url) : '/static/images/no-poster.svg';
         const link = item.media_type === 'movie' ? '/movies/' + item.id : '/series/' + item.id;
 
         return \`
@@ -240,7 +240,7 @@
                     <img src="\${posterUrl}"
                          alt="\${item.title}"
                          loading="lazy"
-                         onerror="this.src='/static/images/no-poster.png'">
+                         onerror="this.src='/static/images/no-poster.svg'">
                     \${item.quality ? \`<span class="quality-badge">\${item.quality}</span>\` : ''}
                     <div class="card-overlay">
                         <div class="play-btn">

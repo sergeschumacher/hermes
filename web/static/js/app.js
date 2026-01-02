@@ -4,7 +4,7 @@ const socket = io();
 
 // Image proxy helper - routes external images through cache
 function proxyImage(url) {
-    if (!url) return '/static/img/no-poster.png';
+    if (!url) return '/static/img/no-poster.svg';
     // Don't proxy local images or already proxied images
     if (url.startsWith('/') || url.startsWith(window.location.origin)) {
         return url;

@@ -128,7 +128,7 @@
         document.getElementById('requests-list').innerHTML = filtered.map(req => {
             const poster = req.poster
                 ? (req.poster.startsWith('http') ? req.poster : `https://image.tmdb.org/t/p/w92${req.poster}`)
-                : '/static/img/no-poster.png';
+                : '/static/img/no-poster.svg';
 
             const statusColor = {
                 pending: 'bg-yellow-500/20 text-yellow-400',
@@ -142,7 +142,7 @@
 
             return `
                 <div class="card p-4 flex items-center gap-4">
-                    <img src="${poster}" alt="${req.title}" class="w-16 h-24 rounded object-cover" onerror="this.src='/static/img/no-poster.png'" />
+                    <img src="${poster}" alt="${req.title}" class="w-16 h-24 rounded object-cover" onerror="this.src='/static/img/no-poster.svg'" />
                     <div class="flex-1 min-w-0">
                         <div class="flex items-center gap-3">
                             <h3 class="font-medium text-white truncate">${req.title}</h3>

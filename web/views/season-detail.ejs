@@ -84,7 +84,7 @@
         const showTitle = tmdbData?.title || showData.showName;
         const seasonInfo = tmdbData?.seasons?.find(s => s.season_number == seasonNumber);
         const seasonName = seasonInfo?.name || (seasonNumber === 0 ? 'Specials' : `Season ${seasonNumber}`);
-        const seasonPoster = seasonInfo?.poster_path || tmdbData?.poster_path || '/static/img/no-poster.png';
+        const seasonPoster = seasonInfo?.poster_path || tmdbData?.poster_path || '/static/img/no-poster.svg';
         const seasonOverview = tmdbSeasonData?.overview || seasonInfo?.overview || '';
         const episodeCount = tmdbSeasonData?.episodes?.length || seasonInfo?.episode_count || 0;
 
@@ -102,7 +102,7 @@
                         <img src="${seasonPoster}"
                              alt="${seasonName}"
                              class="w-32 h-48 rounded-lg object-cover shadow-xl flex-shrink-0"
-                             onerror="this.src='/static/img/no-poster.png'" />
+                             onerror="this.src='/static/img/no-poster.svg'" />
 
                         <div class="flex-1 min-w-0">
                             <!-- Breadcrumb -->

@@ -502,7 +502,7 @@
             : (tmdbData?.genres || showData.genres);
         const poster = tmdbData?.poster_path
             ? (tmdbData.poster_path.startsWith('http') ? tmdbData.poster_path : `https://image.tmdb.org/t/p/w300${tmdbData.poster_path}`)
-            : showData.poster || '/static/img/no-poster.png';
+            : showData.poster || '/static/img/no-poster.svg';
         const backdrop = tmdbData?.backdrop_path
             ? (tmdbData.backdrop_path.startsWith('http') ? tmdbData.backdrop_path : `https://image.tmdb.org/t/p/w1920_and_h800_multi_faces${tmdbData.backdrop_path}`)
             : showData.backdrop;
@@ -538,7 +538,7 @@
                     <!-- Poster -->
                     <div class="media-poster">
                         <img src="${poster}" alt="${title}" style="width: 100%; height: auto;"
-                             onerror="this.src='/static/img/no-poster.png'" />
+                             onerror="this.src='/static/img/no-poster.svg'" />
                     </div>
 
                     <!-- Title Area -->

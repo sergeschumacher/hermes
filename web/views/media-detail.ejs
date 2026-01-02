@@ -662,7 +662,7 @@
         // Handle poster/backdrop URLs
         const poster = tmdbData?.poster_path
             ? (tmdbData.poster_path.startsWith('http') ? tmdbData.poster_path : `https://image.tmdb.org/t/p/w300${tmdbData.poster_path}`)
-            : media.poster || '/static/img/no-poster.png';
+            : media.poster || '/static/img/no-poster.svg';
         const backdrop = tmdbData?.backdrop_path
             ? (tmdbData.backdrop_path.startsWith('http') ? tmdbData.backdrop_path : `https://image.tmdb.org/t/p/w1920_and_h800_multi_faces${tmdbData.backdrop_path}`)
             : media.backdrop;
@@ -709,7 +709,7 @@
                     <!-- Poster -->
                     <div class="media-poster">
                         <img src="${poster}" alt="${title}" style="width: 100%; height: auto;"
-                             onerror="this.src='/static/img/no-poster.png'" />
+                             onerror="this.src='/static/img/no-poster.svg'" />
                     </div>
 
                     <!-- Title Area -->
@@ -951,9 +951,9 @@
                         <div class="cast-slider" id="castSlider">
                             ${cast.slice(0, 20).map(actor => `
                                 <a href="https://www.themoviedb.org/person/${actor.id}" target="_blank" class="cast-card">
-                                    <img src="${actor.profile_path ? `https://image.tmdb.org/t/p/w185${actor.profile_path}` : '/static/img/no-poster.png'}"
+                                    <img src="${actor.profile_path ? `https://image.tmdb.org/t/p/w185${actor.profile_path}` : '/static/img/no-poster.svg'}"
                                          alt="${actor.name}"
-                                         onerror="this.src='/static/img/no-poster.png'" />
+                                         onerror="this.src='/static/img/no-poster.svg'" />
                                     <div class="cast-card-name">${actor.name}</div>
                                     <div class="cast-card-character">${actor.character || ''}</div>
                                 </a>
@@ -1155,4 +1155,5 @@
     loadMedia();
 </script>
 
+<%- include('partials/preview-modal') %>
 <%- include('partials/footer') %>

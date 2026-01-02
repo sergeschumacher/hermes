@@ -359,19 +359,7 @@
                         </div>
                         <span class="livetv-country-total">\${totalChannels > 0 ? totalChannels + ' channels' : ''}</span>
                     </div>
-                    <div class="livetv-category-row">
-                        <button class="livetv-scroll-btn left" onclick="scrollRow(this, -1)" aria-label="Scroll left">
-                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
-                            </svg>
-                        </button>
-                        <div class="livetv-category-track">\${cards}</div>
-                        <button class="livetv-scroll-btn right" onclick="scrollRow(this, 1)" aria-label="Scroll right">
-                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                            </svg>
-                        </button>
-                    </div>
+                    <div class="livetv-category-grid">\${cards}</div>
                 </section>
             \`;
         });
@@ -853,69 +841,30 @@
         border-radius: 999px;
     }
 
-    .livetv-category-row {
-        position: relative;
-        display: flex;
-        align-items: center;
-    }
-
-    .livetv-category-track {
-        display: flex;
+    /* Category Grid */
+    .livetv-category-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: 1rem;
-        overflow-x: auto;
-        scroll-snap-type: x mandatory;
-        scrollbar-width: none;
-        -ms-overflow-style: none;
-        padding: 0.5rem;
-        margin: -0.5rem;
+        padding: 0.5rem 0;
     }
 
-    .livetv-category-track::-webkit-scrollbar {
-        display: none;
+    @media (min-width: 640px) {
+        .livetv-category-grid {
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        }
     }
 
-    .livetv-scroll-btn {
-        position: absolute;
-        z-index: 10;
-        width: 40px;
-        height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(20, 20, 20, 0.9);
-        border: 1px solid rgba(255,255,255,0.1);
-        border-radius: 50%;
-        color: white;
-        cursor: pointer;
-        opacity: 0;
-        transition: all 0.2s;
-        backdrop-filter: blur(8px);
-    }
-
-    .livetv-scroll-btn.left { left: -20px; }
-    .livetv-scroll-btn.right { right: -20px; }
-
-    .livetv-category-row:hover .livetv-scroll-btn {
-        opacity: 1;
-    }
-
-    .livetv-scroll-btn:hover {
-        background: rgba(229, 9, 20, 0.9);
-        border-color: #E50914;
-        transform: scale(1.1);
-    }
-
-    .livetv-scroll-btn svg {
-        width: 20px;
-        height: 20px;
+    @media (min-width: 1024px) {
+        .livetv-category-grid {
+            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+            gap: 1.25rem;
+        }
     }
 
     /* Category Card */
     .livetv-category-card {
-        flex-shrink: 0;
-        scroll-snap-align: start;
         position: relative;
-        width: 220px;
         background: #1a1a1a;
         border: 1px solid rgba(255,255,255,0.06);
         border-radius: 12px;

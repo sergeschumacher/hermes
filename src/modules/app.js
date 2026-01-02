@@ -258,8 +258,15 @@ function setupRoutes() {
 
         } catch (err) {
             logger?.warn('app', `Image proxy error for ${url}: ${err.message}`);
-            // Return a placeholder or redirect to original
-            res.redirect(url);
+            // Return placeholder image instead of redirecting (prevents flickering from failed loads)
+            const placeholderPath = path.join(__dirname, '../../web/static/images/no-poster.svg');
+            if (fs.existsSync(placeholderPath)) {
+                // File is SVG despite .png extension, so set correct content type
+                res.set('Content-Type', 'image/svg+xml');
+                res.set('Cache-Control', 'public, max-age=300'); // Cache for 5 min to reduce retry spam
+                return res.sendFile(placeholderPath);
+            }
+            res.status(404).send('Image not found');
         }
     });
 
@@ -304,27 +311,33 @@ function setupApiRoutes() {
 
                 stats = {
                     totalMovies: (await db.get(`
-                        SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'movie' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                        SELECT COUNT(*) as c FROM media m
+                        JOIN sources s ON m.source_id = s.id
+                        WHERE m.media_type = 'movie' AND m.is_active = 1 AND s.active = 1
+                        AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
                     `, langParamsUpper))?.c || 0,
                     totalSeries: (await db.get(`
-                        SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'series' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                        SELECT COUNT(*) as c FROM media m
+                        JOIN sources s ON m.source_id = s.id
+                        WHERE m.media_type = 'series' AND m.is_active = 1 AND s.active = 1
+                        AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
                     `, langParamsUpper))?.c || 0,
                     totalLiveTV: (await db.get(`
-                        SELECT COUNT(*) as c FROM media
-                        WHERE media_type = 'live' AND is_active = 1 AND (UPPER(language) IN (${langPlaceholders}) OR language IS NULL)
+                        SELECT COUNT(*) as c FROM media m
+                        JOIN sources s ON m.source_id = s.id
+                        WHERE m.media_type = 'live' AND m.is_active = 1 AND s.active = 1
+                        AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
                     `, langParamsUpper))?.c || 0,
                     totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
                     activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
                     totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
                 };
             } else {
-                // No language filter - show all active
+                // No language filter - show all active from active sources
                 stats = {
-                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['movie']))?.c || 0,
-                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['series']))?.c || 0,
-                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media WHERE media_type = ? AND is_active = 1', ['live']))?.c || 0,
+                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['movie']))?.c || 0,
+                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['series']))?.c || 0,
+                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['live']))?.c || 0,
                     totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
                     activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
                     totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
@@ -369,7 +382,7 @@ function setupApiRoutes() {
                 langParams = preferredLangs.map(l => l.toUpperCase());
             }
 
-            // Get top-rated content with backdrop images
+            // Get top-rated content with backdrop images (from active sources only)
             const featured = await db.all(`
                 SELECT
                     m.id, m.title, m.media_type, m.year, m.rating, m.plot as overview, m.runtime,
@@ -380,7 +393,8 @@ function setupApiRoutes() {
                      ORDER BY mt.official DESC, mt.type = 'Trailer' DESC
                      LIMIT 1) as trailer_url
                 FROM media m
-                WHERE m.is_active = 1
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.is_active = 1 AND s.active = 1
                     AND m.media_type IN ('movie', 'series')
                     AND m.backdrop IS NOT NULL
                     AND m.backdrop != ''
@@ -424,10 +438,11 @@ function setupApiRoutes() {
 
             // Recently Added
             const recentlyAdded = await db.all(`
-                SELECT id, title, media_type, year, rating, poster as poster_url, quality
-                FROM media
-                WHERE is_active = 1 ${typeFilter} ${langFilter}
-                ORDER BY created_at DESC
+                SELECT m.id, m.title, m.media_type, m.year, m.rating, m.poster as poster_url, m.quality
+                FROM media m
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.is_active = 1 AND s.active = 1 ${typeFilter.replace(/media_type/g, 'm.media_type')} ${langFilter.replace(/language/g, 'm.language')}
+                ORDER BY m.created_at DESC
                 LIMIT 20
             `, langParams);
             if (recentlyAdded.length > 0) {
@@ -436,11 +451,12 @@ function setupApiRoutes() {
 
             // Top Rated
             const topRated = await db.all(`
-                SELECT id, title, media_type, year, rating, poster as poster_url, quality
-                FROM media
-                WHERE is_active = 1 ${typeFilter} ${langFilter}
-                    AND rating IS NOT NULL AND rating > 0
-                ORDER BY rating DESC
+                SELECT m.id, m.title, m.media_type, m.year, m.rating, m.poster as poster_url, m.quality
+                FROM media m
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.is_active = 1 AND s.active = 1 ${typeFilter.replace(/media_type/g, 'm.media_type')} ${langFilter.replace(/language/g, 'm.language')}
+                    AND m.rating IS NOT NULL AND m.rating > 0
+                ORDER BY m.rating DESC
                 LIMIT 20
             `, langParams);
             if (topRated.length > 0) {
@@ -451,11 +467,12 @@ function setupApiRoutes() {
             const genres = ['Action', 'Comedy', 'Drama', 'Thriller', 'Sci-Fi', 'Horror', 'Romance', 'Documentary'];
             for (const genre of genres) {
                 const genreItems = await db.all(`
-                    SELECT id, title, media_type, year, rating, poster as poster_url, quality
-                    FROM media
-                    WHERE is_active = 1 ${typeFilter} ${langFilter}
-                        AND genres LIKE ?
-                    ORDER BY rating DESC NULLS LAST, created_at DESC
+                    SELECT m.id, m.title, m.media_type, m.year, m.rating, m.poster as poster_url, m.quality
+                    FROM media m
+                    JOIN sources s ON m.source_id = s.id
+                    WHERE m.is_active = 1 AND s.active = 1 ${typeFilter.replace(/media_type/g, 'm.media_type')} ${langFilter.replace(/language/g, 'm.language')}
+                        AND m.genres LIKE ?
+                    ORDER BY m.rating DESC NULLS LAST, m.created_at DESC
                     LIMIT 20
                 `, [...langParams, `%${genre}%`]);
 
@@ -556,9 +573,10 @@ function setupApiRoutes() {
 
             // Get live TV categories
             const liveCategoriesResult = await db.all(`
-                SELECT DISTINCT category FROM media
-                WHERE media_type = 'live' AND category IS NOT NULL AND category != ''
-                ORDER BY category
+                SELECT DISTINCT m.category FROM media m
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.media_type = 'live' AND m.category IS NOT NULL AND m.category != '' AND s.active = 1
+                ORDER BY m.category
             `);
             const categories = liveCategoriesResult.map(r => r.category);
 
@@ -583,10 +601,11 @@ function setupApiRoutes() {
         try {
             const db = modules.db;
             const result = await db.all(`
-                SELECT category, COUNT(*) as count
-                FROM media
-                WHERE media_type = 'live' AND category IS NOT NULL AND category != ''
-                GROUP BY category
+                SELECT m.category, COUNT(*) as count
+                FROM media m
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.media_type = 'live' AND m.category IS NOT NULL AND m.category != '' AND s.active = 1
+                GROUP BY m.category
             `);
 
             const counts = {};
@@ -611,7 +630,9 @@ function setupApiRoutes() {
             }
 
             const isHls = url.includes('.m3u8');
-            const isSegment = url.includes('.ts') || url.includes('.aac') || url.includes('.m4s');
+            // Only treat as segment if explicitly marked (from HLS playlist rewrite) or is .aac/.m4s
+            // Standalone .ts URLs (live TV) need transcoding, not direct piping
+            const isSegment = req.query.segment === 'true' || url.includes('.aac') || url.includes('.m4s');
             logger?.info('stream', `Proxying stream: ${url} (HLS: ${isHls}, Segment: ${isSegment})`);
 
             // Set CORS headers
@@ -654,7 +675,7 @@ function setupApiRoutes() {
                         if (line.includes('URI="')) {
                             return line.replace(/URI="([^"]+)"/, (match, uri) => {
                                 const absoluteUri = uri.startsWith('http') ? uri : new URL(uri, baseUrl).href;
-                                return `URI="/api/stream/proxy?url=${encodeURIComponent(absoluteUri)}"`;
+                                return `URI="/api/stream/proxy?url=${encodeURIComponent(absoluteUri)}&segment=true"`;
                             });
                         }
                         return line;
@@ -662,7 +683,7 @@ function setupApiRoutes() {
                     // This is a segment URL
                     if (!line.startsWith('#')) {
                         const absoluteUrl = line.startsWith('http') ? line : new URL(line, baseUrl).href;
-                        return '/api/stream/proxy?url=' + encodeURIComponent(absoluteUrl);
+                        return '/api/stream/proxy?url=' + encodeURIComponent(absoluteUrl) + '&segment=true';
                     }
                     return line;
                 }).join('\n');
@@ -724,6 +745,11 @@ function setupApiRoutes() {
                 // Add headers to bypass IPTV server restrictions (403 errors)
                 // Use software encoding for reliability (hardware can be added later)
                 const ffmpeg = spawn('ffmpeg', [
+                    // Reduce startup latency - analyze less before starting
+                    '-fflags', '+nobuffer+flush_packets',
+                    '-flags', 'low_delay',
+                    '-analyzeduration', '1000000',  // 1 second max analysis
+                    '-probesize', '500000',         // 500KB max probe size
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
                     '-i', url,
                     '-c:v', 'libx264',        // Software H.264 encoding (universal support)
@@ -790,99 +816,101 @@ function setupApiRoutes() {
                 // 2. Extracting year from title if present
                 // 3. Trimming and lowercasing for consistent comparison
                 sql = `SELECT * FROM (
-                    SELECT *,
+                    SELECT media.*,
                            ROW_NUMBER() OVER (
                                PARTITION BY
                                    -- Normalize title: remove language prefix, extract base title
                                    LOWER(TRIM(
                                        CASE
                                            -- Remove 2-3 letter language prefix with dash (e.g., "DE - ", "EN - ", "GER - ")
-                                           WHEN title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(title, 6)
-                                           WHEN title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(title, 7)
-                                           ELSE title
+                                           WHEN media.title GLOB '[A-Z][A-Z] - *' THEN SUBSTR(media.title, 6)
+                                           WHEN media.title GLOB '[A-Z][A-Z][A-Z] - *' THEN SUBSTR(media.title, 7)
+                                           ELSE media.title
                                        END
                                    )),
                                    -- Also partition by year (from year column or extracted from title)
-                                   COALESCE(year,
+                                   COALESCE(media.year,
                                        CASE
-                                           WHEN title GLOB '*([0-9][0-9][0-9][0-9])*'
-                                           THEN CAST(SUBSTR(title, INSTR(title, '(') + 1, 4) AS INTEGER)
+                                           WHEN media.title GLOB '*([0-9][0-9][0-9][0-9])*'
+                                           THEN CAST(SUBSTR(media.title, INSTR(media.title, '(') + 1, 4) AS INTEGER)
                                            ELSE NULL
                                        END
                                    )
                                ORDER BY
                                    -- Prefer entries with TMDB posters
-                                   CASE WHEN poster LIKE '%image.tmdb.org%' THEN 0 ELSE 1 END,
+                                   CASE WHEN media.poster LIKE '%image.tmdb.org%' THEN 0 ELSE 1 END,
                                    -- Then prefer entries with TMDB ID
-                                   CASE WHEN tmdb_id IS NOT NULL THEN 0 ELSE 1 END,
+                                   CASE WHEN media.tmdb_id IS NOT NULL THEN 0 ELSE 1 END,
                                    -- Then prefer entries with higher rating
-                                   CASE WHEN rating IS NOT NULL THEN 0 ELSE 1 END,
-                                   id
+                                   CASE WHEN media.rating IS NOT NULL THEN 0 ELSE 1 END,
+                                   media.id
                            ) as rn
-                    FROM media WHERE 1=1`;
+                    FROM media
+                    JOIN sources ON media.source_id = sources.id
+                    WHERE sources.active = 1`;
             } else {
-                sql = 'SELECT * FROM media WHERE 1=1';
+                sql = 'SELECT media.* FROM media JOIN sources ON media.source_id = sources.id WHERE sources.active = 1';
             }
             const params = [];
 
             if (type) {
-                sql += ' AND media_type = ?';
+                sql += ' AND media.media_type = ?';
                 params.push(type);
 
                 // For movie/series views, filter out category headers and info channels
                 if (type === 'movie' || type === 'series') {
-                    sql += ` AND title NOT LIKE '%###%'
-                             AND title NOT LIKE '## %'
-                             AND title NOT LIKE '%----- %'
-                             AND title NOT LIKE '%INFO%'
-                             AND title NOT GLOB '*[#][#]*'`;
+                    sql += ` AND media.title NOT LIKE '%###%'
+                             AND media.title NOT LIKE '## %'
+                             AND media.title NOT LIKE '%----- %'
+                             AND media.title NOT LIKE '%INFO%'
+                             AND media.title NOT GLOB '*[#][#]*'`;
                 }
             }
             if (search) {
-                sql += ' AND (title LIKE ? OR original_title LIKE ?)';
+                sql += ' AND (media.title LIKE ? OR media.original_title LIKE ?)';
                 params.push(`%${search}%`, `%${search}%`);
             }
             if (year) {
                 // Filter by year column or year in title like "(2024)"
-                sql += ' AND (year = ? OR title LIKE ?)';
+                sql += ' AND (media.year = ? OR media.title LIKE ?)';
                 params.push(parseInt(year), `%(${year})%`);
             }
             if (quality) {
-                sql += ' AND quality = ?';
+                sql += ' AND media.quality = ?';
                 params.push(quality);
             }
             if (language) {
                 // Filter by language in category [XX], category name, or title prefix "XX - " / "XX ★"
-                sql += ' AND (category LIKE ? OR category LIKE ? OR title LIKE ? OR title LIKE ?)';
+                sql += ' AND (media.category LIKE ? OR media.category LIKE ? OR media.title LIKE ? OR media.title LIKE ?)';
                 params.push(`%[${language}]%`, `%${language} %`, `${language} - %`, `${language} ★%`);
             }
             if (genre) {
-                sql += ' AND genres LIKE ?';
+                sql += ' AND media.genres LIKE ?';
                 params.push(`%${genre}%`);
             }
             if (category) {
-                sql += ' AND category = ?';
+                sql += ' AND media.category = ?';
                 params.push(category);
             }
             if (source) {
-                sql += ' AND source_id = ?';
+                sql += ' AND media.source_id = ?';
                 params.push(parseInt(source));
             }
             if (platform) {
                 // Platform filter now uses category field
-                sql += ' AND category = ?';
+                sql += ' AND media.category = ?';
                 params.push(platform);
             }
 
             // Filter by recently added (last 2 weeks by default, or custom days)
             if (recently_added) {
                 const days = parseInt(recently_added) || 14;
-                sql += ` AND created_at >= datetime('now', '-${days} days')`;
+                sql += ` AND media.created_at >= datetime('now', '-${days} days')`;
             }
 
             // Filter out inactive items unless explicitly requested
             if (include_inactive !== 'true') {
-                sql += ' AND (is_active = 1 OR is_active IS NULL)';
+                sql += ' AND (media.is_active = 1 OR media.is_active IS NULL)';
             }
 
             // Close the subquery and filter for dedupe
@@ -1131,10 +1159,15 @@ function setupApiRoutes() {
 
     router.post('/sources/:id/toggle', async (req, res) => {
         try {
-            const { active } = req.body;
-            await modules.db.run('UPDATE sources SET active = ? WHERE id = ?', [active ? 1 : 0, req.params.id]);
-            logger?.info('sources', `Source ${req.params.id} ${active ? 'enabled' : 'disabled'}`);
-            res.json({ success: true, active: active ? 1 : 0 });
+            // Toggle the active status (flip 0 to 1 or 1 to 0)
+            const source = await modules.db.get('SELECT active FROM sources WHERE id = ?', [req.params.id]);
+            if (!source) {
+                return res.status(404).json({ error: 'Source not found' });
+            }
+            const newActive = source.active ? 0 : 1;
+            await modules.db.run('UPDATE sources SET active = ? WHERE id = ?', [newActive, req.params.id]);
+            logger?.info('sources', `Source ${req.params.id} ${newActive ? 'enabled' : 'disabled'}`);
+            res.json({ success: true, active: newActive });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -3322,73 +3355,74 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const db = modules.db;
 
             // Build WHERE clause separately for reuse in count query
-            let whereClause = `WHERE media_type = 'series' AND show_name IS NOT NULL AND show_name != ''`;
+            let whereClause = `WHERE m.media_type = 'series' AND m.show_name IS NOT NULL AND m.show_name != '' AND s.active = 1`;
             const params = [];
 
             // Filter out inactive items unless explicitly requested
             if (include_inactive !== 'true') {
-                whereClause += ' AND (is_active = 1 OR is_active IS NULL)';
+                whereClause += ' AND (m.is_active = 1 OR m.is_active IS NULL)';
             }
 
             if (search) {
-                whereClause += ' AND show_name LIKE ?';
+                whereClause += ' AND m.show_name LIKE ?';
                 params.push(`%${search}%`);
             }
 
             if (quality) {
-                whereClause += ' AND quality = ?';
+                whereClause += ' AND m.quality = ?';
                 params.push(quality);
             }
 
             if (year) {
-                whereClause += ' AND (year = ? OR title LIKE ?)';
+                whereClause += ' AND (m.year = ? OR m.title LIKE ?)';
                 params.push(parseInt(year), `%(${year})%`);
             }
 
             if (language) {
                 // Check both show_language (from episodes) and language (from M3U sources)
-                whereClause += ' AND (show_language = ? OR (show_language IS NULL AND language = ?))';
+                whereClause += ' AND (m.show_language = ? OR (m.show_language IS NULL AND m.language = ?))';
                 params.push(language, language);
             }
 
             if (source) {
-                whereClause += ' AND source_id = ?';
+                whereClause += ' AND m.source_id = ?';
                 params.push(parseInt(source));
             }
             if (platform) {
                 // Platform filter now uses category field
-                whereClause += ' AND category = ?';
+                whereClause += ' AND m.category = ?';
                 params.push(platform);
             }
 
             // Filter by recently added (last N days)
             if (recently_added) {
                 const days = parseInt(recently_added) || 14;
-                whereClause += ` AND created_at >= datetime('now', '-${days} days')`;
+                whereClause += ` AND m.created_at >= datetime('now', '-${days} days')`;
             }
 
             // Build main query with SELECT and GROUP BY
             let sql = `
                 SELECT
-                    show_name,
+                    m.show_name,
                     COUNT(*) as episode_count,
-                    COUNT(DISTINCT season_number) as season_count,
-                    GROUP_CONCAT(DISTINCT COALESCE(show_language, language)) as languages,
-                    MAX(poster) as poster,
-                    MAX(rating) as rating,
-                    MAX(year) as year,
-                    MAX(quality) as quality,
-                    MAX(created_at) as created_at,
-                    MAX(tmdb_id) as tmdb_id,
+                    COUNT(DISTINCT m.season_number) as season_count,
+                    GROUP_CONCAT(DISTINCT COALESCE(m.show_language, m.language)) as languages,
+                    MAX(m.poster) as poster,
+                    MAX(m.rating) as rating,
+                    MAX(m.year) as year,
+                    MAX(m.quality) as quality,
+                    MAX(m.created_at) as created_at,
+                    MAX(m.tmdb_id) as tmdb_id,
                     MAX(CASE WHEN EXISTS(
-                        SELECT 1 FROM media_trailers mt WHERE mt.media_id = media.id
+                        SELECT 1 FROM media_trailers mt WHERE mt.media_id = m.id
                     ) THEN 1 ELSE 0 END) as has_trailer
-                FROM media
+                FROM media m
+                JOIN sources s ON m.source_id = s.id
                 ${whereClause}
-                GROUP BY show_name`;
+                GROUP BY m.show_name`;
 
             // Build count query using same WHERE clause
-            const countSql = `SELECT COUNT(DISTINCT show_name) as total FROM media ${whereClause}`;
+            const countSql = `SELECT COUNT(DISTINCT m.show_name) as total FROM media m JOIN sources s ON m.source_id = s.id ${whereClause}`;
             const countParams = [...params];
 
             // Sorting
@@ -4446,7 +4480,9 @@ function setupRadarrApi() {
                 let series;
                 if (tmdbId) {
                     series = await db.get(
-                        'SELECT * FROM media WHERE tmdb_id = ? AND media_type = ?',
+                        `SELECT m.* FROM media m
+                         JOIN sources s ON m.source_id = s.id
+                         WHERE m.tmdb_id = ? AND m.media_type = ? AND s.active = 1`,
                         [tmdbId, 'series']
                     );
                 }
@@ -4459,7 +4495,9 @@ function setupRadarrApi() {
             } else {
                 // Return all series
                 const series = await db.all(
-                    'SELECT * FROM media WHERE media_type = ? AND tmdb_id IS NOT NULL LIMIT 1000',
+                    `SELECT m.* FROM media m
+                     JOIN sources s ON m.source_id = s.id
+                     WHERE m.media_type = ? AND m.tmdb_id IS NOT NULL AND s.active = 1 LIMIT 1000`,
                     ['series']
                 );
                 res.json(series.map(formatLocalSeriesAsSonarr));

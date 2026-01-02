@@ -29,10 +29,10 @@
             <a href="/<%= item.media_type === 'movie' ? 'movies' : 'series' %>/<%= item.id %>"
                class="content-card <%= typeof cardClass !== 'undefined' ? cardClass : '' %>">
                 <div class="card-poster">
-                    <img src="<%= item.poster_url ? '/api/proxy/image?url=' + encodeURIComponent(item.poster_url) : '/static/images/no-poster.png' %>"
+                    <img src="<%= item.poster_url ? '/api/proxy/image?url=' + encodeURIComponent(item.poster_url) : '/static/images/no-poster.svg' %>"
                          alt="<%= item.title %>"
                          loading="lazy"
-                         onerror="this.src='/static/images/no-poster.png'">
+                         onerror="this.src='/static/images/no-poster.svg'">
 
                     <!-- Quality Badge -->
                     <% if (item.quality) { %>
