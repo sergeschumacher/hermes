@@ -736,35 +736,87 @@ function setupApiRoutes() {
                 // For non-HLS streams, we need to transcode to browser-playable format
                 // Use FFmpeg to convert to fragmented MP4 which browsers can play directly
                 // Must transcode to H.264 since source may be H.265/HEVC which browsers don't support
-                logger?.info('stream', 'Starting FFmpeg transcode to H.264 fMP4...');
+
+                // Detect hardware acceleration for faster encoding
+                let hwAccel = { type: 'software', encoders: { h264: 'libx264' } };
+                if (modules.transcoder) {
+                    try {
+                        hwAccel = await modules.transcoder.detectHardwareAcceleration();
+                    } catch (e) {
+                        logger?.warn('stream', `HW detection failed: ${e.message}`);
+                    }
+                }
+                const encoder = hwAccel.encoders.h264 || 'libx264';
+                logger?.info('stream', `Starting FFmpeg transcode to H.264 fMP4 using ${encoder}...`);
 
                 res.setHeader('Content-Type', 'video/mp4');
                 res.setHeader('Transfer-Encoding', 'chunked');
 
-                // FFmpeg: input stream -> output H.264 fragmented MP4 for browser playback
-                // Add headers to bypass IPTV server restrictions (403 errors)
-                // Use software encoding for reliability (hardware can be added later)
-                const ffmpeg = spawn('ffmpeg', [
+                // Build encoder-specific arguments
+                let ffmpegArgs = [
                     // Reduce startup latency - analyze less before starting
                     '-fflags', '+nobuffer+flush_packets',
                     '-flags', 'low_delay',
                     '-analyzeduration', '1000000',  // 1 second max analysis
                     '-probesize', '500000',         // 500KB max probe size
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
-                    '-i', url,
-                    '-c:v', 'libx264',        // Software H.264 encoding (universal support)
-                    '-preset', 'ultrafast',   // Fast encoding for real-time preview
-                    '-tune', 'zerolatency',   // Minimize latency for streaming
-                    '-crf', '28',             // Quality (lower = better, 23-28 typical for preview)
-                    '-pix_fmt', 'yuv420p',    // Convert 10-bit to 8-bit for browser compatibility
-                    '-profile:v', 'high',     // High profile supports 10-bit input conversion
-                    '-level', '4.0',          // Level 4.0 for HD content
-                    '-c:a', 'aac',            // Transcode audio to AAC (browser compatible)
+                ];
+
+                // Add VAAPI device initialization before input if using VAAPI
+                if (encoder === 'h264_vaapi') {
+                    ffmpegArgs.push('-vaapi_device', '/dev/dri/renderD128');
+                }
+
+                ffmpegArgs.push('-i', url);
+
+                // Add encoder-specific video encoding args
+                if (encoder === 'h264_nvenc') {
+                    // NVIDIA NVENC - fastest hardware encoding
+                    ffmpegArgs.push(
+                        '-c:v', 'h264_nvenc',
+                        '-preset', 'p1',          // Fastest preset
+                        '-tune', 'll',            // Low latency tuning
+                        '-rc', 'vbr',             // Variable bitrate
+                        '-cq', '28',              // Quality level
+                        '-pix_fmt', 'yuv420p'
+                    );
+                } else if (encoder === 'h264_vaapi') {
+                    // Intel/AMD VAAPI
+                    ffmpegArgs.push(
+                        '-vf', 'format=nv12,hwupload',
+                        '-c:v', 'h264_vaapi',
+                        '-qp', '28'
+                    );
+                } else if (encoder === 'h264_videotoolbox') {
+                    // Apple VideoToolbox
+                    ffmpegArgs.push(
+                        '-c:v', 'h264_videotoolbox',
+                        '-realtime', 'true',
+                        '-pix_fmt', 'yuv420p'
+                    );
+                } else {
+                    // Software fallback (libx264)
+                    ffmpegArgs.push(
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        '-tune', 'zerolatency',
+                        '-crf', '28',
+                        '-pix_fmt', 'yuv420p',
+                        '-profile:v', 'high',
+                        '-level', '4.0'
+                    );
+                }
+
+                // Common output args
+                ffmpegArgs.push(
+                    '-c:a', 'aac',
                     '-b:a', '128k',
                     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
                     '-f', 'mp4',
-                    '-'                        // Output to stdout
-                ], { stdio: ['ignore', 'pipe', 'pipe'] });
+                    '-'
+                );
+
+                const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
 
                 ffmpeg.stdout.pipe(res);
 
@@ -880,9 +932,9 @@ function setupApiRoutes() {
                 params.push(quality);
             }
             if (language) {
-                // Filter by language in category [XX], category name, or title prefix "XX - " / "XX ★"
-                sql += ' AND (media.category LIKE ? OR media.category LIKE ? OR media.title LIKE ? OR media.title LIKE ?)';
-                params.push(`%[${language}]%`, `%${language} %`, `${language} - %`, `${language} ★%`);
+                // Filter by language column (primary), or fallback to category [XX], category name, or title prefix "XX - " / "XX ★"
+                sql += ' AND (UPPER(media.language) = ? OR media.category LIKE ? OR media.category LIKE ? OR media.title LIKE ? OR media.title LIKE ?)';
+                params.push(language.toUpperCase(), `%[${language}]%`, `%${language} %`, `${language} - %`, `${language} ★%`);
             }
             if (genre) {
                 sql += ' AND media.genres LIKE ?';
