@@ -1919,6 +1919,21 @@ module.exports = {
         }
     },
 
+    // Refresh source by ID (for scheduler)
+    refreshSource: async (sourceId) => {
+        const source = await db.get("SELECT * FROM sources WHERE id = ?", [sourceId]);
+        if (!source) {
+            throw new Error(`Source ${sourceId} not found`);
+        }
+        if (source.type === 'xtream') {
+            await syncXtreamSource(source);
+        } else if (source.type === 'm3u') {
+            await syncM3USource(source);
+        } else {
+            throw new Error('Unsupported source type');
+        }
+    },
+
     // Get sync status for all sources (for page reload persistence)
     getAllSyncStatus: () => {
         return { ...syncStatus };
