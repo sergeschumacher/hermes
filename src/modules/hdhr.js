@@ -167,6 +167,17 @@ async function getChannelByNumber(guideNumber) {
 
 // Generate XMLTV EPG for enabled channels
 async function generateXmltv() {
+    // Get source filter from settings
+    const sourceId = settings.get('hdhrSourceId');
+
+    // Build source filter for channels query
+    const channelParams = [];
+    let channelSourceFilter = '';
+    if (sourceId) {
+        channelSourceFilter = 'AND m.source_id = ?';
+        channelParams.push(sourceId);
+    }
+
     const channels = await db.all(`
         SELECT
             h.guide_number,
@@ -177,9 +188,9 @@ async function generateXmltv() {
         FROM hdhr_channels h
         JOIN media m ON h.media_id = m.id
         JOIN sources s ON m.source_id = s.id
-        WHERE h.enabled = 1 AND s.active = 1
+        WHERE h.enabled = 1 AND s.active = 1 ${channelSourceFilter}
         ORDER BY CAST(h.guide_number AS REAL)
-    `);
+    `, channelParams);
 
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     xml += '<!DOCTYPE tv SYSTEM "xmltv.dtd">\n';
@@ -202,6 +213,14 @@ async function generateXmltv() {
         const now = new Date();
         const endTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days ahead
 
+        // Build source filter for EPG query
+        let epgSourceFilter = '';
+        const epgParams = [...tvgIds, now.toISOString(), endTime.toISOString()];
+        if (sourceId) {
+            epgSourceFilter = 'AND ep.source_id = ?';
+            epgParams.push(sourceId);
+        }
+
         const programs = await db.all(`
             SELECT
                 ep.channel_id,
@@ -217,8 +236,9 @@ async function generateXmltv() {
             WHERE ep.channel_id IN (${placeholders})
               AND ep.end_time > ?
               AND ep.start_time < ?
+              ${epgSourceFilter}
             ORDER BY ep.start_time
-        `, [...tvgIds, now.toISOString(), endTime.toISOString()]);
+        `, epgParams);
 
         // Map tvg_id to guide_number
         const tvgToGuide = {};
@@ -513,7 +533,17 @@ function buildDiscoveryResponse() {
 // ============== Public API Functions ==============
 
 // Get all live channels available for HDHR (only from active sources)
-async function getAvailableChannels() {
+async function getAvailableChannels(sourceId = null) {
+    // Use provided sourceId or fall back to hdhrSourceId setting
+    const filterSourceId = sourceId || settings.get('hdhrSourceId');
+
+    const params = [];
+    let sourceFilter = '';
+    if (filterSourceId) {
+        sourceFilter = 'AND m.source_id = ?';
+        params.push(filterSourceId);
+    }
+
     return await db.all(`
         SELECT
             m.id,
@@ -530,9 +560,9 @@ async function getAvailableChannels() {
         FROM media m
         JOIN sources s ON m.source_id = s.id
         LEFT JOIN hdhr_channels h ON m.id = h.media_id
-        WHERE m.media_type = 'live' AND m.is_active = 1 AND s.active = 1
+        WHERE m.media_type = 'live' AND m.is_active = 1 AND s.active = 1 ${sourceFilter}
         ORDER BY m.category, m.title
-    `);
+    `, params);
 }
 
 // Get enabled HDHR channels (only from active sources)
@@ -557,7 +587,17 @@ async function getEnabledChannels() {
 }
 
 // Get categories with channel counts (only from active sources)
-async function getCategories() {
+async function getCategories(sourceId = null) {
+    // Use provided sourceId or fall back to hdhrSourceId setting
+    const filterSourceId = sourceId || settings.get('hdhrSourceId');
+
+    const params = [];
+    let sourceFilter = '';
+    if (filterSourceId) {
+        sourceFilter = 'AND m.source_id = ?';
+        params.push(filterSourceId);
+    }
+
     return await db.all(`
         SELECT
             m.category,
@@ -565,10 +605,10 @@ async function getCategories() {
             m.source_id
         FROM media m
         JOIN sources s ON m.source_id = s.id
-        WHERE m.media_type = 'live' AND m.is_active = 1 AND m.category IS NOT NULL AND s.active = 1
+        WHERE m.media_type = 'live' AND m.is_active = 1 AND m.category IS NOT NULL AND s.active = 1 ${sourceFilter}
         GROUP BY m.category, m.source_id
         ORDER BY m.category
-    `);
+    `, params);
 }
 
 // Add channel to HDHR lineup

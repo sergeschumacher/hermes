@@ -222,9 +222,10 @@ function buildFfmpegArgs(inputPath, outputPath, hwAccel, codec) {
             args.push('-hwaccel', 'cuda', '-hwaccel_output_format', 'cuda');
             break;
         case 'vaapi':
-            // Initialize VAAPI device - use software decode + hwupload for maximum compatibility
-            args.push('-init_hw_device', 'vaapi=va:/dev/dri/renderD128');
-            args.push('-filter_hw_device', 'va');
+            // Use VAAPI hardware decoding AND encoding for full GPU acceleration
+            args.push('-hwaccel', 'vaapi');
+            args.push('-hwaccel_device', '/dev/dri/renderD128');
+            args.push('-hwaccel_output_format', 'vaapi');
             break;
         case 'amf':
             // AMF uses DirectX for decoding on Windows
@@ -248,8 +249,8 @@ function buildFfmpegArgs(inputPath, outputPath, hwAccel, codec) {
     } else if (encoder.includes('amf')) {
         args.push('-quality', 'quality', '-rc', 'cqp', '-qp_i', '19', '-qp_p', '19');
     } else if (encoder.includes('vaapi')) {
-        // VAAPI requires video filter to upload frames to hardware
-        args.push('-vf', 'format=nv12,hwupload');
+        // With hwaccel_output_format=vaapi, frames are already on GPU - use scale_vaapi for format conversion
+        args.push('-vf', 'scale_vaapi=format=nv12');
         args.push('-qp', '19', '-profile:v', codec === 'hevc' ? 'main' : 'high');
     } else {
         // libx264/libx265 software encoding

@@ -227,12 +227,18 @@ function setupRoutes() {
             const filename = getCacheFilename(url);
             const cachePath = path.join(IMAGE_CACHE_DIR, filename);
 
-            // Check if already cached
+            // Check if already cached (and not empty)
             if (fs.existsSync(cachePath)) {
-                // Serve from cache with long expiry
-                res.set('Cache-Control', 'public, max-age=2592000, immutable');
-                res.set('X-Cache', 'HIT');
-                return res.sendFile(cachePath);
+                const stats = fs.statSync(cachePath);
+                if (stats.size > 0) {
+                    // Serve from cache with long expiry
+                    res.set('Cache-Control', 'public, max-age=2592000, immutable');
+                    res.set('X-Cache', 'HIT');
+                    return res.sendFile(cachePath);
+                } else {
+                    // Delete empty cache file
+                    fs.unlinkSync(cachePath);
+                }
             }
 
             // Download and cache the image
@@ -247,8 +253,10 @@ function setupRoutes() {
             // Determine content type
             const contentType = response.headers['content-type'] || 'image/jpeg';
 
-            // Save to cache
-            fs.writeFileSync(cachePath, response.data);
+            // Only cache if we got data
+            if (response.data && response.data.length > 0) {
+                fs.writeFileSync(cachePath, response.data);
+            }
 
             // Serve the image
             res.set('Content-Type', contentType);
@@ -762,9 +770,16 @@ function setupApiRoutes() {
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
                 ];
 
-                // Add VAAPI device initialization before input if using VAAPI
+                // Add hardware decoding before input
                 if (encoder === 'h264_vaapi') {
-                    ffmpegArgs.push('-vaapi_device', '/dev/dri/renderD128');
+                    // VAAPI hardware decode + encode
+                    ffmpegArgs.push('-hwaccel', 'vaapi');
+                    ffmpegArgs.push('-hwaccel_device', '/dev/dri/renderD128');
+                    ffmpegArgs.push('-hwaccel_output_format', 'vaapi');
+                } else if (encoder === 'h264_nvenc') {
+                    // NVENC hardware decode + encode
+                    ffmpegArgs.push('-hwaccel', 'cuda');
+                    ffmpegArgs.push('-hwaccel_output_format', 'cuda');
                 }
 
                 ffmpegArgs.push('-i', url);
@@ -781,9 +796,9 @@ function setupApiRoutes() {
                         '-pix_fmt', 'yuv420p'
                     );
                 } else if (encoder === 'h264_vaapi') {
-                    // Intel/AMD VAAPI
+                    // Intel/AMD VAAPI - frames already on GPU from hwaccel
                     ffmpegArgs.push(
-                        '-vf', 'format=nv12,hwupload',
+                        '-vf', 'scale_vaapi=format=nv12',
                         '-c:v', 'h264_vaapi',
                         '-qp', '28'
                     );

@@ -178,6 +178,14 @@
                     <p class="text-xs text-dark-500 mt-1">Override if Hermes is behind NAT or in Docker</p>
                 </div>
 
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">IPTV Source</label>
+                    <select id="setting-hdhrSourceId" class="input">
+                        <option value="">All sources (no filter)</option>
+                    </select>
+                    <p class="text-xs text-dark-500 mt-1">Filter channels and EPG to a specific source</p>
+                </div>
+
                 <!-- Channel Count -->
                 <div class="bg-dark-700 rounded-lg p-3">
                     <div class="flex items-center justify-between">
@@ -905,7 +913,7 @@
 <script>
     // Socket is initialized globally in app.js (loaded via footer)
 
-    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl'];
+    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
     const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
 
     // LLM UI Functions
@@ -1473,8 +1481,36 @@
 
             // Update LLM provider UI
             updateLLMProviderUI();
+
+            // Populate HDHR source dropdown
+            await populateHdhrSources(settings.hdhrSourceId);
         } catch (err) {
             console.error('Failed to load settings:', err);
+        }
+    }
+
+    async function populateHdhrSources(selectedSourceId) {
+        try {
+            const response = await fetch('/api/sources');
+            const sources = await response.json();
+            const select = document.getElementById('setting-hdhrSourceId');
+            if (!select) return;
+
+            // Clear existing options except the first one
+            select.innerHTML = '<option value="">All sources (no filter)</option>';
+
+            // Add source options
+            sources.forEach(source => {
+                const opt = document.createElement('option');
+                opt.value = source.id;
+                opt.textContent = source.name + (source.epg_url ? ' (has EPG)' : '');
+                if (selectedSourceId && source.id == selectedSourceId) {
+                    opt.selected = true;
+                }
+                select.appendChild(opt);
+            });
+        } catch (err) {
+            console.error('Failed to load sources for HDHR:', err);
         }
     }
 
@@ -1515,6 +1551,13 @@
         // Add language preferences and EPG countries
         settings.preferredLanguages = selectedLanguages;
         settings.epgCountries = selectedEpgCountries;
+
+        // Handle hdhrSourceId - convert to integer or null
+        if (settings.hdhrSourceId === '' || settings.hdhrSourceId === undefined) {
+            settings.hdhrSourceId = null;
+        } else {
+            settings.hdhrSourceId = parseInt(settings.hdhrSourceId);
+        }
 
         try {
             await fetch('/api/settings', {

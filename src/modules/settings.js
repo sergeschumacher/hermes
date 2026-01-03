@@ -90,7 +90,8 @@ const defaults = {
     hdhrDeviceId: null,                   // Auto-generated 8-char hex device ID
     hdhrFriendlyName: 'Hermes HDHR',      // Device name shown in Plex
     hdhrTunerCount: 2,                    // Number of virtual tuners (concurrent streams)
-    hdhrBaseUrl: null                     // External URL override (auto-detected if null)
+    hdhrBaseUrl: null,                    // External URL override (auto-detected if null)
+    hdhrSourceId: null                    // IPTV source ID for channel/EPG filtering
 };
 
 function load() {
