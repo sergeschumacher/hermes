@@ -128,12 +128,17 @@ async function detectHardwareAcceleration() {
                 result.encoders.hevc = encoderOutput.includes('hevc_amf') ? 'hevc_amf' : null;
             }
         } else if (platform === 'linux') {
-            // Linux - NVENC or VAAPI
-            if (encoderOutput.includes('h264_nvenc')) {
+            // Linux - Check for actual hardware, not just encoder support
+            // NVENC requires NVIDIA GPU with CUDA - check if nvidia device exists
+            const hasNvidia = fs.existsSync('/dev/nvidia0') || fs.existsSync('/dev/nvidiactl');
+            // VAAPI requires Intel/AMD GPU - check if render device exists
+            const hasVaapi = fs.existsSync('/dev/dri/renderD128');
+
+            if (hasNvidia && encoderOutput.includes('h264_nvenc')) {
                 result.type = 'nvenc';
                 result.encoders.h264 = 'h264_nvenc';
                 result.encoders.hevc = encoderOutput.includes('hevc_nvenc') ? 'hevc_nvenc' : null;
-            } else if (encoderOutput.includes('h264_vaapi')) {
+            } else if (hasVaapi && encoderOutput.includes('h264_vaapi')) {
                 result.type = 'vaapi';
                 result.encoders.h264 = 'h264_vaapi';
                 result.encoders.hevc = encoderOutput.includes('hevc_vaapi') ? 'hevc_vaapi' : null;
