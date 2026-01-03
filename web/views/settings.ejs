@@ -3105,8 +3105,8 @@
             select.innerHTML = '<option value="">Select a category to add...</option>';
             categories.forEach(cat => {
                 const opt = document.createElement('option');
-                opt.value = cat.category;
-                opt.textContent = cat.category + ' (' + cat.channel_count + ' channels)';
+                opt.value = cat.category;  // Use original category for matching
+                opt.textContent = (cat.display_name || cat.category) + ' (' + cat.channel_count + ' channels)';
                 select.appendChild(opt);
             });
         } catch (err) {

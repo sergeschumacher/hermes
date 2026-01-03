@@ -586,6 +586,16 @@ async function getEnabledChannels() {
     `);
 }
 
+// Clean category name by removing special characters
+function cleanCategoryName(category) {
+    if (!category) return category;
+    // Remove common special characters used as prefixes/decorations
+    return category
+        .replace(/^[✪❖◉★☆●○◆◇▶►▸▹→⊛⊕⊗⊙⊚⋆✦✧✩✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋\s]+/, '')
+        .replace(/[✪❖◉★☆●○◆◇▶►▸▹→⊛⊕⊗⊙⊚⋆✦✧✩✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋]+/g, '')
+        .trim();
+}
+
 // Get categories with channel counts (only from active sources)
 async function getCategories(sourceId = null) {
     // Use provided sourceId or fall back to hdhrSourceId setting
@@ -598,7 +608,7 @@ async function getCategories(sourceId = null) {
         params.push(filterSourceId);
     }
 
-    return await db.all(`
+    const categories = await db.all(`
         SELECT
             m.category,
             COUNT(*) as channel_count,
@@ -609,6 +619,14 @@ async function getCategories(sourceId = null) {
         GROUP BY m.category, m.source_id
         ORDER BY m.category
     `, params);
+
+    // Clean category names and sort alphabetically
+    return categories
+        .map(cat => ({
+            ...cat,
+            display_name: cleanCategoryName(cat.category)
+        }))
+        .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
 }
 
 // Add channel to HDHR lineup
