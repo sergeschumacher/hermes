@@ -419,7 +419,7 @@
 
             const platformSelect = document.getElementById('filter-platform');
             platforms.forEach(p => {
-                if (p.platform) platformSelect.innerHTML += \`<option value="\${p.platform}">\${p.platform}</option>\`;
+                if (p.platform) platformSelect.innerHTML += \`<option value="\${p.platform}">\${p.display_name || p.platform}</option>\`;
             });
 
             const genreSelect = document.getElementById('filter-genre');

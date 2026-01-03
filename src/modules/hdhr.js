@@ -60,6 +60,21 @@ function getBaseUrl() {
     return `http://${getLocalIP()}:${port}`;
 }
 
+function getAppBaseUrl() {
+    // Get main app URL for logo caching endpoint
+    // Check for custom app base URL setting first
+    const appBaseUrl = settings?.get('appBaseUrl');
+    if (appBaseUrl) {
+        return appBaseUrl.replace(/\/$/, '');
+    }
+    // Extract just the hostname/IP from hdhr base URL (remove port if present)
+    const hdhrBase = getBaseUrl();
+    const match = hdhrBase.match(/^(https?:\/\/[^:\/]+)/);
+    const host = match ? match[1] : `http://${getLocalIP()}`;
+    // Default to 4000 for external Docker access (internal 3000 maps to external 4000)
+    return `${host}:4000`;
+}
+
 // HDHomeRun Discovery Response
 function getDiscoverJson() {
     const deviceId = settings?.get('hdhrDeviceId') || generateDeviceId();
@@ -182,6 +197,7 @@ async function generateXmltv() {
         SELECT
             h.guide_number,
             h.guide_name,
+            m.id as media_id,
             m.title,
             m.poster,
             m.tvg_id
@@ -192,6 +208,9 @@ async function generateXmltv() {
         ORDER BY CAST(h.guide_number AS REAL)
     `, channelParams);
 
+    // Get app base URL for cached logo endpoint
+    const appBaseUrl = getAppBaseUrl();
+
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     xml += '<!DOCTYPE tv SYSTEM "xmltv.dtd">\n';
     xml += '<tv generator-info-name="Hermes HDHR">\n';
@@ -200,9 +219,8 @@ async function generateXmltv() {
     for (const ch of channels) {
         xml += `  <channel id="${escapeXml(ch.guide_number)}">\n`;
         xml += `    <display-name>${escapeXml(ch.guide_name || ch.title)}</display-name>\n`;
-        if (ch.poster) {
-            xml += `    <icon src="${escapeXml(ch.poster)}" />\n`;
-        }
+        // Use cached logo endpoint for persistent logos
+        xml += `    <icon src="${appBaseUrl}/logo/${ch.media_id}" />\n`;
         xml += `  </channel>\n`;
     }
 
@@ -589,10 +607,16 @@ async function getEnabledChannels() {
 // Clean category name by removing special characters
 function cleanCategoryName(category) {
     if (!category) return category;
-    // Remove common special characters used as prefixes/decorations
+    // Remove common special characters and patterns used as prefixes/decorations
     return category
+        // Remove pipe-wrapped codes at the beginning like |DE|, |MULTI|, |EN|, DE|, etc.
+        .replace(/^\|?[A-Z0-9-]+\|\s*/gi, '')
+        // Remove special unicode characters at the beginning
         .replace(/^[✪❖◉★☆●○◆◇▶►▸▹→⊛⊕⊗⊙⊚⋆✦✧✩✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋\s]+/, '')
+        // Remove any remaining special unicode characters elsewhere
         .replace(/[✪❖◉★☆●○◆◇▶►▸▹→⊛⊕⊗⊙⊚⋆✦✧✩✫✬✭✮✯✰✱✲✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❄❅❆❇❈❉❊❋]+/g, '')
+        // Remove language codes at the beginning like "DE ", "EN ", "FR "
+        .replace(/^(DE|EN|FR|ES|IT|PT|NL|RU|PL|TR|AR|HI|JA|KO|ZH|MULTI)\s+/i, '')
         .trim();
 }
 
@@ -824,5 +848,6 @@ module.exports = {
     clearAllChannels,
     rebuildLineup,
     getLineup,
-    generateXmltv
+    generateXmltv,
+    cleanCategoryName
 };

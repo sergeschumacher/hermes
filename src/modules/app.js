@@ -278,6 +278,132 @@ function setupRoutes() {
         }
     });
 
+    // Logo endpoint - serves and caches channel logos persistently
+    // Unlike /img proxy, logos are cached by media ID and persist across EPG refreshes
+    const LOGO_CACHE_DIR = path.join(PATHS.data, 'cache', 'logos');
+
+    function ensureLogoCacheDir() {
+        if (!fs.existsSync(LOGO_CACHE_DIR)) {
+            fs.mkdirSync(LOGO_CACHE_DIR, { recursive: true });
+        }
+    }
+
+    app.get('/logo/:mediaId', async (req, res) => {
+        const mediaId = parseInt(req.params.mediaId);
+        if (!mediaId || isNaN(mediaId)) {
+            return res.status(400).send('Invalid media ID');
+        }
+
+        let media = null;
+
+        // Helper to try downloading and caching a logo from a URL
+        async function tryDownloadLogo(url, source) {
+            try {
+                const response = await axios.get(url, {
+                    responseType: 'arraybuffer',
+                    timeout: 5000,
+                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Hermes/1.0)' }
+                });
+
+                if (response.data && response.data.length > 0) {
+                    const contentType = response.headers['content-type'] || 'image/png';
+                    let ext = '.png';
+                    if (contentType.includes('jpeg') || contentType.includes('jpg')) ext = '.jpg';
+                    else if (contentType.includes('svg')) ext = '.svg';
+                    else if (contentType.includes('webp')) ext = '.webp';
+                    else if (contentType.includes('gif')) ext = '.gif';
+
+                    const filename = `${mediaId}${ext}`;
+                    const cachePath = path.join(LOGO_CACHE_DIR, filename);
+
+                    fs.writeFileSync(cachePath, response.data);
+                    await modules.db.run('UPDATE media SET cached_logo = ? WHERE id = ?', [filename, mediaId]);
+                    logger?.debug('app', `Cached logo for media ${mediaId} from ${source}: ${filename}`);
+
+                    return { data: response.data, contentType, filename };
+                }
+            } catch (err) {
+                logger?.debug('app', `Logo download failed from ${source} for media ${mediaId}: ${err.message}`);
+            }
+            return null;
+        }
+
+        // Helper to serve placeholder
+        function servePlaceholder() {
+            const placeholderPath = path.join(__dirname, '../../web/static/img/no-logo.svg');
+            if (fs.existsSync(placeholderPath)) {
+                res.set('Content-Type', 'image/svg+xml');
+                res.set('Cache-Control', 'public, max-age=300');
+                return res.sendFile(placeholderPath);
+            }
+            res.status(404).send('No logo available');
+        }
+
+        try {
+            // Get media record with all logo sources
+            media = await modules.db.get('SELECT id, poster, cached_logo, epg_icon FROM media WHERE id = ?', [mediaId]);
+            if (!media) {
+                return res.status(404).send('Media not found');
+            }
+
+            ensureLogoCacheDir();
+
+            // 1. CACHED LOGO - Check if we have a cached logo file
+            if (media.cached_logo) {
+                const cachedPath = path.join(LOGO_CACHE_DIR, media.cached_logo);
+                if (fs.existsSync(cachedPath)) {
+                    const stats = fs.statSync(cachedPath);
+                    if (stats.size > 0) {
+                        res.set('Cache-Control', 'public, max-age=2592000, immutable');
+                        res.set('X-Cache', 'HIT');
+                        return res.sendFile(cachedPath);
+                    }
+                }
+            }
+
+            // 2. EPG ICON - Try EPG icon URL first (often more reliable)
+            if (media.epg_icon) {
+                const result = await tryDownloadLogo(media.epg_icon, 'epg_icon');
+                if (result) {
+                    res.set('Content-Type', result.contentType);
+                    res.set('Cache-Control', 'public, max-age=2592000, immutable');
+                    res.set('X-Cache', 'MISS-EPG');
+                    return res.send(result.data);
+                }
+            }
+
+            // 3. POSTER URL - Try M3U poster/stream_icon URL
+            if (media.poster) {
+                const result = await tryDownloadLogo(media.poster, 'poster');
+                if (result) {
+                    res.set('Content-Type', result.contentType);
+                    res.set('Cache-Control', 'public, max-age=2592000, immutable');
+                    res.set('X-Cache', 'MISS-POSTER');
+                    return res.send(result.data);
+                }
+            }
+
+            // 4. FALLBACK - No logo sources available or all failed
+            return servePlaceholder();
+
+        } catch (err) {
+            logger?.warn('app', `Logo fetch error for media ${mediaId}: ${err.message}`);
+
+            // If we have a cached logo (even if outdated), serve it
+            if (media?.cached_logo) {
+                const cachedPath = path.join(LOGO_CACHE_DIR, media.cached_logo);
+                if (fs.existsSync(cachedPath)) {
+                    res.set('Cache-Control', 'public, max-age=300');
+                    res.set('X-Cache', 'STALE');
+                    return res.sendFile(cachedPath);
+                }
+            }
+
+            // Return placeholder
+            return servePlaceholder();
+        }
+    });
+
     // View routes
     app.get('/', (req, res) => res.render('index', { page: 'dashboard' }));
     app.get('/movies', (req, res) => res.render('movies', { page: 'movies' }));
@@ -499,110 +625,6 @@ function setupApiRoutes() {
         }
     });
 
-    // Filters endpoint - extract available years and languages
-    router.get('/filters', async (req, res) => {
-        try {
-            const db = modules.db;
-
-            // Get distinct years from year column or extract from title
-            const yearsResult = await db.all(`
-                SELECT DISTINCT
-                    CASE
-                        WHEN year IS NOT NULL AND year > 1900 AND year < 2100 THEN year
-                        ELSE CAST(SUBSTR(title, INSTR(title, '(') + 1, 4) AS INTEGER)
-                    END as extracted_year
-                FROM media
-                WHERE media_type IN ('movie', 'series')
-                AND (
-                    (year IS NOT NULL AND year > 1900 AND year < 2100)
-                    OR (title GLOB '*([0-9][0-9][0-9][0-9])*')
-                )
-                ORDER BY extracted_year DESC
-            `);
-            const years = yearsResult
-                .map(r => r.extracted_year)
-                .filter(y => y && y > 1900 && y < 2100);
-
-            // Extract languages from category field (format: "VOD - NAME [XX]")
-            const categoriesResult = await db.all(`
-                SELECT DISTINCT category FROM media
-                WHERE category LIKE '%[%]%' AND media_type IN ('movie', 'series')
-            `);
-
-            const langSet = new Set();
-            const langRegex = /\[([A-Z]{2,10})\]/g;
-            for (const row of categoriesResult) {
-                let match;
-                while ((match = langRegex.exec(row.category)) !== null) {
-                    langSet.add(match[1]);
-                }
-            }
-
-            // Also extract languages from title prefixes (format: "XX - Title")
-            const titlePrefixResult = await db.all(`
-                SELECT DISTINCT SUBSTR(title, 1, 2) as prefix FROM media
-                WHERE title GLOB '[A-Z][A-Z] - *' AND media_type IN ('movie', 'series')
-            `);
-            for (const row of titlePrefixResult) {
-                if (row.prefix && row.prefix.length === 2) {
-                    langSet.add(row.prefix);
-                }
-            }
-
-            // Also extract from the language column directly (most reliable source)
-            const languageColResult = await db.all(`
-                SELECT DISTINCT UPPER(language) as lang FROM media
-                WHERE language IS NOT NULL AND language != '' AND media_type IN ('movie', 'series')
-            `);
-            for (const row of languageColResult) {
-                if (row.lang && row.lang.length === 2) {
-                    langSet.add(row.lang);
-                }
-            }
-
-            // Sort languages alphabetically, but put EN first
-            let languages = Array.from(langSet).sort((a, b) => {
-                if (a === 'EN') return -1;
-                if (b === 'EN') return 1;
-                return a.localeCompare(b);
-            });
-
-            // Filter languages by preferred settings if configured
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
-            if (preferredLangs.length > 0) {
-                const preferredUpper = preferredLangs.map(l => l.toUpperCase());
-                languages = languages.filter(lang =>
-                    lang && preferredUpper.includes(lang.toUpperCase())
-                );
-            }
-
-            // Get active sources
-            const sources = await db.all('SELECT id, name FROM sources WHERE active = 1 ORDER BY name');
-
-            // Get live TV categories
-            const liveCategoriesResult = await db.all(`
-                SELECT DISTINCT m.category FROM media m
-                JOIN sources s ON m.source_id = s.id
-                WHERE m.media_type = 'live' AND m.category IS NOT NULL AND m.category != '' AND s.active = 1
-                ORDER BY m.category
-            `);
-            const categories = liveCategoriesResult.map(r => r.category);
-
-            res.json({ years, languages, sources, categories });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Aliases for media-type specific filter endpoints
-    router.get('/series/filters', (req, res, next) => {
-        req.url = '/filters';
-        router.handle(req, res, next);
-    });
-    router.get('/movies/filters', (req, res, next) => {
-        req.url = '/filters';
-        router.handle(req, res, next);
-    });
 
     // Live TV channel counts per category
     router.get('/livetv/counts', async (req, res) => {
@@ -741,7 +763,36 @@ function setupApiRoutes() {
                 req.on('close', () => response.data.destroy());
 
             } else {
-                // For non-HLS streams, we need to transcode to browser-playable format
+                // For non-HLS streams, check if stream transcoding is enabled
+                const streamTranscodeEnabled = settings.get('transcodeStreamEnabled') !== false;
+                const outputFormat = req.query.format || 'mp4';  // 'mp4' or 'hls' for Safari
+
+                if (!streamTranscodeEnabled) {
+                    // Pass through raw stream without transcoding
+                    logger?.info('stream', 'Stream transcoding disabled, passing through raw stream');
+                    const response = await axios({
+                        method: 'get',
+                        url: url,
+                        responseType: 'stream',
+                        headers: streamHeaders,
+                        timeout: 30000,
+                        maxRedirects: 5
+                    });
+
+                    res.setHeader('Content-Type', response.headers['content-type'] || 'video/mp2t');
+                    if (response.headers['content-length']) {
+                        res.setHeader('Content-Length', response.headers['content-length']);
+                    }
+                    response.data.pipe(res);
+                    response.data.on('error', (err) => {
+                        logger?.error('stream', `Stream error: ${err.message}`);
+                        if (!res.headersSent) res.status(500).json({ error: 'Stream error' });
+                    });
+                    req.on('close', () => response.data.destroy());
+                    return;
+                }
+
+                // Transcode to browser-playable format
                 // Use FFmpeg to convert to fragmented MP4 which browsers can play directly
                 // Must transcode to H.264 since source may be H.265/HEVC which browsers don't support
 
@@ -754,20 +805,42 @@ function setupApiRoutes() {
                         logger?.warn('stream', `HW detection failed: ${e.message}`);
                     }
                 }
-                const encoder = hwAccel.encoders.h264 || 'libx264';
-                logger?.info('stream', `Starting FFmpeg transcode to H.264 fMP4 using ${encoder}...`);
+                // Safari needs software encoding (libx264) for compatible H.264 baseline profile
+                // VAAPI produces profiles that Safari can't decode
+                const useHlsFormat = outputFormat === 'hls';
+                const encoder = useHlsFormat ? 'libx264' : (hwAccel.encoders.h264 || 'libx264');
+                logger?.info('stream', `Starting FFmpeg transcode to H.264 ${useHlsFormat ? 'fMP4-Safari' : 'fMP4'} using ${encoder}...`);
 
+                // Set headers - use MP4 for all browsers
                 res.setHeader('Content-Type', 'video/mp4');
-                res.setHeader('Transfer-Encoding', 'chunked');
+                if (useHlsFormat) {
+                    // Safari needs Content-Length
+                    res.setHeader('Content-Length', '999999999');
+                } else {
+                    res.setHeader('Transfer-Encoding', 'chunked');
+                }
+                res.setHeader('Accept-Ranges', 'none');
+                res.setHeader('Cache-Control', 'no-cache, no-store');
 
-                // Build encoder-specific arguments
+                // If browser sends a Range header, ignore it
+                if (req.headers.range) {
+                    logger?.info('stream', `Ignoring Range header: ${req.headers.range} (transcoding doesn't support seeking)`);
+                }
+
+                // Build encoder-specific arguments - optimized for fast startup
                 let ffmpegArgs = [
-                    // Reduce startup latency - analyze less before starting
-                    '-fflags', '+nobuffer+flush_packets',
+                    // Low-latency settings for fast preview startup
+                    '-fflags', '+nobuffer+flush_packets+discardcorrupt+genpts',
                     '-flags', 'low_delay',
-                    '-analyzeduration', '1000000',  // 1 second max analysis
-                    '-probesize', '500000',         // 500KB max probe size
+                    '-analyzeduration', '2000000',  // 2s max analysis (need time to find keyframe)
+                    '-probesize', '5000000',        // 5MB max probe size
+                    // Reconnect settings for IPTV streams
+                    '-reconnect', '1',
+                    '-reconnect_streamed', '1',
+                    '-reconnect_delay_max', '2',
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
+                    // Seek to start for VOD content
+                    '-ss', '0',
                 ];
 
                 // Add hardware decoding before input
@@ -797,9 +870,13 @@ function setupApiRoutes() {
                     );
                 } else if (encoder === 'h264_vaapi') {
                     // Intel/AMD VAAPI - frames already on GPU from hwaccel
+                    // Use baseline profile (66) for Safari compatibility
                     ffmpegArgs.push(
                         '-vf', 'scale_vaapi=format=nv12',
                         '-c:v', 'h264_vaapi',
+                        '-profile:v', '66',    // Baseline profile (Safari compatible)
+                        '-level', '31',        // Level 3.1
+                        '-bf', '0',            // No B-frames (required for baseline)
                         '-qp', '28'
                     );
                 } else if (encoder === 'h264_videotoolbox') {
@@ -810,23 +887,32 @@ function setupApiRoutes() {
                         '-pix_fmt', 'yuv420p'
                     );
                 } else {
-                    // Software fallback (libx264)
+                    // Software fallback (libx264) - tuned for fast preview
                     ffmpegArgs.push(
                         '-c:v', 'libx264',
                         '-preset', 'ultrafast',
                         '-tune', 'zerolatency',
-                        '-crf', '28',
+                        '-crf', '30',               // Slightly lower quality for speed (was 28)
                         '-pix_fmt', 'yuv420p',
-                        '-profile:v', 'high',
-                        '-level', '4.0'
+                        '-profile:v', 'baseline',   // Simpler profile for faster decode
+                        '-level', '3.1',
+                        '-x264-params', 'bframes=0:ref=1:me=dia:subme=0:trellis=0:weightp=0'  // Fastest x264 settings
                     );
                 }
 
-                // Common output args
+                // Common output args - optimized for fast first-frame delivery
                 ffmpegArgs.push(
                     '-c:a', 'aac',
                     '-b:a', '128k',
+                    '-g', '30',                     // Keyframe every 30 frames (~1 sec at 30fps)
+                    '-keyint_min', '15',            // Min GOP size for faster seeking
+                    '-sc_threshold', '0'            // Disable scene change detection
+                );
+
+                // Output format - fMP4 for all browsers
+                ffmpegArgs.push(
                     '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                    '-frag_duration', '500000',     // 500ms fragments for faster start
                     '-f', 'mp4',
                     '-'
                 );
@@ -2967,11 +3053,12 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
             const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
-            // Get genres - stored as comma-separated values, need to parse and dedupe
+            // Get genres - stored as comma or slash separated values, need to parse and dedupe
             const genresRows = await modules.db.all(`SELECT DISTINCT genres FROM media WHERE genres IS NOT NULL AND genres != '' ${typeFilter}`, typeParam);
             const genreSet = new Set();
             genresRows.forEach(row => {
-                row.genres.split(',').forEach(g => {
+                // Split by comma or slash
+                row.genres.split(/[,\/]/).forEach(g => {
                     const genre = g.trim();
                     if (genre) genreSet.add(genre);
                 });
@@ -2987,11 +3074,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 );
             }
 
+            // Clean and sort categories
+            const cleanedCategories = categories
+                .map(c => ({
+                    value: c.category,
+                    display_name: modules.hdhr.cleanCategoryName(c.category)
+                }))
+                .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+
             res.json({
                 years: years.map(y => y.year),
                 qualities: qualities.map(q => q.quality),
                 languages: filteredLanguages,
-                categories: categories.map(c => c.category),
+                categories: cleanedCategories,
                 genres: Array.from(genreSet).sort(),
                 sources
             });
@@ -3547,7 +3642,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     // Get grouped shows (for Netflix-style series view)
     router.get('/shows', async (req, res) => {
         try {
-            const { search, quality, year, language, source, platform, sort, order, limit, offset, recently_added, include_inactive } = req.query;
+            const { search, quality, year, language, source, platform, genre, sort, order, limit, offset, recently_added, include_inactive } = req.query;
             const db = modules.db;
 
             // Build WHERE clause separately for reuse in count query
@@ -3588,6 +3683,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 // Platform filter now uses category field
                 whereClause += ' AND m.category = ?';
                 params.push(platform);
+            }
+
+            if (genre) {
+                whereClause += ' AND m.genres LIKE ?';
+                params.push(`%${genre}%`);
             }
 
             // Filter by recently added (last N days)
@@ -3675,11 +3775,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 params.push(type);
             }
 
-            sql += ' GROUP BY category ORDER BY count DESC';
+            sql += ' GROUP BY category';
 
             const categories = await db.all(sql, params);
-            // Map to platform field for backwards compatibility with frontend
-            res.json(categories.map(c => ({ platform: c.category, count: c.count })));
+
+            // Clean category names and sort alphabetically
+            const cleanedCategories = categories.map(c => ({
+                platform: c.category,
+                display_name: modules.hdhr.cleanCategoryName(c.category),
+                count: c.count
+            }))
+            .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
+
+            res.json(cleanedCategories);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -3953,6 +4061,88 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
+    // Fetch episodes on-demand for a show (lazy loading from Xtream API)
+    router.post('/shows/:name/fetch-episodes', async (req, res) => {
+        try {
+            const db = modules.db;
+            let showName = decodeURIComponent(req.params.name);
+
+            // Check if :name is actually a numeric ID
+            if (/^\d+$/.test(showName)) {
+                const mediaItem = await db.get('SELECT show_name FROM media WHERE id = ? AND media_type = ?', [showName, 'series']);
+                if (mediaItem && mediaItem.show_name) {
+                    showName = mediaItem.show_name;
+                }
+            }
+
+            // Get series entries for this show
+            const seriesEntries = await db.all(`
+                SELECT m.id, m.external_id, m.source_id, s.url, s.username, s.password, s.type
+                FROM media m
+                JOIN sources s ON m.source_id = s.id
+                WHERE m.media_type = 'series' AND m.show_name = ? AND s.type = 'xtream'
+            `, [showName]);
+
+            if (seriesEntries.length === 0) {
+                return res.status(404).json({ error: 'No Xtream series found for this show' });
+            }
+
+            let totalEpisodes = 0;
+            const axios = require('axios');
+
+            for (const series of seriesEntries) {
+                // Check if episodes already exist
+                const existingCount = await db.get('SELECT COUNT(*) as count FROM episodes WHERE media_id = ?', [series.id]);
+                if (existingCount.count > 0) {
+                    totalEpisodes += existingCount.count;
+                    continue; // Already have episodes
+                }
+
+                // Fetch from Xtream API
+                const baseUrl = series.url.replace(/\/+$/, '');
+                const episodesUrl = `${baseUrl}/player_api.php?username=${series.username}&password=${series.password}&action=get_series_info&series_id=${series.external_id}`;
+
+                try {
+                    const response = await axios.get(episodesUrl, { timeout: 30000 });
+                    const episodes = response.data?.episodes || {};
+
+                    // Insert episodes
+                    for (const [season, eps] of Object.entries(episodes)) {
+                        for (const ep of eps) {
+                            const ext = ep.container_extension || 'mkv';
+                            const streamUrl = `${baseUrl}/series/${series.username}/${series.password}/${ep.id}.${ext}`;
+
+                            await db.run(`
+                                INSERT INTO episodes (media_id, external_id, season, episode, title, plot, air_date, runtime, stream_url, container)
+                                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                ON CONFLICT(media_id, season, episode) DO UPDATE SET
+                                    external_id = excluded.external_id,
+                                    title = COALESCE(excluded.title, episodes.title),
+                                    stream_url = excluded.stream_url,
+                                    container = excluded.container
+                            `, [
+                                series.id, String(ep.id), parseInt(season), ep.episode_num,
+                                ep.title, ep.info?.plot || null, ep.info?.air_date || null,
+                                ep.info?.duration_secs ? Math.floor(ep.info.duration_secs / 60) : null,
+                                streamUrl, ext
+                            ]);
+                            totalEpisodes++;
+                        }
+                    }
+
+                    logger.info('app', `Fetched ${totalEpisodes} episodes for "${showName}" from source ${series.source_id}`);
+                } catch (err) {
+                    logger.warn('app', `Failed to fetch episodes for series ${series.external_id}: ${err.message}`);
+                }
+            }
+
+            res.json({ success: true, episodeCount: totalEpisodes });
+        } catch (err) {
+            logger.error('app', `Failed to fetch episodes: ${err.message}`);
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Enrich a show by name (all media items for that show)
     router.post('/shows/:name/enrich', async (req, res) => {
         try {
@@ -4222,7 +4412,28 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    // Play stream in external player (VLC)
+    // Play stream in external player (VLC) - returns M3U playlist download
+    router.get('/play.m3u', async (req, res) => {
+        try {
+            const url = req.query.url;
+            if (!url) {
+                return res.status(400).send('URL is required');
+            }
+
+            // Generate M3U playlist that VLC can open
+            const m3uContent = `#EXTM3U\n#EXTINF:-1,Stream\n${url}\n`;
+
+            res.set('Content-Type', 'audio/x-mpegurl');
+            res.set('Content-Disposition', 'attachment; filename="stream.m3u"');
+            res.send(m3uContent);
+
+            logger?.info('play', `Generated M3U playlist for: ${url}`);
+        } catch (err) {
+            logger?.error('play', `Failed to generate playlist: ${err.message}`);
+            res.status(500).send('Error generating playlist');
+        }
+    });
+
     router.post('/play', async (req, res) => {
         try {
             const { url } = req.body;
@@ -4230,43 +4441,17 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 return res.status(400).json({ error: 'URL is required' });
             }
 
-            // Determine VLC path based on platform
-            const platform = process.platform;
-            let vlcPath;
-            let args;
+            // Return the M3U download URL for client-side handling
+            const m3uUrl = `/api/play.m3u?url=${encodeURIComponent(url)}`;
 
-            if (platform === 'darwin') {
-                // macOS - use open command to launch VLC
-                vlcPath = 'open';
-                args = ['-a', 'VLC', url];
-            } else if (platform === 'win32') {
-                // Windows
-                vlcPath = 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe';
-                args = [url];
-            } else {
-                // Linux
-                vlcPath = 'vlc';
-                args = [url];
-            }
-
-            // Spawn VLC process (detached so it doesn't block)
-            const vlc = spawn(vlcPath, args, {
-                detached: true,
-                stdio: 'ignore'
+            logger?.info('play', `Play request for: ${url}`);
+            res.json({
+                success: true,
+                m3uUrl: m3uUrl,
+                directUrl: url
             });
-
-            // Handle spawn errors (e.g., VLC not installed)
-            vlc.on('error', (err) => {
-                logger?.error('play', `Failed to spawn VLC: ${err.message}`);
-                // Don't crash - error is already logged
-            });
-
-            vlc.unref();
-
-            logger?.info('play', `Opening stream in VLC: ${url}`);
-            res.json({ success: true, message: 'Opening in VLC...' });
         } catch (err) {
-            logger?.error('play', `Failed to open VLC: ${err.message}`);
+            logger?.error('play', `Failed to generate play URL: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -4933,7 +5118,28 @@ function setupRadarrApi() {
         res.json({ records: [], page: 1, pageSize: 10, totalRecords: 0 });
     });
 
-    // Play stream in external player (VLC)
+    // Play stream in external player (VLC) - returns M3U playlist download
+    router.get('/play.m3u', async (req, res) => {
+        try {
+            const url = req.query.url;
+            if (!url) {
+                return res.status(400).send('URL is required');
+            }
+
+            // Generate M3U playlist that VLC can open
+            const m3uContent = `#EXTM3U\n#EXTINF:-1,Stream\n${url}\n`;
+
+            res.set('Content-Type', 'audio/x-mpegurl');
+            res.set('Content-Disposition', 'attachment; filename="stream.m3u"');
+            res.send(m3uContent);
+
+            logger?.info('play', `Generated M3U playlist for: ${url}`);
+        } catch (err) {
+            logger?.error('play', `Failed to generate playlist: ${err.message}`);
+            res.status(500).send('Error generating playlist');
+        }
+    });
+
     router.post('/play', async (req, res) => {
         try {
             const { url } = req.body;
@@ -4941,43 +5147,17 @@ function setupRadarrApi() {
                 return res.status(400).json({ error: 'URL is required' });
             }
 
-            // Determine VLC path based on platform
-            const platform = process.platform;
-            let vlcPath;
-            let args;
+            // Return the M3U download URL for client-side handling
+            const m3uUrl = `/api/play.m3u?url=${encodeURIComponent(url)}`;
 
-            if (platform === 'darwin') {
-                // macOS - use open command to launch VLC
-                vlcPath = 'open';
-                args = ['-a', 'VLC', url];
-            } else if (platform === 'win32') {
-                // Windows
-                vlcPath = 'C:\\Program Files\\VideoLAN\\VLC\\vlc.exe';
-                args = [url];
-            } else {
-                // Linux
-                vlcPath = 'vlc';
-                args = [url];
-            }
-
-            // Spawn VLC process (detached so it doesn't block)
-            const vlc = spawn(vlcPath, args, {
-                detached: true,
-                stdio: 'ignore'
+            logger?.info('play', `Play request for: ${url}`);
+            res.json({
+                success: true,
+                m3uUrl: m3uUrl,
+                directUrl: url
             });
-
-            // Handle spawn errors (e.g., VLC not installed)
-            vlc.on('error', (err) => {
-                logger?.error('play', `Failed to spawn VLC: ${err.message}`);
-                // Don't crash - error is already logged
-            });
-
-            vlc.unref();
-
-            logger?.info('play', `Opening stream in VLC: ${url}`);
-            res.json({ success: true, message: 'Opening in VLC...' });
         } catch (err) {
-            logger?.error('play', `Failed to open VLC: ${err.message}`);
+            logger?.error('play', `Failed to generate play URL: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
@@ -5134,6 +5314,25 @@ function setupSyncEventRelay() {
 
     app.on('sync:error', (data) => {
         io.emit('sync:source:error', { sourceId: data.source, error: data.error });
+    });
+
+    // EPG event relay
+    app.on('epg:start', (data) => {
+        logger.debug('app', `Relay epg:start for source ${data.sourceId}`);
+        io.emit('epg:start', data);
+    });
+
+    app.on('epg:progress', (data) => {
+        io.emit('epg:progress', data);
+    });
+
+    app.on('epg:complete', (data) => {
+        logger.debug('app', `Relay epg:complete for source ${data.sourceId}`);
+        io.emit('epg:complete', data);
+    });
+
+    app.on('epg:error', (data) => {
+        io.emit('epg:error', data);
     });
 }
 

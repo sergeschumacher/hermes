@@ -205,7 +205,10 @@
 
             const response = await fetch('/api/filters?type=live');
             const filters = await response.json();
-            allCategories = filters.categories.filter(cat => cat);
+            // Handle both old (string) and new (object) category formats
+            allCategories = filters.categories.filter(cat => cat).map(cat =>
+                typeof cat === 'object' ? cat.value : cat
+            );
 
             if (preferredLanguages.length > 0) {
                 allCategories = allCategories.filter(cat => {
@@ -478,7 +481,8 @@
             }
 
             channels.forEach((channel, index) => {
-                const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.svg';
+                // Use cached logo endpoint for persistent logos
+                const imgSrc = channel.id ? \`/logo/\${channel.id}\` : '/static/img/no-logo.svg';
                 const isEager = currentOffset === 0 && index < 16;
                 let displayName = cleanChannelTitle(channel.title);
                 const channelJson = JSON.stringify(channel).replace(/"/g, '&quot;');
@@ -560,20 +564,10 @@
     }
 
     function playChannel(channel) {
-        fetch('/api/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: channel.stream_url })
-        })
-        .then(res => res.json())
-        .then(data => {
-            if (data.success && window.showToast) showToast('Opening in VLC...', 'success');
-            else if (data.error && window.showToast) showToast('Failed to open VLC: ' + data.error, 'error');
-        })
-        .catch(err => {
-            console.error('Failed to open VLC:', err);
-            if (window.showToast) showToast('Failed to open VLC', 'error');
-        });
+        // Download M3U playlist file - VLC will open it
+        const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(channel.stream_url);
+        window.location.href = m3uUrl;
+        if (window.showToast) showToast('Downloading playlist for VLC...', 'success');
     }
 
     async function fetchEpgForChannels(tvgIds) {
@@ -699,7 +693,8 @@
 
     function openRecordModal(channel) {
         recordChannel = channel;
-        const imgSrc = channel.poster ? proxyImage(channel.poster) : '/static/img/no-logo.svg';
+        // Use cached logo endpoint for persistent logos
+        const imgSrc = channel.id ? \`/logo/\${channel.id}\` : '/static/img/no-logo.svg';
         document.getElementById('record-channel-logo').src = imgSrc;
         document.getElementById('record-channel-name').textContent = channel.title;
         document.getElementById('record-channel-category').textContent = channel.category || '';
