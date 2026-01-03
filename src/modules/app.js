@@ -860,13 +860,14 @@ function setupApiRoutes() {
                 // Add encoder-specific video encoding args
                 if (encoder === 'h264_nvenc') {
                     // NVIDIA NVENC - fastest hardware encoding
+                    // Use scale_cuda filter for GPU-side format conversion (frames are in CUDA memory)
                     ffmpegArgs.push(
+                        '-vf', 'scale_cuda=format=nv12',
                         '-c:v', 'h264_nvenc',
                         '-preset', 'p1',          // Fastest preset
                         '-tune', 'll',            // Low latency tuning
-                        '-rc', 'vbr',             // Variable bitrate
-                        '-cq', '28',              // Quality level
-                        '-pix_fmt', 'yuv420p'
+                        '-rc', 'constqp',         // Constant QP mode (works reliably with -cq)
+                        '-cq', '28'               // Quality level
                     );
                 } else if (encoder === 'h264_vaapi') {
                     // Intel/AMD VAAPI - frames already on GPU from hwaccel
