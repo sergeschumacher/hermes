@@ -1,0 +1,100 @@
+{
+  "name": "Hermes -> Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "hermes-events",
+        "method": "POST",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{$json.body.event}}",
+        "rules": [
+          { "operation": "equal", "value2": "download_complete" },
+          { "operation": "equal", "value2": "recording_finished" }
+        ]
+      },
+      "name": "Switch Event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "message",
+              "value": "={{$json.body.media_type === 'series' ? ('Download complete: ' + ($json.body.series_name || $json.body.title || 'Unknown') + ' S' + String($json.body.season || '').padStart(2,'0') + 'E' + String($json.body.episode || '').padStart(2,'0') + ( $json.body.title ? ' - ' + $json.body.title : '' )) : ('Download complete: ' + ($json.body.title || 'Unknown'))}}"
+            }
+          ]
+        }
+      },
+      "name": "Format Download Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [700, 220]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "message",
+              "value": "={{'Recording finished: ' + ($json.body.title || $json.body.recording_name || 'Unknown')}}"
+            }
+          ]
+        }
+      },
+      "name": "Format Recording Message",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [700, 380]
+    },
+    {
+      "parameters": {
+        "chatId": "TELEGRAM_CHAT_ID",
+        "text": "={{$json.message}}"
+      },
+      "name": "Send Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [940, 300],
+      "credentials": {
+        "telegramApi": {
+          "token": "TELEGRAM_BOT_TOKEN"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Switch Event", "type": "main", "index": 0 }]]
+    },
+    "Switch Event": {
+      "main": [
+        [{ "node": "Format Download Message", "type": "main", "index": 0 }],
+        [{ "node": "Format Recording Message", "type": "main", "index": 0 }]
+      ]
+    },
+    "Format Download Message": {
+      "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
+    },
+    "Format Recording Message": {
+      "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "versionId": "1"
+}

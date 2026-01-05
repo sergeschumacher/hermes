@@ -5793,6 +5793,31 @@ function setupSyncEventRelay() {
     app.on('epg:error', (data) => {
         io.emit('epg:error', data);
     });
+
+    // Enrichment event relay (TMDB posters)
+    app.on('enrichment:queued', (data) => {
+        io.emit('enrichment:queued', data);
+    });
+
+    app.on('enrichment:workers:started', (data) => {
+        io.emit('enrichment:workers:started', data);
+    });
+
+    app.on('enrichment:progress', (data) => {
+        io.emit('enrichment:progress', data);
+    });
+
+    app.on('enrichment:workers:stopped', (data) => {
+        io.emit('enrichment:workers:stopped', data);
+    });
+
+    app.on('enrichment:item:complete', (data) => {
+        io.emit('enrichment:item:complete', data);
+    });
+
+    app.on('enrichment:item:failed', (data) => {
+        io.emit('enrichment:item:failed', data);
+    });
 }
 
 module.exports = {
