@@ -108,6 +108,12 @@
 
         <div class="p-4 border-t border-dark-700 flex justify-end gap-2">
             <button onclick="closeModal()" class="btn btn-secondary">Close</button>
+            <button onclick="playInBrowser()" class="btn btn-info" id="play-browser-btn" style="display:none;">
+                <svg class="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
+                </svg>
+                Browser
+            </button>
             <button onclick="scheduleRecording()" class="btn btn-primary" id="record-btn">
                 <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                     <circle cx="10" cy="10" r="6" fill="currentColor" />
@@ -1185,13 +1191,13 @@
                 select.style.display = 'block';
                 document.getElementById('record-btn').disabled = false;
                 // VLC buttons removed
-                // Browser button removed
+                document.getElementById('play-browser-btn').style.display = 'flex';
             } else {
                 noSourceMsg.style.display = 'block';
                 select.style.display = 'none';
                 document.getElementById('record-btn').disabled = true;
                 // VLC buttons removed
-                // Browser button removed
+                document.getElementById('play-browser-btn').style.display = 'none';
             }
 
             container.style.display = 'block';
@@ -1206,6 +1212,30 @@
         document.getElementById('program-modal').classList.remove('flex');
         selectedProgram = null;
         matchingLiveChannels = [];
+    }
+
+    function playInBrowser() {
+        const selectedSource = document.getElementById('source-select').value;
+
+        // Find the channel to play - either selected or first available
+        let channelToPlay = null;
+        if (selectedSource) {
+            channelToPlay = matchingLiveChannels.find(ch => ch.id === parseInt(selectedSource));
+        } else if (matchingLiveChannels.length > 0) {
+            channelToPlay = matchingLiveChannels[0];
+        }
+
+        if (!channelToPlay || !channelToPlay.stream_url) {
+            if (window.showToast) showToast('No stream URL available', 'error');
+            return;
+        }
+
+        // Close the program modal first
+        closeModal();
+
+        const browserUrl = '/player?url=' + encodeURIComponent(channelToPlay.stream_url);
+        window.open(browserUrl, '_blank', 'noopener');
+        if (window.showToast) showToast('Opening in browser...', 'success');
     }
 
     async function scheduleRecording() {
