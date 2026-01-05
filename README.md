@@ -75,6 +75,10 @@ For rich metadata enrichment, add your free TMDB API key:
 2. Go to Settings > General > TMDB API Key
 3. Paste your API key and save
 
+### TMDB Rate Limit
+
+Hermes rate-limits TMDB API routes to **40 requests per 10 seconds per IP**. If you hit the limit, you’ll receive HTTP 429 responses with `Retry-After` headers. Consider caching or reducing concurrent lookups if you see throttling.
+
 ### Hardware Acceleration
 
 **Intel QuickSync (VAAPI):**
