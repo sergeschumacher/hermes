@@ -1,13 +1,13 @@
 services:
-  hermes:
+  hermes2:
     # Use pre-built image from GitHub Container Registry
     image: ghcr.io/glom80/hermes:latest
     # Or build from source:
     # build: .
-    container_name: hermes
+    container_name: hermes2
     labels:
       - "io.portainer.accesscontrol.public=true"
-      - "io.portainer.application.icon=https://raw.githubusercontent.com/sergeschumacher/hermes/main/hermes.jpeg"
+      - "io.portainer.application.icon=https://raw.githubusercontent.com/glom80/hermes/main/hermes.jpeg"
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -42,8 +42,8 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - hermes
+      - hermes2
 
 networks:
-  hermes:
+  hermes2:
     driver: bridge

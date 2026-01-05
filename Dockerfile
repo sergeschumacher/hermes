@@ -4,7 +4,7 @@ LABEL maintainer="Hermes"
 LABEL description="IPTV Media Manager"
 
 # Install build dependencies and runtime tools
-RUN apk add --no-cache python3 make g++ sqlite ffmpeg
+RUN apk add --no-cache python3 py3-setuptools make g++ sqlite ffmpeg
 
 WORKDIR /app
 
