@@ -1,43 +1,25 @@
 services:
-  hermes2:
-    # Use pre-built image from GitHub Container Registry
+  hermes:
     image: ghcr.io/glom80/hermes:latest
-    # Or build from source:
-    # build: .
     container_name: hermes2
-    labels:
-      - "io.portainer.accesscontrol.public=true"
-      - "io.portainer.application.icon=https://raw.githubusercontent.com/glom80/hermes/main/hermes.jpeg"
     restart: unless-stopped
     ports:
-      - "3000:3000"
-    volumes:
-      # Persistent data (database, config, cache)
-      - ./data:/data
-      # Downloads folder (optional, for DVR/recording features)
-      - ./downloads:/downloads
+      - "33000:3000"
+      - "5004:5004"
     environment:
       - NODE_ENV=production
-      - TZ=Europe/Amsterdam
-      # Optional: Seed initial admin user on first run
+      - TZ=Europe/Luxembourg
+      - PLEX_URL=http://192.168.102.2:32400
+      - TMDB_API_KEY=31999af2f9bc9e468e0c5d5d1ec69732
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
       - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=changeme
-      # Optional: Set your TMDB API key for metadata enrichment
-      # - TMDB_API_KEY=your_tmdb_api_key
-      # Optional: Plex integration
-      # - PLEX_URL=http://192.168.1.100:32400
-      # - PLEX_TOKEN=your_plex_token
-    # GPU support for hardware transcoding (uncomment for NVIDIA)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    # Intel QuickSync (uncomment for Intel iGPU)
-    # devices:
-    #   - /dev/dri:/dev/dri
+      - ADMIN_PASSWORD=password
+    volumes:
+      - /mnt/user/appdata/hermes/data:/data
+      - /mnt/remotes/192.168.10.101_Plex_Movies/Series:/data/downloads/series
+      - /mnt/remotes/192.168.10.101_Plex_Movies/Movies:/data/downloads/movies
+      - /mnt/remotes/192.168.10.101_Plex_Movies/IPTV_Records:/data/recordings
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 30s
@@ -45,8 +27,10 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - hermes2
+      - lan102
+    runtime: nvidia
 
 networks:
-  hermes2:
-    driver: bridge
+  lan102:
+    external: true
+    name: br0.102

@@ -232,6 +232,10 @@ module.exports = {
                 try {
                     // Enable foreign key support for CASCADE deletes
                     await runAsync('PRAGMA foreign_keys = ON');
+                    // Reduce lock contention for concurrent reads/writes
+                    await runAsync('PRAGMA journal_mode = WAL');
+                    await runAsync('PRAGMA synchronous = NORMAL');
+                    await runAsync('PRAGMA busy_timeout = 5000');
 
                     await applyMigrations();
                     resolve();
