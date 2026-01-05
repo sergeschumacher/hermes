@@ -1285,8 +1285,9 @@
             return;
         }
 
-        window.open(channelToPlay.stream_url, '_blank', 'noopener');
-        if (window.showToast) showToast('Open the VLC extension to play this stream', 'success');
+        const extUrl = 'open-in-vlc://' + encodeURIComponent(channelToPlay.stream_url);
+        window.location.href = extUrl;
+        if (window.showToast) showToast('Opening in VLC extension...', 'success');
     }
 
     async function scheduleRecording() {

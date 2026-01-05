@@ -494,8 +494,9 @@
             return;
         }
 
-        window.open(currentPreviewUrl, '_blank', 'noopener');
-        showToast('Open the VLC extension to play this stream', 'success');
+        const extUrl = 'open-in-vlc://' + encodeURIComponent(currentPreviewUrl);
+        window.location.href = extUrl;
+        showToast('Opening in VLC extension...', 'success');
     }
 
     // Close on Escape key
