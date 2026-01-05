@@ -24,9 +24,56 @@ const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const SESSION_GRACE_MS = 1000 * 60 * 5;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const MFA_ENABLED_ENV = process.env.MFA_ENABLED;
+const WEBHOOK_URLS_ENV = process.env.WEBHOOK_URLS || process.env.WEBHOOK_URL || '';
+const WEBHOOK_TIMEOUT_MS = parseInt(process.env.WEBHOOK_TIMEOUT_MS || '5000', 10);
 
 let userCountCache = { count: null, loadedAt: 0 };
 let adminSeedAttempted = false;
+
+function isMfaEnabled() {
+    if (MFA_ENABLED_ENV === undefined || MFA_ENABLED_ENV === null || MFA_ENABLED_ENV === '') return true;
+    const normalized = String(MFA_ENABLED_ENV).trim().toLowerCase();
+    return !['0', 'false', 'off', 'no'].includes(normalized);
+}
+
+function getWebhookUrls() {
+    const urls = new Set();
+    if (WEBHOOK_URLS_ENV) {
+        WEBHOOK_URLS_ENV.split(',').map((url) => url.trim()).filter(Boolean).forEach((url) => {
+            urls.add(url);
+        });
+    }
+    const settingsUrl = settings?.get?.('webhookUrl');
+    if (settingsUrl) {
+        String(settingsUrl).split(',').map((url) => url.trim()).filter(Boolean).forEach((url) => {
+            urls.add(url);
+        });
+    }
+    return Array.from(urls);
+}
+
+async function sendWebhook(event, payload) {
+    const urls = getWebhookUrls();
+    if (!urls.length) return;
+
+    const body = {
+        event,
+        timestamp: new Date().toISOString(),
+        ...payload
+    };
+
+    await Promise.all(urls.map(async (url) => {
+        try {
+            await axios.post(url, body, {
+                timeout: WEBHOOK_TIMEOUT_MS,
+                headers: { 'User-Agent': 'Hermes/1.0' }
+            });
+        } catch (err) {
+            logger?.warn('webhook', `Failed to send ${event} webhook: ${err.message}`);
+        }
+    }));
+}
 
 // Parse series title to extract show name, season, episode, language
 // Examples: "DE - The King of Queens S01 E01", "FR - Sam S03 E03", "EN - ER (1994) S04 E20"
@@ -621,7 +668,7 @@ function setupRoutes() {
             return renderLogin(res, { error: 'Invalid credentials', username });
         }
 
-        if (user.totp_enabled) {
+        if (isMfaEnabled() && user.totp_enabled) {
             if (!token) {
                 if (wantsJson) return res.status(401).json({ error: 'MFA required', mfaRequired: true });
                 return renderLogin(res, { error: 'MFA code required', username, mfaRequired: true });
@@ -704,13 +751,15 @@ function setupRoutes() {
         res.json({
             user: {
                 username: req.user.username,
-                totpEnabled: !!req.user.totp_enabled
-            }
+                totpEnabled: isMfaEnabled() && !!req.user.totp_enabled
+            },
+            mfaEnabled: isMfaEnabled()
         });
     });
 
     app.post('/api/auth/totp/setup', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
         const secret = speakeasy.generateSecret({ name: `Hermes (${req.user.username})` });
         const qrDataUrl = await qrcode.toDataURL(secret.otpauth_url);
         await modules.db.run(
@@ -722,6 +771,7 @@ function setupRoutes() {
 
     app.post('/api/auth/totp/enable', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
         const token = (req.body.token || '').trim();
         if (!token) return res.status(400).json({ error: 'Token is required' });
 
@@ -5820,6 +5870,57 @@ function setupSyncEventRelay() {
     });
 }
 
+function setupWebhookDispatch() {
+    logger.info('app', 'Setting up webhook dispatch');
+
+    app.on('download:complete', async (data) => {
+        try {
+            const db = modules.db;
+            const download = await db.get(`
+                SELECT d.id, d.final_path, d.completed_at,
+                       m.media_type, m.title as media_title, m.show_name,
+                       e.season, e.episode, e.title as episode_title
+                FROM downloads d
+                LEFT JOIN media m ON d.media_id = m.id
+                LEFT JOIN episodes e ON d.episode_id = e.id
+                WHERE d.id = ?
+            `, [data.id]);
+
+            const mediaType = download?.media_type || null;
+            const seriesName = mediaType === 'series' ? (download?.show_name || download?.media_title) : null;
+            const title = mediaType === 'series'
+                ? (download?.episode_title || seriesName || data.title || null)
+                : (download?.media_title || data.title || null);
+
+            await sendWebhook('download_complete', {
+                id: data.id,
+                media_type: mediaType,
+                title,
+                series_name: seriesName,
+                season: download?.season ?? null,
+                episode: download?.episode ?? null,
+                path: data.path || download?.final_path || null,
+                completed_at: download?.completed_at || null
+            });
+        } catch (err) {
+            logger?.warn('webhook', `Download webhook failed: ${err.message}`);
+        }
+    });
+
+    app.on('recording:completed', async (data) => {
+        try {
+            await sendWebhook('recording_finished', {
+                id: data.id,
+                title: data.title || null,
+                path: data.outputPath || null,
+                file_size: data.fileSize ?? null
+            });
+        } catch (err) {
+            logger?.warn('webhook', `Recording webhook failed: ${err.message}`);
+        }
+    });
+}
+
 module.exports = {
     init: async (mods) => {
         modules = mods;
@@ -5838,6 +5939,7 @@ module.exports = {
         await ensureAdminUser();
         setupSocket();
         setupSyncEventRelay();
+        setupWebhookDispatch();
 
         const port = settings.get('port');
         return new Promise((resolve) => {

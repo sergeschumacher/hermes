@@ -1,6 +1,6 @@
 services:
   hermes:
-    image: ghcr.io/glom80/hermes:latest
+    image: ghcr.io/sergeschumacher/hermes:latest
     container_name: hermes2
     restart: unless-stopped
     ports:

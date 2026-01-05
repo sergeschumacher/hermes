@@ -3,7 +3,7 @@
   "nodes": [
     {
       "parameters": {
-        "path": "hermes-events",
+        "path": "webhooks/hermes",
         "method": "POST",
         "responseMode": "onReceived",
         "options": {}
@@ -51,7 +51,7 @@
           "string": [
             {
               "name": "message",
-              "value": "={{'Recording finished: ' + ($json.body.title || $json.body.recording_name || 'Unknown')}}"
+              "value": "={{'Recording finished: ' + ($json.body.title || 'Unknown')}}"
             }
           ]
         }

@@ -19,6 +19,9 @@ const defaults = {
     // TMDB
     tmdbApiKey: '',
 
+    // Webhooks
+    webhookUrl: '',
+
     // Plex
     plexUrl: '',
     plexToken: '',

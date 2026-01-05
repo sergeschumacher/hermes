@@ -4,7 +4,7 @@
 
 Hermes is a self-hosted media management application that transforms your IPTV subscriptions into a Netflix-like experience. Browse movies and series with rich metadata, preview streams before downloading, and manage your media library with ease.
 
-![Docker Pulls](https://img.shields.io/docker/pulls/ghcr.io/glom80/hermes)
+![Docker Pulls](https://img.shields.io/docker/pulls/ghcr.io/sergeschumacher/hermes)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
@@ -28,7 +28,7 @@ Hermes is a self-hosted media management application that transforms your IPTV s
 ```yaml
 services:
   hermes2:
-    image: ghcr.io/glom80/hermes:latest
+    image: ghcr.io/sergeschumacher/hermes:latest
     container_name: hermes2
     restart: unless-stopped
     ports:
@@ -61,7 +61,7 @@ docker run -d \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=password \
   -e MFA_ENABLED=true \
-  ghcr.io/glom80/hermes:latest
+  ghcr.io/sergeschumacher/hermes:latest
 ```
 
 ## Configuration
@@ -141,8 +141,8 @@ Your data and settings are preserved in the mounted volumes.
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/glom80/hermes/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/glom80/hermes/discussions)
+- **Issues:** [GitHub Issues](https://github.com/sergeschumacher/hermes/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/sergeschumacher/hermes/discussions)
 
 ## License
 

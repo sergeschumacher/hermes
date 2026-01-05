@@ -304,6 +304,11 @@
             </div>
             <div class="p-4 space-y-4">
                 <div>
+                    <label class="block text-sm text-dark-400 mb-1">Webhook URL</label>
+                    <input type="text" id="setting-webhookUrl" class="input" placeholder="https://your-server/webhook (comma-separated supported)" />
+                    <p class="text-xs text-dark-500 mt-1">Sent on download complete and recording finished.</p>
+                </div>
+                <div>
                     <label class="block text-sm text-dark-400 mb-1">Max Concurrent Downloads</label>
                     <input type="number" id="setting-maxConcurrentDownloads" class="input" min="1" max="5" value="2" />
                 </div>
@@ -556,7 +561,7 @@
                     </div>
                 </div>
 
-                <div class="border-t border-dark-700 pt-4 space-y-3">
+                <div class="border-t border-dark-700 pt-4 space-y-3" id="mfa-controls">
                     <p class="text-sm text-white">Enable MFA (TOTP)</p>
                     <p class="text-xs text-dark-400">Scan with your authenticator app or enter the secret manually.</p>
                     <div class="flex flex-wrap gap-2">
@@ -585,7 +590,7 @@
                     </div>
                 </div>
 
-                <div class="border-t border-dark-700 pt-4 space-y-3">
+                <div class="border-t border-dark-700 pt-4 space-y-3" id="mfa-disable">
                     <p class="text-sm text-white">Disable MFA</p>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div>
@@ -598,6 +603,10 @@
                         </div>
                     </div>
                     <button onclick="disableTotp()" class="btn btn-danger btn-sm">Disable MFA</button>
+                </div>
+                <div class="border-t border-dark-700 pt-4 space-y-2 hidden" id="mfa-disabled-note">
+                    <p class="text-sm text-white">MFA disabled</p>
+                    <p class="text-xs text-dark-400">MFA is disabled by configuration (MFA_ENABLED=false).</p>
                 </div>
 
                 <div class="border-t border-dark-700 pt-4 space-y-3">
@@ -934,7 +943,7 @@
 <script>
     // Socket is initialized globally in app.js (loaded via footer)
 
-    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
+    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'webhookUrl', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
     const booleanSettingKeys = ['transcodeFilesEnabled', 'transcodeStreamEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
 
     // LLM UI Functions
@@ -3754,6 +3763,14 @@
             const data = await response.json();
             document.getElementById('auth-username').textContent = data.user?.username || 'Unknown';
             document.getElementById('auth-mfa-status').textContent = data.user?.totpEnabled ? 'Enabled' : 'Disabled';
+            if (data.mfaEnabled === false) {
+                const controls = document.getElementById('mfa-controls');
+                const disable = document.getElementById('mfa-disable');
+                const note = document.getElementById('mfa-disabled-note');
+                if (controls) controls.classList.add('hidden');
+                if (disable) disable.classList.add('hidden');
+                if (note) note.classList.remove('hidden');
+            }
         } catch (err) {
             console.error('Failed to load auth status:', err);
         }
