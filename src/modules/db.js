@@ -56,7 +56,9 @@ const TABLE_MIGRATIONS = {
     'enrichment_cache': 26,
     'source_samples': 27,
     'hdhr_channels': 29,
-    'hdhr_category_rules': 29
+    'hdhr_category_rules': 29,
+    'users': 31,
+    'sessions': 31
 };
 
 // Map of table.column to migration version that adds them

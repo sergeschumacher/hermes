@@ -596,6 +596,77 @@
             </div>
         </div>
 
+        <!-- Security -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Security</h2>
+            </div>
+            <div class="p-4 space-y-6">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-white">User</p>
+                            <p class="text-xs text-dark-400" id="auth-username">Loading...</p>
+                        </div>
+                        <div class="text-xs text-dark-400">MFA: <span id="auth-mfa-status">Loading...</span></div>
+                    </div>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3">
+                    <p class="text-sm text-white">Enable MFA (TOTP)</p>
+                    <p class="text-xs text-dark-400">Scan with your authenticator app or enter the secret manually.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="setupTotp()" class="btn btn-secondary btn-sm">Generate Secret</button>
+                        <button onclick="enableTotp()" class="btn btn-primary btn-sm">Enable MFA</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">TOTP Secret</label>
+                            <input type="text" id="totp-secret" class="input" readonly />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Authenticator Code</label>
+                            <input type="text" id="totp-token" class="input" placeholder="123456" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-dark-400 mb-1">OTPAuth URL</label>
+                        <input type="text" id="totp-otpauth" class="input" readonly />
+                    </div>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3">
+                    <p class="text-sm text-white">Disable MFA</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Current Password</label>
+                            <input type="password" id="mfa-disable-password" class="input" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Authenticator Code</label>
+                            <input type="text" id="mfa-disable-token" class="input" placeholder="123456" />
+                        </div>
+                    </div>
+                    <button onclick="disableTotp()" class="btn btn-danger btn-sm">Disable MFA</button>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3">
+                    <p class="text-sm text-white">Change Password</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Current Password</label>
+                            <input type="password" id="password-current" class="input" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">New Password</label>
+                            <input type="password" id="password-new" class="input" />
+                        </div>
+                    </div>
+                    <button onclick="changePassword()" class="btn btn-secondary btn-sm">Update Password</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Scheduler Status -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -3681,7 +3752,105 @@
         }
     }
 
+    async function loadAuthStatus() {
+        try {
+            const response = await fetch('/api/auth/status');
+            const data = await response.json();
+            document.getElementById('auth-username').textContent = data.user?.username || 'Unknown';
+            document.getElementById('auth-mfa-status').textContent = data.user?.totpEnabled ? 'Enabled' : 'Disabled';
+        } catch (err) {
+            console.error('Failed to load auth status:', err);
+        }
+    }
+
+    async function setupTotp() {
+        try {
+            const response = await fetch('/api/auth/totp/setup', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to generate secret');
+            document.getElementById('totp-secret').value = data.secret || '';
+            document.getElementById('totp-otpauth').value = data.otpauthUrl || '';
+            if (window.showToast) showToast('TOTP secret generated', 'success');
+        } catch (err) {
+            console.error('Failed to setup TOTP:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function enableTotp() {
+        const token = document.getElementById('totp-token').value.trim();
+        if (!token) {
+            if (window.showToast) showToast('Enter the authenticator code', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/totp/enable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to enable MFA');
+            document.getElementById('totp-token').value = '';
+            if (window.showToast) showToast('MFA enabled', 'success');
+            loadAuthStatus();
+        } catch (err) {
+            console.error('Failed to enable MFA:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function disableTotp() {
+        const password = document.getElementById('mfa-disable-password').value;
+        const token = document.getElementById('mfa-disable-token').value.trim();
+        if (!password) {
+            if (window.showToast) showToast('Enter your password', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/totp/disable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, token })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to disable MFA');
+            document.getElementById('mfa-disable-password').value = '';
+            document.getElementById('mfa-disable-token').value = '';
+            if (window.showToast) showToast('MFA disabled', 'success');
+            loadAuthStatus();
+        } catch (err) {
+            console.error('Failed to disable MFA:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function changePassword() {
+        const currentPassword = document.getElementById('password-current').value;
+        const newPassword = document.getElementById('password-new').value;
+        if (!currentPassword || !newPassword) {
+            if (window.showToast) showToast('Enter current and new passwords', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to update password');
+            document.getElementById('password-current').value = '';
+            document.getElementById('password-new').value = '';
+            if (window.showToast) showToast('Password updated', 'success');
+        } catch (err) {
+            console.error('Failed to update password:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
     // Load usenet providers on page load
     loadUsenetProviders();
+    loadAuthStatus();
 </script>
 ` }) %>

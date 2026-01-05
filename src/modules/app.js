@@ -6,6 +6,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
 const { spawn } = require('child_process');
+const bcrypt = require('bcryptjs');
+const speakeasy = require('speakeasy');
 
 let app = null;
 let server = null;
@@ -16,6 +18,14 @@ let modules = null;
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
+const SESSION_COOKIE = 'hermes_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const SESSION_GRACE_MS = 1000 * 60 * 5;
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+
+let userCountCache = { count: null, loadedAt: 0 };
+let adminSeedAttempted = false;
 
 // Parse series title to extract show name, season, episode, language
 // Examples: "DE - The King of Queens S01 E01", "FR - Sam S03 E03", "EN - ER (1994) S04 E20"
@@ -83,6 +93,116 @@ function getCacheFilename(url) {
     const hash = crypto.createHash('md5').update(url).digest('hex');
     const ext = path.extname(new URL(url).pathname) || '.jpg';
     return hash + ext;
+}
+
+function parseCookies(cookieHeader) {
+    if (!cookieHeader) return {};
+    return cookieHeader.split(';').reduce((acc, part) => {
+        const [key, ...valParts] = part.trim().split('=');
+        if (!key) return acc;
+        acc[key] = decodeURIComponent(valParts.join('='));
+        return acc;
+    }, {});
+}
+
+function getCookieValue(req, name) {
+    const cookies = parseCookies(req.headers.cookie || '');
+    return cookies[name];
+}
+
+function hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+async function getUserCount() {
+    const now = Date.now();
+    if (userCountCache.count !== null && now - userCountCache.loadedAt < 3000) {
+        return userCountCache.count;
+    }
+    const row = await modules.db.get('SELECT COUNT(*) as count FROM users');
+    userCountCache = { count: row?.count || 0, loadedAt: now };
+    return userCountCache.count;
+}
+
+async function ensureAdminUser() {
+    if (adminSeedAttempted) return;
+    adminSeedAttempted = true;
+
+    if (!ADMIN_USERNAME || !ADMIN_PASSWORD) return;
+
+    const existingCount = await getUserCount();
+    if (existingCount > 0) return;
+
+    const existingUser = await modules.db.get('SELECT id FROM users WHERE username = ?', [ADMIN_USERNAME]);
+    if (existingUser) return;
+
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    await modules.db.run(
+        'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+        [ADMIN_USERNAME, passwordHash]
+    );
+
+    userCountCache = { count: null, loadedAt: 0 };
+    logger?.info('auth', `Seeded admin user: ${ADMIN_USERNAME}`);
+}
+
+async function getSessionUserByToken(token) {
+    if (!token) return null;
+    const tokenHash = hashToken(token);
+    const session = await modules.db.get(`
+        SELECT s.id as session_id, s.expires_at as expires_at, s.last_used_at as last_used_at,
+               u.id as user_id, u.username as username, u.totp_enabled as totp_enabled
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = ?
+    `, [tokenHash]);
+
+    if (!session) return null;
+
+    const expiresAt = new Date(session.expires_at).getTime();
+    if (Number.isNaN(expiresAt) || expiresAt <= Date.now() - SESSION_GRACE_MS) {
+        await modules.db.run('DELETE FROM sessions WHERE id = ?', [session.session_id]);
+        return null;
+    }
+
+    await modules.db.run('UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', [session.session_id]);
+    return session;
+}
+
+function buildSessionCookie(token, req, maxAgeSeconds) {
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const parts = [
+        `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+        'Path=/',
+        'HttpOnly',
+        'SameSite=Lax'
+    ];
+    if (secure) parts.push('Secure');
+    if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
+    return parts.join('; ');
+}
+
+async function createSession(res, req, userId) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+    await modules.db.run(`
+        INSERT INTO sessions (user_id, token_hash, expires_at)
+        VALUES (?, ?, ?)
+    `, [userId, tokenHash, expiresAt]);
+
+    res.setHeader('Set-Cookie', buildSessionCookie(token, req, Math.floor(SESSION_TTL_MS / 1000)));
+    return token;
+}
+
+async function clearSession(req, res) {
+    const token = getCookieValue(req, SESSION_COOKIE);
+    if (token) {
+        const tokenHash = hashToken(token);
+        await modules.db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
+    }
+    res.setHeader('Set-Cookie', buildSessionCookie('', req, 0));
 }
 
 // Enrich media for a specific source (uses cache first)
@@ -214,6 +334,60 @@ function setupRoutes() {
 
     // JSON body parser
     app.use(express.json());
+    app.use(express.urlencoded({ extended: true }));
+
+    // Auth middleware
+    app.use(async (req, res, next) => {
+        try {
+            await ensureAdminUser();
+
+            const path = req.path;
+            if (path.startsWith('/static') ||
+                path.startsWith('/cache/images') ||
+                path.startsWith('/img') ||
+                path.startsWith('/socket.io')) {
+                return next();
+            }
+
+            const usersCount = await getUserCount();
+
+            if (usersCount === 0) {
+                if (path.startsWith('/setup') || path.startsWith('/api/auth/setup')) {
+                    return next();
+                }
+                return res.redirect('/setup');
+            }
+
+            if (path.startsWith('/setup') || path.startsWith('/api/auth/setup')) {
+                return res.redirect('/login');
+            }
+
+            if (path.startsWith('/login') || path.startsWith('/api/auth/login')) {
+                const existing = await getSessionUserByToken(getCookieValue(req, SESSION_COOKIE));
+                if (existing) return res.redirect('/');
+                return next();
+            }
+
+            if (path.startsWith('/logout')) {
+                return next();
+            }
+
+            const session = await getSessionUserByToken(getCookieValue(req, SESSION_COOKIE));
+            if (!session) {
+                if (path.startsWith('/api')) {
+                    return res.status(401).json({ error: 'Unauthorized' });
+                }
+                return res.redirect('/login');
+            }
+
+            req.user = session;
+            res.locals.user = session;
+            return next();
+        } catch (err) {
+            logger?.error('auth', `Auth middleware failed: ${err.message}`);
+            return res.status(500).send('Auth error');
+        }
+    });
 
     // Image proxy endpoint - caches remote images locally
     app.get('/img', async (req, res) => {
@@ -402,6 +576,215 @@ function setupRoutes() {
             // Return placeholder
             return servePlaceholder();
         }
+    });
+
+    function renderLogin(res, data = {}) {
+        res.render('login', {
+            error: data.error || null,
+            mfaRequired: !!data.mfaRequired,
+            username: data.username || ''
+        });
+    }
+
+    function renderSetup(res, data = {}) {
+        res.render('setup', {
+            error: data.error || null,
+            username: data.username || ''
+        });
+    }
+
+    async function handleLogin(req, res) {
+        const wantsJson = (req.headers.accept || '').includes('application/json') || req.is('application/json');
+        const username = (req.body.username || '').trim();
+        const password = req.body.password || '';
+        const token = (req.body.token || '').trim();
+
+        if (!username || !password) {
+            if (wantsJson) return res.status(400).json({ error: 'Username and password are required' });
+            return renderLogin(res, { error: 'Username and password are required', username });
+        }
+
+        const user = await modules.db.get('SELECT * FROM users WHERE username = ?', [username]);
+        if (!user) {
+            if (wantsJson) return res.status(401).json({ error: 'Invalid credentials' });
+            return renderLogin(res, { error: 'Invalid credentials', username });
+        }
+
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) {
+            if (wantsJson) return res.status(401).json({ error: 'Invalid credentials' });
+            return renderLogin(res, { error: 'Invalid credentials', username });
+        }
+
+        if (user.totp_enabled) {
+            if (!token) {
+                if (wantsJson) return res.status(401).json({ error: 'MFA required', mfaRequired: true });
+                return renderLogin(res, { error: 'MFA code required', username, mfaRequired: true });
+            }
+            const verified = speakeasy.totp.verify({
+                secret: user.totp_secret,
+                encoding: 'base32',
+                token,
+                window: 1
+            });
+            if (!verified) {
+                if (wantsJson) return res.status(401).json({ error: 'Invalid MFA code', mfaRequired: true });
+                return renderLogin(res, { error: 'Invalid MFA code', username, mfaRequired: true });
+            }
+        }
+
+        await createSession(res, req, user.id);
+        if (wantsJson) return res.json({ success: true });
+        return res.redirect('/');
+    }
+
+    async function handleSetup(req, res) {
+        const wantsJson = (req.headers.accept || '').includes('application/json') || req.is('application/json');
+        const usersCount = await getUserCount();
+        if (usersCount > 0) {
+            if (wantsJson) return res.status(400).json({ error: 'Setup already completed' });
+            return res.redirect('/login');
+        }
+
+        const username = (req.body.username || '').trim();
+        const password = req.body.password || '';
+        const confirm = req.body.passwordConfirm || req.body.password || '';
+
+        if (!username || !password) {
+            if (wantsJson) return res.status(400).json({ error: 'Username and password are required' });
+            return renderSetup(res, { error: 'Username and password are required', username });
+        }
+
+        if (password !== confirm) {
+            if (wantsJson) return res.status(400).json({ error: 'Passwords do not match' });
+            return renderSetup(res, { error: 'Passwords do not match', username });
+        }
+
+        const existing = await modules.db.get('SELECT id FROM users WHERE username = ?', [username]);
+        if (existing) {
+            if (wantsJson) return res.status(400).json({ error: 'Username already exists' });
+            return renderSetup(res, { error: 'Username already exists', username });
+        }
+
+        const passwordHash = await bcrypt.hash(password, 12);
+        await modules.db.run(
+            'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+            [username, passwordHash]
+        );
+
+        userCountCache = { count: null, loadedAt: 0 };
+        if (wantsJson) return res.json({ success: true });
+        return res.redirect('/login');
+    }
+
+    app.get('/login', (req, res) => renderLogin(res));
+    app.post('/login', (req, res) => handleLogin(req, res));
+    app.post('/api/auth/login', (req, res) => handleLogin(req, res));
+
+    app.get('/setup', (req, res) => renderSetup(res));
+    app.post('/setup', (req, res) => handleSetup(req, res));
+    app.post('/api/auth/setup', (req, res) => handleSetup(req, res));
+
+    app.post('/logout', async (req, res) => {
+        await clearSession(req, res);
+        res.redirect('/login');
+    });
+    app.get('/logout', async (req, res) => {
+        await clearSession(req, res);
+        res.redirect('/login');
+    });
+
+    app.get('/api/auth/status', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        res.json({
+            user: {
+                username: req.user.username,
+                totpEnabled: !!req.user.totp_enabled
+            }
+        });
+    });
+
+    app.post('/api/auth/totp/setup', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const secret = speakeasy.generateSecret({ name: `Hermes (${req.user.username})` });
+        await modules.db.run(
+            'UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [secret.base32, req.user.user_id]
+        );
+        res.json({ secret: secret.base32, otpauthUrl: secret.otpauth_url });
+    });
+
+    app.post('/api/auth/totp/enable', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const token = (req.body.token || '').trim();
+        if (!token) return res.status(400).json({ error: 'Token is required' });
+
+        const user = await modules.db.get('SELECT totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+        if (!user?.totp_secret) return res.status(400).json({ error: 'No TOTP secret found. Generate one first.' });
+
+        const verified = speakeasy.totp.verify({
+            secret: user.totp_secret,
+            encoding: 'base32',
+            token,
+            window: 1
+        });
+
+        if (!verified) return res.status(400).json({ error: 'Invalid token' });
+
+        await modules.db.run(
+            'UPDATE users SET totp_enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.user.user_id]
+        );
+        res.json({ success: true });
+    });
+
+    app.post('/api/auth/totp/disable', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const password = req.body.password || '';
+        const token = (req.body.token || '').trim();
+
+        if (!password) return res.status(400).json({ error: 'Password is required' });
+
+        const user = await modules.db.get('SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) return res.status(400).json({ error: 'Invalid password' });
+
+        if (user.totp_enabled) {
+            if (!token) return res.status(400).json({ error: 'Token is required' });
+            const verified = speakeasy.totp.verify({
+                secret: user.totp_secret,
+                encoding: 'base32',
+                token,
+                window: 1
+            });
+            if (!verified) return res.status(400).json({ error: 'Invalid token' });
+        }
+
+        await modules.db.run(
+            'UPDATE users SET totp_enabled = 0, totp_secret = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.user.user_id]
+        );
+        res.json({ success: true });
+    });
+
+    app.post('/api/auth/password', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const currentPassword = req.body.currentPassword || '';
+        const newPassword = req.body.newPassword || '';
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Current and new password are required' });
+        }
+
+        const user = await modules.db.get('SELECT password_hash FROM users WHERE id = ?', [req.user.user_id]);
+        const passwordOk = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!passwordOk) return res.status(400).json({ error: 'Invalid current password' });
+
+        const newHash = await bcrypt.hash(newPassword, 12);
+        await modules.db.run(
+            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [newHash, req.user.user_id]
+        );
+        res.json({ success: true });
     });
 
     // View routes
@@ -5274,6 +5657,21 @@ function setupRadarrApi() {
 }
 
 function setupSocket() {
+    io.use(async (socket, next) => {
+        try {
+            const cookies = parseCookies(socket.handshake.headers.cookie || '');
+            const token = cookies[SESSION_COOKIE];
+            const session = await getSessionUserByToken(token);
+            if (!session) {
+                return next(new Error('Unauthorized'));
+            }
+            socket.user = session;
+            return next();
+        } catch (err) {
+            return next(err);
+        }
+    });
+
     io.on('connection', (socket) => {
         logger?.debug('app', `Client connected: ${socket.id}`);
 
