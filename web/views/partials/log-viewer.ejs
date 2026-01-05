@@ -1,0 +1,115 @@
+<div id="log-viewer" class="fixed bottom-0 left-0 right-0 z-40 border-t border-dark-border bg-dark-900/95 text-xs backdrop-blur">
+    <div class="flex items-center justify-between px-4 py-2">
+        <div class="flex items-center gap-3">
+            <button id="log-viewer-toggle" class="text-white hover:text-primary-300 transition">Show Logs</button>
+            <span id="log-viewer-count" class="text-dark-400">No logs</span>
+        </div>
+        <button id="log-viewer-clear" class="text-dark-300 hover:text-white transition">Clear</button>
+    </div>
+    <div id="log-viewer-body" class="hidden max-h-48 overflow-y-auto px-4 pb-3 font-mono">
+        <div id="log-viewer-list" class="text-dark-500 py-2">No logs yet.</div>
+    </div>
+</div>
+
+<script>
+    (function initLogViewer() {
+        if (window.logViewerInitialized) return;
+        window.logViewerInitialized = true;
+
+        const container = document.getElementById('log-viewer');
+        if (!container) return;
+
+        const body = document.getElementById('log-viewer-body');
+        const list = document.getElementById('log-viewer-list');
+        const count = document.getElementById('log-viewer-count');
+        const toggleBtn = document.getElementById('log-viewer-toggle');
+        const clearBtn = document.getElementById('log-viewer-clear');
+        const stateKey = 'hermes-log-viewer-open';
+        const maxLogs = 200;
+        let logs = [];
+        let isOpen = localStorage.getItem(stateKey) === 'true';
+
+        function setOpen(next) {
+            isOpen = next;
+            body.classList.toggle('hidden', !isOpen);
+            toggleBtn.textContent = isOpen ? 'Hide Logs' : 'Show Logs';
+            localStorage.setItem(stateKey, isOpen);
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function levelClass(level) {
+            switch (level) {
+                case 'error': return 'text-red-400';
+                case 'warn': return 'text-yellow-400';
+                case 'info': return 'text-blue-400';
+                case 'debug': return 'text-dark-400';
+                default: return 'text-dark-300';
+            }
+        }
+
+        function formatTime(timestamp) {
+            return new Date(timestamp).toLocaleTimeString();
+        }
+
+        function renderLogs() {
+            if (!logs.length) {
+                list.innerHTML = '<div class="text-dark-500 py-2">No logs yet.</div>';
+                count.textContent = 'No logs';
+                return;
+            }
+
+            count.textContent = logs.length + ' entries';
+            list.innerHTML = logs.map(log => {
+                const time = formatTime(log.timestamp);
+                const level = escapeHtml(log.level || 'info');
+                const module = escapeHtml(log.module || 'app');
+                const message = escapeHtml(log.message || '');
+                const data = log.data ? escapeHtml(JSON.stringify(log.data)) : '';
+                return [
+                    '<div class="flex items-start gap-2 py-1 border-b border-dark-800/60">',
+                    '<span class="text-dark-500 flex-shrink-0">' + time + '</span>',
+                    '<span class="' + levelClass(log.level) + ' w-12 flex-shrink-0 uppercase text-[10px] font-semibold">' + level + '</span>',
+                    '<span class="text-primary-400 w-24 flex-shrink-0 truncate">[' + module + ']</span>',
+                    '<span class="text-dark-200 flex-1">' + message + '</span>',
+                    data ? '<span class="text-dark-500 text-[10px]">' + data + '</span>' : '',
+                    '</div>'
+                ].join('');
+            }).join('');
+
+            if (isOpen) {
+                body.scrollTop = body.scrollHeight;
+            }
+        }
+
+        function addLog(log) {
+            logs.push(log);
+            if (logs.length > maxLogs) {
+                logs = logs.slice(-maxLogs);
+            }
+            renderLogs();
+        }
+
+        toggleBtn.addEventListener('click', () => setOpen(!isOpen));
+        clearBtn.addEventListener('click', () => {
+            logs = [];
+            renderLogs();
+        });
+
+        setOpen(isOpen);
+
+        const socket = io();
+        socket.on('log', addLog);
+        socket.on('connect', () => {
+            addLog({ level: 'info', module: 'socket', message: 'Connected', timestamp: Date.now() });
+        });
+        socket.on('disconnect', () => {
+            addLog({ level: 'warn', module: 'socket', message: 'Disconnected', timestamp: Date.now() });
+        });
+    })();
+</script>
