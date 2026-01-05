@@ -442,23 +442,9 @@
             return;
         }
 
-        fetch('/api/play', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: currentPreviewUrl })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                showToast('Opening in VLC...', 'success');
-            } else {
-                showToast('Failed to open VLC: ' + (data.error || 'Unknown error'), 'error');
-            }
-        })
-        .catch(err => {
-            console.error('VLC error:', err);
-            showToast('Failed to open VLC', 'error');
-        });
+        const vlcUrl = 'vlc://' + currentPreviewUrl;
+        window.location.href = vlcUrl;
+        showToast('Opening in VLC...', 'success');
     }
 
     // Close on Escape key

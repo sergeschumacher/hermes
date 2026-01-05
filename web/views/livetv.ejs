@@ -564,6 +564,11 @@
     }
 
     function playChannel(channel) {
+        if (!channel.stream_url) {
+            if (window.showToast) showToast('No stream URL available', 'error');
+            return;
+        }
+
         // Download M3U playlist file - VLC will open it
         const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(channel.stream_url);
         window.location.href = m3uUrl;
