@@ -56,7 +56,9 @@ const TABLE_MIGRATIONS = {
     'enrichment_cache': 26,
     'source_samples': 27,
     'hdhr_channels': 29,
-    'hdhr_category_rules': 29
+    'hdhr_category_rules': 29,
+    'users': 31,
+    'sessions': 31
 };
 
 // Map of table.column to migration version that adds them
@@ -231,6 +233,10 @@ module.exports = {
                 try {
                     // Enable foreign key support for CASCADE deletes
                     await runAsync('PRAGMA foreign_keys = ON');
+                    // Reduce lock contention for concurrent reads/writes
+                    await runAsync('PRAGMA journal_mode = WAL');
+                    await runAsync('PRAGMA synchronous = NORMAL');
+                    await runAsync('PRAGMA busy_timeout = 5000');
 
                     await applyMigrations();
                     resolve();

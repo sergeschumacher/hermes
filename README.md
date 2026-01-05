@@ -4,7 +4,7 @@
 
 Hermes is a self-hosted media management application that transforms your IPTV subscriptions into a Netflix-like experience. Browse movies and series with rich metadata, preview streams before downloading, and manage your media library with ease.
 
-![Docker Pulls](https://img.shields.io/docker/pulls/ghcr.io/sergeschumacher/hermes)
+![Docker Pulls](https://img.shields.io/docker/pulls/ghcr.io/glom80/hermes)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## Features
@@ -27,9 +27,9 @@ Hermes is a self-hosted media management application that transforms your IPTV s
 
 ```yaml
 services:
-  hermes:
-    image: ghcr.io/sergeschumacher/hermes:latest
-    container_name: hermes
+  hermes2:
+    image: ghcr.io/glom80/hermes:latest
+    container_name: hermes2
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -38,6 +38,9 @@ services:
       - ./downloads:/downloads
     environment:
       - TZ=Europe/Amsterdam
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=password
+      - MFA_ENABLED=true
 ```
 
 ```bash
@@ -50,12 +53,15 @@ Then open http://localhost:3000 in your browser.
 
 ```bash
 docker run -d \
-  --name hermes \
+  --name hermes2 \
   -p 3000:3000 \
   -v ./data:/data \
   -v ./downloads:/downloads \
   -e TZ=Europe/Amsterdam \
-  ghcr.io/sergeschumacher/hermes:latest
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=password \
+  -e MFA_ENABLED=true \
+  ghcr.io/glom80/hermes:latest
 ```
 
 ## Configuration
@@ -74,6 +80,10 @@ For rich metadata enrichment, add your free TMDB API key:
 1. Get a free API key at https://www.themoviedb.org/settings/api
 2. Go to Settings > General > TMDB API Key
 3. Paste your API key and save
+
+### TMDB Rate Limit
+
+TMDB requests are limited to **40 requests per 10 seconds per IP**. If you hit the limit, you’ll receive HTTP 429 responses with `Retry-After` headers. Consider caching or reducing concurrent lookups if you see throttling.
 
 ### Hardware Acceleration
 
@@ -131,8 +141,8 @@ Your data and settings are preserved in the mounted volumes.
 
 ## Support
 
-- **Issues:** [GitHub Issues](https://github.com/sergeschumacher/hermes/issues)
-- **Discussions:** [GitHub Discussions](https://github.com/sergeschumacher/hermes/discussions)
+- **Issues:** [GitHub Issues](https://github.com/glom80/hermes/issues)
+- **Discussions:** [GitHub Discussions](https://github.com/glom80/hermes/discussions)
 
 ## License
 

@@ -103,6 +103,7 @@ function extractLanguageFromText(category, title) {
 
     // Known 2-letter language codes to match
     const knownLangCodes = ['DE', 'EN', 'ES', 'FR', 'IT', 'PT', 'NL', 'PL', 'TR', 'RU', 'AR', 'HI', 'KO', 'JA', 'ZH', 'SV', 'NO', 'DA', 'FI', 'EL', 'RO', 'HU', 'CS', 'SK', 'HR', 'SR', 'BG', 'UK', 'SQ', 'FA', 'HE'];
+    const englishCountryCodes = new Set(['US', 'UK', 'CA', 'AU', 'NZ']);
 
     // Common language patterns: [XX], |XX|, (XX), -XX-, XX- prefix
     const langPatterns = [
@@ -164,6 +165,19 @@ function extractLanguageFromText(category, title) {
         const regex = new RegExp(`(^|[\\s|\\[\\(\\-])${name}([\\s|\\]\\)\\-]|$)`, 'i');
         if (regex.test(text)) {
             return code;
+        }
+    }
+
+    // If category uses prefixes like "CA| ..." and suffixes like " ... EN",
+    // prefer the last 2-letter token (often the language).
+    const tokens = text.split(/[\s|\/\\-]+/).filter(Boolean);
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        if (knownLangCodes.includes(token)) {
+            return token;
+        }
+        if (englishCountryCodes.has(token)) {
+            return 'EN';
         }
     }
 
@@ -609,6 +623,7 @@ async function syncXtreamSource(source) {
         // Parse title to extract metadata (title, year, quality, language, platform)
         const parsed = parseOriginalTitle(channel.name);
         const platform = parsed.platform || extractPlatform(categoryName);
+        const detectedLanguage = parsed.language || channel.lang || extractLanguageFromText(categoryName, channel.name);
 
         // Check if item exists and track changes
         const existing = await db.get(
@@ -631,7 +646,7 @@ async function syncXtreamSource(source) {
                 tvg_id = COALESCE(excluded.tvg_id, media.tvg_id),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, parsed.language || channel.lang, platform, channel.epg_channel_id || null]);
+        `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, detectedLanguage, platform, channel.epg_channel_id || null]);
 
         // Track statistics
         if (!existing) {
