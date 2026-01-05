@@ -17,7 +17,12 @@
             </div>
             <span class="font-semibold">Hermes Player</span>
         </div>
-        <a href="/" class="text-sm text-primary-300 hover:text-primary-200">Back</a>
+        <div class="flex items-center gap-3">
+            <button id="player-fullscreen-btn" class="text-sm text-primary-300 hover:text-primary-200" onclick="togglePlayerFullscreen()">
+                Fullscreen
+            </button>
+            <a href="/" class="text-sm text-primary-300 hover:text-primary-200">Back</a>
+        </div>
     </div>
 
     <div class="flex-1 p-4 flex items-center justify-center">
@@ -35,6 +40,14 @@
         function showError(message) {
             errorEl.textContent = message;
             errorEl.classList.remove('hidden');
+        }
+
+        function togglePlayerFullscreen() {
+            if (!document.fullscreenElement) {
+                video.requestFullscreen?.();
+            } else {
+                document.exitFullscreen?.();
+            }
         }
 
         if (!streamUrl) {

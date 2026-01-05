@@ -44,17 +44,11 @@
                 </svg>
                 Browser
             </button>
-            <button id="preview-vlc-btn" class="preview-btn vlc" onclick="playPreviewInVLC()">
+            <button id="preview-fullscreen-btn" class="preview-btn fullscreen" onclick="togglePreviewFullscreen()">
                 <svg fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
+                    <path d="M7 3H3v4h2V5h2V3zm14 0h-4v2h2v2h2V3zM5 17H3v4h4v-2H5v-2zm14 0v2h-2v2h4v-4h-2z"/>
                 </svg>
-                Open in VLC
-            </button>
-            <button id="preview-vlc-ext-btn" class="preview-btn vlc-ext" onclick="playPreviewInVlcExtension()">
-                <svg fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 3a9 9 0 019 9h-2a7 7 0 10-7 7v2a9 9 0 010-18zm1 4h-2v6h6v-2h-4V7z"/>
-                </svg>
-                VLC Extension
+                Fullscreen
             </button>
             <button class="preview-btn close" onclick="closePreview()">
                 Close Preview
@@ -264,15 +258,6 @@
         height: 20px;
     }
 
-    .preview-btn.vlc {
-        background: #ff6600;
-        color: white;
-    }
-
-    .preview-btn.vlc:hover {
-        background: #e65c00;
-    }
-
     .preview-btn.browser {
         background: #2563eb;
         color: white;
@@ -282,12 +267,12 @@
         background: #1d4ed8;
     }
 
-    .preview-btn.vlc-ext {
+    .preview-btn.fullscreen {
         background: #0f766e;
         color: white;
     }
 
-    .preview-btn.vlc-ext:hover {
+    .preview-btn.fullscreen:hover {
         background: #0d6b62;
     }
 
@@ -466,17 +451,6 @@
         currentPreviewUrl = null;
     }
 
-    window.playPreviewInVLC = function() {
-        if (!currentPreviewUrl) {
-            showToast('No stream URL available', 'error');
-            return;
-        }
-
-        const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(currentPreviewUrl);
-        window.location.href = m3uUrl;
-        showToast('Downloading M3U for VLC...', 'success');
-    }
-
     window.playPreviewInBrowser = function() {
         if (!currentPreviewUrl) {
             showToast('No stream URL available', 'error');
@@ -488,15 +462,14 @@
         showToast('Opening in browser...', 'success');
     }
 
-    window.playPreviewInVlcExtension = function() {
-        if (!currentPreviewUrl) {
-            showToast('No stream URL available', 'error');
-            return;
+    window.togglePreviewFullscreen = function() {
+        const video = document.getElementById('preview-video');
+        const target = video || document.getElementById('preview-modal');
+        if (!document.fullscreenElement) {
+            target.requestFullscreen?.();
+        } else {
+            document.exitFullscreen?.();
         }
-
-        const extUrl = 'open-in-vlc://' + encodeURIComponent(currentPreviewUrl);
-        window.location.href = extUrl;
-        showToast('Opening in VLC extension...', 'success');
     }
 
     // Close on Escape key
