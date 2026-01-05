@@ -38,8 +38,6 @@ services:
       - ./downloads:/downloads
     environment:
       - TZ=Europe/Amsterdam
-      - ADMIN_USERNAME=admin
-      - ADMIN_PASSWORD=changeme
 ```
 
 ```bash
@@ -57,8 +55,6 @@ docker run -d \
   -v ./data:/data \
   -v ./downloads:/downloads \
   -e TZ=Europe/Amsterdam \
-  -e ADMIN_USERNAME=admin \
-  -e ADMIN_PASSWORD=changeme \
   ghcr.io/glom80/hermes:latest
 ```
 
