@@ -476,7 +476,7 @@ async function queueWatchFile(inputPath, outputFolder, filename) {
  * Process the transcode queue
  */
 async function processQueue() {
-    if (isProcessing || !settings?.get('transcodeEnabled')) return;
+    if (isProcessing || !settings?.get('transcodeFilesEnabled')) return;
 
     const job = await db.get(`
         SELECT * FROM transcode_queue

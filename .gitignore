@@ -11,3 +11,4 @@ __DEPLOYNPM/
 *.zip
 CONVERSATION_SUMMARY.md
 testins/
+deploy-unraid.sh

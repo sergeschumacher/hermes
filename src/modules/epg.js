@@ -235,29 +235,32 @@ async function syncSourceEpg(source) {
         // Clear old EPG data for this source
         await db.run('DELETE FROM epg_programs WHERE source_id = ?', [source.id]);
 
-        // Insert programs in batches
-        const batchSize = 500;
+        // Insert programs in batches using transactions for speed
+        // SQLite has 999 parameter limit, 11 columns = max 90 rows per batch
+        const batchSize = 80;
         for (let i = 0; i < futurePrograms.length; i += batchSize) {
             const batch = futurePrograms.slice(i, i + batchSize);
 
-            for (const program of batch) {
-                await db.run(`
-                    INSERT INTO epg_programs (channel_id, source_id, title, subtitle, description, category, start_time, end_time, icon, episode_num, rating)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `, [
-                    program.channel_id,
-                    source.id,
-                    program.title,
-                    program.subtitle,
-                    program.description,
-                    program.category,
-                    program.start_time?.toISOString(),
-                    program.end_time?.toISOString(),
-                    program.icon,
-                    program.episode_num,
-                    program.rating
-                ]);
-            }
+            // Build bulk insert statement
+            const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').join(', ');
+            const values = batch.flatMap(program => [
+                program.channel_id,
+                source.id,
+                program.title,
+                program.subtitle,
+                program.description,
+                program.category,
+                program.start_time?.toISOString(),
+                program.end_time?.toISOString(),
+                program.icon,
+                program.episode_num,
+                program.rating
+            ]);
+
+            await db.run(`
+                INSERT INTO epg_programs (channel_id, source_id, title, subtitle, description, category, start_time, end_time, icon, episode_num, rating)
+                VALUES ${placeholders}
+            `, values);
 
             app?.emit('epg:progress', {
                 sourceId: source.id,
@@ -269,6 +272,22 @@ async function syncSourceEpg(source) {
         }
 
         const uniqueChannels = new Set(futurePrograms.map(p => p.channel_id)).size;
+
+        // Store EPG channel icons in epg_icon column (used as fallback in logo endpoint)
+        const channelsWithIcons = channels.filter(ch => ch.icon);
+        if (channelsWithIcons.length > 0) {
+            logger.debug('epg', `Updating ${channelsWithIcons.length} channel icons from EPG`);
+            for (const ch of channelsWithIcons) {
+                // Update epg_icon where tvg_id matches
+                await db.run(`
+                    UPDATE media
+                    SET epg_icon = ?
+                    WHERE source_id = ?
+                    AND tvg_id = ?
+                    AND media_type = 'live'
+                `, [ch.icon, source.id, ch.id]);
+            }
+        }
 
         // Update epg_sync metadata
         await db.run(`

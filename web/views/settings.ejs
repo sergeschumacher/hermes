@@ -332,11 +332,22 @@
             <div class="p-4 space-y-4">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-white">Enable Transcoding</p>
+                        <p class="text-sm text-white">Enable File Transcoding</p>
                         <p class="text-xs text-dark-400">Convert downloads to MP4 for Plex compatibility</p>
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="setting-transcodeEnabled" class="sr-only peer" />
+                        <input type="checkbox" id="setting-transcodeFilesEnabled" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Enable Stream Transcoding</p>
+                        <p class="text-xs text-dark-400">Transcode live TV streams for browser playback</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-transcodeStreamEnabled" class="sr-only peer" />
                         <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
                     </label>
                 </div>
@@ -415,25 +426,6 @@
             </div>
         </div>
 
-        <!-- IPTV Connection Settings -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">IPTV Connection</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Spoofed MAC Address</label>
-                    <input type="text" id="setting-spoofedMac" class="input" placeholder="77:f4:8b:a4:ed:10" />
-                    <p class="text-xs text-dark-500 mt-1">MAC address sent to IPTV providers (e.g. from IBU Player Pro)</p>
-                </div>
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Device Key</label>
-                    <input type="text" id="setting-spoofedDeviceKey" class="input" placeholder="006453" />
-                    <p class="text-xs text-dark-500 mt-1">Device key sent to IPTV providers</p>
-                </div>
-            </div>
-        </div>
-
         <!-- Language Preferences -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -454,54 +446,6 @@
                         <option value="">+ Add language...</option>
                     </select>
                 </div>
-            </div>
-        </div>
-
-        <!-- EPG Settings -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">EPG Settings</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <p class="text-sm text-dark-400">Select countries for TV guide data (from globetvapp/epg)</p>
-
-                <!-- Selected Countries (Badges) -->
-                <div id="selected-countries" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
-                    <!-- Badges populated by JS -->
-                    <span class="text-dark-500 text-sm" id="no-countries-msg">No countries selected</span>
-                </div>
-
-                <!-- Add Country Dropdown -->
-                <div class="relative">
-                    <select id="country-selector" class="select" onchange="addCountry(this.value)">
-                        <option value="">+ Add country...</option>
-                    </select>
-                </div>
-
-                <div class="flex gap-2 pt-2">
-                    <button onclick="syncGlobalEpg()" class="btn btn-primary" id="sync-epg-btn">Sync EPG Now</button>
-                    <span id="epg-sync-status" class="text-sm text-dark-400 self-center"></span>
-                </div>
-                <div id="epg-sync-progress" class="hidden">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
-                        <span class="text-sm text-dark-300" id="epg-sync-status-text">Syncing EPG...</span>
-                    </div>
-                    <div class="w-full bg-dark-700 rounded-full h-2">
-                        <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="epg-sync-bar" style="width: 0%"></div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4 pt-2 border-t border-dark-700">
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">Recordings Folder</label>
-                        <input type="text" id="setting-recordingsPath" class="input" placeholder="/path/to/recordings" />
-                    </div>
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">EPG Sync Hour (0-23)</label>
-                        <input type="number" id="setting-epgSyncHour" class="input" min="0" max="23" value="4" />
-                    </div>
-                </div>
-                <div id="ffmpeg-status" class="text-sm"></div>
             </div>
         </div>
 
@@ -914,7 +858,7 @@
     // Socket is initialized globally in app.js (loaded via footer)
 
     const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
-    const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
+    const booleanSettingKeys = ['transcodeFilesEnabled', 'transcodeStreamEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
 
     // LLM UI Functions
     function updateLLMProviderUI() {
@@ -1019,45 +963,13 @@
         { code: 'zh', name: 'Chinese' }
     ];
 
-    let availableEpgCountries = [];
     let selectedLanguages = [];
-    let selectedEpgCountries = [];
 
     // Track which enrichment is running
     let activeEnrichment = null;
 
     // Initialize socket listeners when DOM is ready (socket from app.js)
     document.addEventListener('DOMContentLoaded', () => {
-        // EPG socket events
-        socket.on('epg:start', (data) => {
-            document.getElementById('epg-sync-progress').classList.remove('hidden');
-            document.getElementById('sync-epg-btn').disabled = true;
-            document.getElementById('epg-sync-status-text').textContent = 'Starting EPG sync...';
-        });
-
-        socket.on('epg:progress', (data) => {
-            document.getElementById('epg-sync-status-text').textContent = data.message;
-            if (data.total) {
-                const pct = Math.round((data.current / data.total) * 100);
-                document.getElementById('epg-sync-bar').style.width = pct + '%';
-            }
-        });
-
-        socket.on('epg:complete', (data) => {
-            document.getElementById('epg-sync-progress').classList.add('hidden');
-            document.getElementById('sync-epg-btn').disabled = false;
-            document.getElementById('epg-sync-status').textContent =
-                \`Synced: \${data.programCount} programs, \${data.channelCount} channels\`;
-            if (window.showToast) showToast('EPG sync complete!', 'success');
-        });
-
-        socket.on('epg:error', (data) => {
-            document.getElementById('epg-sync-progress').classList.add('hidden');
-            document.getElementById('sync-epg-btn').disabled = false;
-            document.getElementById('epg-sync-status').textContent = 'Error: ' + data.error;
-            if (window.showToast) showToast('EPG sync failed: ' + data.error, 'error');
-        });
-
         // Enrichment queue events
         socket.on('enrichment:queued', (data) => {
             if (window.showToast) showToast('Queued ' + data.added + ' items for enrichment', 'info');
@@ -1160,7 +1072,6 @@
         loadSources();
         loadEnrichStats();
         loadEnrichmentQueueStatus();
-        loadEpgCountries();
         loadSchedulerStatus();
         checkFfmpeg();
         loadTranscoderHwStatus();
@@ -1193,7 +1104,8 @@
         });
 
         // Toggle transcode options visibility on checkbox change
-        document.getElementById('setting-transcodeEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
+        document.getElementById('setting-transcodeFilesEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
+        document.getElementById('setting-transcodeStreamEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
         document.getElementById('setting-transcodeWatchEnabled').addEventListener('change', updateWatchFolderOptionsVisibility);
     });
 
@@ -1239,77 +1151,6 @@
     function removeLanguage(code) {
         selectedLanguages = selectedLanguages.filter(c => c !== code);
         renderLanguageBadges();
-    }
-
-    // Render EPG country badges
-    function renderCountryBadges() {
-        const container = document.getElementById('selected-countries');
-
-        if (selectedEpgCountries.length === 0) {
-            container.innerHTML = '<span class="text-dark-500 text-sm" id="no-countries-msg">No countries selected</span>';
-            return;
-        }
-
-        container.innerHTML = selectedEpgCountries.map(country => \`
-            <span class="inline-flex items-center gap-1 px-3 py-1 rounded-full bg-green-500/20 text-green-400 text-sm">
-                \${country}
-                <button onclick="removeCountry('\${country}')" class="hover:text-white ml-1">&times;</button>
-            </span>
-        \`).join('');
-
-        // Update dropdown to exclude already selected
-        populateCountryDropdown();
-    }
-
-    function populateCountryDropdown() {
-        const selector = document.getElementById('country-selector');
-        const available = availableEpgCountries.filter(c => !selectedEpgCountries.includes(c));
-        selector.innerHTML = '<option value="">+ Add country...</option>' +
-            available.map(c => \`<option value="\${c}">\${c}</option>\`).join('');
-    }
-
-    function addCountry(country) {
-        if (!country || selectedEpgCountries.includes(country)) return;
-        selectedEpgCountries.push(country);
-        renderCountryBadges();
-        document.getElementById('country-selector').value = '';
-    }
-
-    function removeCountry(country) {
-        selectedEpgCountries = selectedEpgCountries.filter(c => c !== country);
-        renderCountryBadges();
-    }
-
-    async function loadEpgCountries() {
-        try {
-            const response = await fetch('/api/epg/countries');
-            availableEpgCountries = await response.json();
-            renderCountryBadges();
-        } catch (err) {
-            console.error('Failed to load EPG countries:', err);
-        }
-    }
-
-    async function syncGlobalEpg() {
-        try {
-            // Save current EPG country selection first
-            await fetch('/api/settings', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ epgCountries: selectedEpgCountries })
-            });
-
-            const response = await fetch('/api/epg/sync-global', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ countries: selectedEpgCountries })
-            });
-            const result = await response.json();
-            if (!result.success) throw new Error(result.error);
-        } catch (err) {
-            console.error('Failed to sync EPG:', err);
-            if (window.showToast) showToast('Failed to sync EPG: ' + err.message, 'error');
-        }
     }
 
     async function loadSchedulerStatus() {
@@ -1471,10 +1312,6 @@
             selectedLanguages = settings.preferredLanguages || ['de', 'en'];
             renderLanguageBadges();
 
-            // Load EPG countries
-            selectedEpgCountries = settings.epgCountries || ['Germany'];
-            renderCountryBadges();
-
             // Update transcode options visibility
             updateTranscodeOptionsVisibility();
             updateWatchFolderOptionsVisibility();
@@ -1515,7 +1352,9 @@
     }
 
     function updateTranscodeOptionsVisibility() {
-        const enabled = document.getElementById('setting-transcodeEnabled').checked;
+        const filesEnabled = document.getElementById('setting-transcodeFilesEnabled').checked;
+        const streamEnabled = document.getElementById('setting-transcodeStreamEnabled').checked;
+        const enabled = filesEnabled || streamEnabled;
         const optionsEl = document.getElementById('transcode-options');
         if (optionsEl) {
             optionsEl.style.opacity = enabled ? '1' : '0.5';
@@ -1548,9 +1387,8 @@
             }
         });
 
-        // Add language preferences and EPG countries
+        // Add language preferences
         settings.preferredLanguages = selectedLanguages;
-        settings.epgCountries = selectedEpgCountries;
 
         // Handle hdhrSourceId - convert to integer or null
         if (settings.hdhrSourceId === '' || settings.hdhrSourceId === undefined) {
@@ -1611,6 +1449,7 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                             </button>
                             <button onclick="syncSource(\${s.id})" class="btn btn-secondary btn-sm" id="sync-btn-\${s.id}">Sync</button>
+                            <button onclick="syncSourceEpg(\${s.id})" class="btn btn-secondary btn-sm" id="epg-btn-\${s.id}" title="Refresh EPG data">EPG</button>
                             <button onclick="editSource(\${s.id})" class="btn btn-secondary btn-sm">Edit</button>
                             <button onclick="deleteSource(\${s.id})" class="btn btn-danger btn-sm">Delete</button>
                         </div>
@@ -1647,6 +1486,16 @@
                         </div>
                         <div class="w-full bg-dark-700 rounded-full h-1.5">
                             <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="enrich-bar-\${s.id}" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <!-- EPG progress bar -->
+                    <div id="epg-progress-\${s.id}" class="hidden mt-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <div class="animate-spin w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                            <span class="text-xs text-dark-300" id="epg-status-\${s.id}">Syncing EPG...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-1.5">
+                            <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" id="epg-bar-\${s.id}" style="width: 0%"></div>
                         </div>
                     </div>
                 </div>
@@ -2911,41 +2760,43 @@
         }
     }
 
-    async function syncEpg(id) {
+    async function syncSourceEpg(id) {
         try {
             // Show progress UI
             const progressEl = document.getElementById('epg-progress-' + id);
-            const btnEl = document.getElementById('epg-sync-btn-' + id);
+            const btnEl = document.getElementById('epg-btn-' + id);
+            const statusEl = document.getElementById('epg-status-' + id);
+            const barEl = document.getElementById('epg-bar-' + id);
             if (progressEl) progressEl.classList.remove('hidden');
             if (btnEl) btnEl.disabled = true;
+            if (statusEl) statusEl.textContent = 'Starting EPG sync...';
+            if (barEl) barEl.style.width = '0%';
 
             const response = await fetch('/api/sources/' + id + '/sync-epg', { method: 'POST' });
             const result = await response.json();
 
             if (result.success) {
-                // Update EPG info display
-                const infoEl = document.getElementById('epg-info-' + id);
-                if (infoEl) {
-                    infoEl.textContent = \`EPG: \${result.programCount} programs, \${result.channelCount} channels\`;
-                }
-                if (window.showToast) {
-                    showToast('EPG sync complete!', 'success');
-                }
+                // API returns immediately, socket.io events will provide progress
+                if (statusEl) statusEl.textContent = 'Downloading EPG data...';
             } else {
                 throw new Error(result.error || 'EPG sync failed');
             }
         } catch (err) {
             console.error('Failed to sync EPG:', err);
+            const statusEl = document.getElementById('epg-status-' + id);
+            const progressEl = document.getElementById('epg-progress-' + id);
+            const btnEl = document.getElementById('epg-btn-' + id);
+            if (statusEl) statusEl.textContent = 'Failed: ' + err.message;
             if (window.showToast) {
                 showToast('EPG sync failed: ' + err.message, 'error');
             }
-        } finally {
-            // Hide progress
-            const progressEl = document.getElementById('epg-progress-' + id);
-            const btnEl = document.getElementById('epg-sync-btn-' + id);
-            if (progressEl) progressEl.classList.add('hidden');
+            // Hide after 3 seconds on error
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
             if (btnEl) btnEl.disabled = false;
         }
+        // Note: button is re-enabled by socket event handlers
     }
 
     async function fetchEpgStatus() {
@@ -3540,6 +3391,59 @@
                 setTimeout(() => progressEl.classList.add('hidden'), 2000);
             }
             loadSourceStats(data.sourceId);
+        });
+
+        // EPG sync socket listeners
+        socket.on('epg:start', (data) => {
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Downloading EPG data...';
+            if (barEl) barEl.style.width = '0%';
+        });
+
+        socket.on('epg:progress', (data) => {
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) {
+                statusEl.textContent = data.message || ('Inserting ' + (data.current || 0) + '/' + (data.total || 0) + ' programs...');
+            }
+            if (barEl && data.total > 0) {
+                barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+            }
+        });
+
+        socket.on('epg:complete', (data) => {
+            const progressEl = document.getElementById('epg-progress-' + data.sourceId);
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const btnEl = document.getElementById('epg-btn-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Done: ' + (data.programCount || 0) + ' programs, ' + (data.channelCount || 0) + ' channels';
+            if (barEl) barEl.style.width = '100%';
+            if (btnEl) btnEl.disabled = false;
+            if (window.showToast) {
+                showToast('EPG sync complete!', 'success');
+            }
+            // Update EPG status display
+            fetchEpgStatus();
+            // Hide after 3 seconds
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
+        });
+
+        socket.on('epg:error', (data) => {
+            const progressEl = document.getElementById('epg-progress-' + data.sourceId);
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const btnEl = document.getElementById('epg-btn-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Failed: ' + (data.error || 'Unknown error');
+            if (btnEl) btnEl.disabled = false;
+            if (window.showToast) {
+                showToast('EPG sync failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+            // Hide after 3 seconds
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
         });
     });
 

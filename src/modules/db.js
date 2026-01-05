@@ -70,6 +70,7 @@ const COLUMN_MIGRATIONS = {
     'media.last_seen_at': 24,
     'media.platform': 25,
     'sources.m3u_parser_config': 30,
+    'media.cached_logo': 31,
 };
 
 async function verifyTables() {

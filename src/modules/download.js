@@ -413,7 +413,7 @@ async function processDownload(download) {
         const finalPath = path.join(finalDir, filename);
 
         // Check if transcoding is enabled
-        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
+        const shouldTranscode = settings.get('transcodeFilesEnabled') && transcoder;
 
         if (shouldTranscode) {
             // Queue for transcoding - file stays in temp location
@@ -756,7 +756,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
         const finalPath = path.join(finalDir, filename);
 
         // Check if transcoding is enabled
-        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
+        const shouldTranscode = settings.get('transcodeFilesEnabled') && transcoder;
 
         if (shouldTranscode) {
             // Queue for transcoding

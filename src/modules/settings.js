@@ -48,7 +48,8 @@ const defaults = {
     sourceSyncIntervalHours: 24,  // How often to refresh IPTV sources
 
     // Transcoding settings
-    transcodeEnabled: true,           // Enable transcoding after download
+    transcodeFilesEnabled: true,      // Enable transcoding for downloads and watch folder
+    transcodeStreamEnabled: true,     // Enable transcoding for live TV/IPTV streams
     transcodeCodec: 'h264',           // 'h264' or 'hevc'
     transcodeHwAccel: 'auto',         // 'auto', 'videotoolbox', 'nvenc', 'amf', 'vaapi', 'software'
     transcodeSkipCompatible: true,    // Skip if already H.264/H.265 in MP4
@@ -91,7 +92,8 @@ const defaults = {
     hdhrFriendlyName: 'Hermes HDHR',      // Device name shown in Plex
     hdhrTunerCount: 2,                    // Number of virtual tuners (concurrent streams)
     hdhrBaseUrl: null,                    // External URL override (auto-detected if null)
-    hdhrSourceId: null                    // IPTV source ID for channel/EPG filtering
+    hdhrSourceId: null,                   // IPTV source ID for channel/EPG filtering
+    appBaseUrl: null                      // External app URL for logos/images (e.g. http://192.168.1.100:4000)
 };
 
 function load() {
@@ -99,6 +101,16 @@ function load() {
         if (fs.existsSync(settingsPath)) {
             const data = fs.readFileSync(settingsPath, 'utf8');
             settings = { ...defaults, ...JSON.parse(data) };
+
+            // Migration: convert old transcodeEnabled to new settings
+            if (settings.transcodeEnabled !== undefined && settings.transcodeFilesEnabled === undefined) {
+                settings.transcodeFilesEnabled = settings.transcodeEnabled;
+                settings.transcodeStreamEnabled = true; // Default to enabled for streams
+                delete settings.transcodeEnabled;
+                save(); // Save migrated settings
+                logger?.info('settings', 'Migrated transcodeEnabled to transcodeFilesEnabled/transcodeStreamEnabled');
+            }
+
             logger?.info('settings', 'Settings loaded');
         } else {
             settings = { ...defaults };

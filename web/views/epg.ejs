@@ -1236,22 +1236,10 @@
             return;
         }
 
-        try {
-            const resp = await fetch('/api/play', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: channelToPlay.stream_url })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                if (window.showToast) showToast('Opening in VLC...', 'success');
-            } else {
-                if (window.showToast) showToast('Failed to open VLC: ' + (data.error || 'Unknown error'), 'error');
-            }
-        } catch (err) {
-            console.error('Failed to open VLC:', err);
-            if (window.showToast) showToast('Failed to open VLC', 'error');
-        }
+        // Download M3U playlist file - VLC will open it
+        const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(channelToPlay.stream_url);
+        window.location.href = m3uUrl;
+        if (window.showToast) showToast('Downloading playlist for VLC...', 'success');
     }
 
     function playInBrowser() {
