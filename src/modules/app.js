@@ -820,6 +820,24 @@ function setupApiRoutes() {
     const tmdbRateWindowMs = 10000;
     const tmdbRateLimit = 40;
     const tmdbRequestBuckets = new Map();
+    const languageAliases = new Map([
+        ['EN', ['EN', 'ENG', 'ENGLISH', 'US', 'UK', 'CA', 'AU', 'NZ']]
+    ]);
+
+    function expandPreferredLanguages(preferredLangs) {
+        const expanded = new Set();
+        preferredLangs.forEach((lang) => {
+            if (!lang) return;
+            const upper = lang.toString().trim().toUpperCase();
+            if (!upper) return;
+            expanded.add(upper);
+            const aliases = languageAliases.get(upper);
+            if (aliases) {
+                aliases.forEach((alias) => expanded.add(alias));
+            }
+        });
+        return Array.from(expanded);
+    }
 
     function tmdbRateLimiter(req, res, next) {
         const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
@@ -853,7 +871,7 @@ function setupApiRoutes() {
     router.get('/stats', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
 
             let stats;
             if (preferredLangs.length > 0) {
@@ -923,7 +941,7 @@ function setupApiRoutes() {
     router.get('/featured', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             const limit = parseInt(req.query.limit) || 8;
 
             let langFilter = '';
@@ -968,7 +986,7 @@ function setupApiRoutes() {
     router.get('/content/rows', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             const mediaType = req.query.type; // 'movie' or 'series' or undefined for both
 
             let langFilter = '';
@@ -3486,7 +3504,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             });
 
             // Filter languages by preferred settings if configured
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             let filteredLanguages = languages.map(l => l.language);
             if (preferredLangs.length > 0) {
                 const preferredUpper = preferredLangs.map(l => l.toUpperCase());
