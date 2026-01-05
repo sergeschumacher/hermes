@@ -40,6 +40,7 @@ services:
       - TZ=Europe/Amsterdam
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=password
+      - MFA_ENABLED=true
 ```
 
 ```bash
@@ -59,6 +60,7 @@ docker run -d \
   -e TZ=Europe/Amsterdam \
   -e ADMIN_USERNAME=admin \
   -e ADMIN_PASSWORD=password \
+  -e MFA_ENABLED=true \
   ghcr.io/glom80/hermes:latest
 ```
 
