@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hermes - Player</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+</head>
+<body class="bg-dark-bg min-h-screen text-white flex flex-col">
+    <div class="px-4 py-3 border-b border-dark-800 flex items-center justify-between">
+        <div class="flex items-center gap-2">
+            <div class="w-7 h-7 bg-primary-500 rounded flex items-center justify-center">
+                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4" />
+                </svg>
+            </div>
+            <span class="font-semibold">Hermes Player</span>
+        </div>
+        <div class="flex items-center gap-3">
+            <button id="player-fullscreen-btn" class="text-sm text-primary-300 hover:text-primary-200" onclick="togglePlayerFullscreen()">
+                Fullscreen
+            </button>
+            <a href="/" class="text-sm text-primary-300 hover:text-primary-200">Back</a>
+        </div>
+    </div>
+
+    <div class="flex-1 p-4 flex items-center justify-center">
+        <div class="w-full max-w-5xl">
+            <video id="player-video" class="w-full rounded-lg bg-black" controls playsinline></video>
+            <div id="player-error" class="hidden mt-4 p-3 rounded bg-danger-500/10 text-danger-300 text-sm"></div>
+        </div>
+    </div>
+
+    <script>
+        const streamUrl = <%- JSON.stringify(streamUrl || '') %>;
+        const video = document.getElementById('player-video');
+        const errorEl = document.getElementById('player-error');
+
+        function showError(message) {
+            errorEl.textContent = message;
+            errorEl.classList.remove('hidden');
+        }
+
+        function togglePlayerFullscreen() {
+            if (!document.fullscreenElement) {
+                video.requestFullscreen?.();
+            } else {
+                document.exitFullscreen?.();
+            }
+        }
+
+        if (!streamUrl) {
+            showError('No stream URL provided.');
+        } else {
+            const proxyUrl = '/api/stream/proxy?url=' + encodeURIComponent(streamUrl);
+            const isHls = streamUrl.includes('.m3u8');
+
+            if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+                const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+                hls.loadSource(proxyUrl);
+                hls.attachMedia(video);
+                hls.on(Hls.Events.ERROR, function(event, data) {
+                    if (data.fatal) {
+                        showError('Playback failed. Try again or use the M3U download.');
+                    }
+                });
+            } else if (isHls && video.canPlayType('application/vnd.apple.mpegurl')) {
+                video.src = proxyUrl;
+            } else {
+                video.src = proxyUrl;
+            }
+        }
+    </script>
+</body>
+</html>
