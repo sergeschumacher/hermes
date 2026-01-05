@@ -38,6 +38,12 @@
 
         <!-- Control Bar -->
         <div class="preview-controls">
+            <button id="preview-browser-btn" class="preview-btn browser" onclick="playPreviewInBrowser()">
+                <svg fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M4 5a2 2 0 012-2h12a2 2 0 012 2v3H4V5zm0 5h16v9a2 2 0 01-2 2H6a2 2 0 01-2-2v-9zm3 3v2h2v-2H7zm4 0v2h2v-2h-2z"/>
+                </svg>
+                Browser
+            </button>
             <button id="preview-vlc-btn" class="preview-btn vlc" onclick="playPreviewInVLC()">
                 <svg fill="currentColor" viewBox="0 0 24 24">
                     <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/>
@@ -261,6 +267,15 @@
         background: #e65c00;
     }
 
+    .preview-btn.browser {
+        background: #2563eb;
+        color: white;
+    }
+
+    .preview-btn.browser:hover {
+        background: #1d4ed8;
+    }
+
     .preview-btn.close {
         background: #2d2d2d;
         color: #d1d5db;
@@ -442,9 +457,20 @@
             return;
         }
 
-        const vlcUrl = 'vlc://' + currentPreviewUrl;
-        window.location.href = vlcUrl;
-        showToast('Opening in VLC...', 'success');
+        const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(currentPreviewUrl);
+        window.location.href = m3uUrl;
+        showToast('Downloading M3U for VLC...', 'success');
+    }
+
+    window.playPreviewInBrowser = function() {
+        if (!currentPreviewUrl) {
+            showToast('No stream URL available', 'error');
+            return;
+        }
+
+        const browserUrl = '/player?url=' + encodeURIComponent(currentPreviewUrl);
+        window.open(browserUrl, '_blank', 'noopener');
+        showToast('Opening in browser...', 'success');
     }
 
     // Close on Escape key

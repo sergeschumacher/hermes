@@ -166,7 +166,10 @@ async function getSessionUserByToken(token) {
         return null;
     }
 
-    await modules.db.run('UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', [session.session_id]);
+    const lastUsedAt = new Date(session.last_used_at).getTime();
+    if (Number.isNaN(lastUsedAt) || lastUsedAt <= Date.now() - 1000 * 60 * 5) {
+        await modules.db.run('UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', [session.session_id]);
+    }
     return session;
 }
 
@@ -340,8 +343,6 @@ function setupRoutes() {
     // Auth middleware
     app.use(async (req, res, next) => {
         try {
-            await ensureAdminUser();
-
             const path = req.path;
             if (path.startsWith('/static') ||
                 path.startsWith('/cache/images') ||
@@ -805,6 +806,7 @@ function setupRoutes() {
     app.get('/requests', (req, res) => res.render('requests', { page: 'requests' }));
     app.get('/logs', (req, res) => res.render('logs', { page: 'logs' }));
     app.get('/epg', (req, res) => res.render('epg', { page: 'epg' }));
+    app.get('/player', (req, res) => res.render('player', { page: 'player', streamUrl: req.query.url || '' }));
 
     // API Routes
     setupApiRoutes();
@@ -5744,6 +5746,7 @@ module.exports = {
         settings = mods.settings;
 
         app = express();
+        app.set('trust proxy', true);
         app.set('view engine', 'ejs');
         app.set('views', PATHS.views);
 
@@ -5751,6 +5754,7 @@ module.exports = {
         io = new Server(server);
 
         setupRoutes();
+        await ensureAdminUser();
         setupSocket();
         setupSyncEventRelay();
 

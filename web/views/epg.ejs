@@ -1236,9 +1236,9 @@
             return;
         }
 
-        const vlcUrl = 'vlc://' + channelToPlay.stream_url;
-        window.location.href = vlcUrl;
-        if (window.showToast) showToast('Opening in VLC...', 'success');
+        const m3uUrl = '/api/play.m3u?url=' + encodeURIComponent(channelToPlay.stream_url);
+        window.location.href = m3uUrl;
+        if (window.showToast) showToast('Downloading M3U for VLC...', 'success');
     }
 
     function playInBrowser() {
@@ -1260,9 +1260,9 @@
         // Close the program modal first
         closeModal();
 
-        // Open the preview modal with the stream
-        const title = selectedProgram?.title || channelToPlay.title;
-        window.openPreview(channelToPlay.stream_url, title, '', '');
+        const browserUrl = '/player?url=' + encodeURIComponent(channelToPlay.stream_url);
+        window.open(browserUrl, '_blank', 'noopener');
+        if (window.showToast) showToast('Opening in browser...', 'success');
     }
 
     async function scheduleRecording() {
