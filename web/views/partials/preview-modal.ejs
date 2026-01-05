@@ -50,6 +50,12 @@
                 </svg>
                 Open in VLC
             </button>
+            <button id="preview-vlc-ext-btn" class="preview-btn vlc-ext" onclick="playPreviewInVlcExtension()">
+                <svg fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M12 3a9 9 0 019 9h-2a7 7 0 10-7 7v2a9 9 0 010-18zm1 4h-2v6h6v-2h-4V7z"/>
+                </svg>
+                VLC Extension
+            </button>
             <button class="preview-btn close" onclick="closePreview()">
                 Close Preview
             </button>
@@ -276,6 +282,15 @@
         background: #1d4ed8;
     }
 
+    .preview-btn.vlc-ext {
+        background: #0f766e;
+        color: white;
+    }
+
+    .preview-btn.vlc-ext:hover {
+        background: #0d6b62;
+    }
+
     .preview-btn.close {
         background: #2d2d2d;
         color: #d1d5db;
@@ -471,6 +486,16 @@
         const browserUrl = '/player?url=' + encodeURIComponent(currentPreviewUrl);
         window.open(browserUrl, '_blank', 'noopener');
         showToast('Opening in browser...', 'success');
+    }
+
+    window.playPreviewInVlcExtension = function() {
+        if (!currentPreviewUrl) {
+            showToast('No stream URL available', 'error');
+            return;
+        }
+
+        window.open(currentPreviewUrl, '_blank', 'noopener');
+        showToast('Open the VLC extension to play this stream', 'success');
     }
 
     // Close on Escape key

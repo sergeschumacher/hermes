@@ -531,6 +531,12 @@
                                 </svg>
                                 <span class="livetv-action-label">VLC</span>
                             </button>
+                            <button class="livetv-action-btn" onclick="event.stopPropagation(); openChannelInVlcExtension(\${channelJson})" title="Open in VLC Extension">
+                                <svg fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M12 3a9 9 0 019 9h-2a7 7 0 10-7 7v2a9 9 0 010-18zm1 4h-2v6h6v-2h-4V7z"/>
+                                </svg>
+                                <span class="livetv-action-label">VLC Ext</span>
+                            </button>
                             <button class="livetv-action-btn" onclick="event.stopPropagation(); openChannelInBrowser(\${channelJson})" title="Open in Browser">
                                 <svg fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M4 5a2 2 0 012-2h12a2 2 0 012 2v3H4V5zm0 5h16v9a2 2 0 01-2 2H6a2 2 0 01-2-2v-9zm3 3v2h2v-2H7zm4 0v2h2v-2h-2z"/>
@@ -590,6 +596,16 @@
         const browserUrl = '/player?url=' + encodeURIComponent(channel.stream_url);
         window.open(browserUrl, '_blank', 'noopener');
         if (window.showToast) showToast('Opening in browser...', 'success');
+    }
+
+    function openChannelInVlcExtension(channel) {
+        if (!channel.stream_url) {
+            if (window.showToast) showToast('No stream URL available', 'error');
+            return;
+        }
+
+        window.open(channel.stream_url, '_blank', 'noopener');
+        if (window.showToast) showToast('Open the VLC extension to play this stream', 'success');
     }
 
     async function fetchEpgForChannels(tvgIds) {

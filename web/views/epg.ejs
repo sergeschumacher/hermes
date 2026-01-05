@@ -120,6 +120,9 @@
                 </svg>
                 VLC
             </button>
+            <button onclick="playInVlcExtension()" class="btn btn-secondary" id="play-vlc-ext-btn" style="display:none;">
+                VLC Ext
+            </button>
             <button onclick="scheduleRecording()" class="btn btn-primary" id="record-btn">
                 <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                     <circle cx="10" cy="10" r="6" fill="currentColor" />
@@ -1197,12 +1200,14 @@
                 select.style.display = 'block';
                 document.getElementById('record-btn').disabled = false;
                 document.getElementById('play-vlc-btn').style.display = 'flex';
+                document.getElementById('play-vlc-ext-btn').style.display = 'flex';
                 document.getElementById('play-browser-btn').style.display = 'flex';
             } else {
                 noSourceMsg.style.display = 'block';
                 select.style.display = 'none';
                 document.getElementById('record-btn').disabled = true;
                 document.getElementById('play-vlc-btn').style.display = 'none';
+                document.getElementById('play-vlc-ext-btn').style.display = 'none';
                 document.getElementById('play-browser-btn').style.display = 'none';
             }
 
@@ -1263,6 +1268,25 @@
         const browserUrl = '/player?url=' + encodeURIComponent(channelToPlay.stream_url);
         window.open(browserUrl, '_blank', 'noopener');
         if (window.showToast) showToast('Opening in browser...', 'success');
+    }
+
+    function playInVlcExtension() {
+        const selectedSource = document.getElementById('source-select').value;
+
+        let channelToPlay = null;
+        if (selectedSource) {
+            channelToPlay = matchingLiveChannels.find(ch => ch.id === parseInt(selectedSource));
+        } else if (matchingLiveChannels.length > 0) {
+            channelToPlay = matchingLiveChannels[0];
+        }
+
+        if (!channelToPlay || !channelToPlay.stream_url) {
+            if (window.showToast) showToast('No stream URL available', 'error');
+            return;
+        }
+
+        window.open(channelToPlay.stream_url, '_blank', 'noopener');
+        if (window.showToast) showToast('Open the VLC extension to play this stream', 'success');
     }
 
     async function scheduleRecording() {
