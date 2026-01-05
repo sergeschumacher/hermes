@@ -1254,6 +1254,8 @@ function setupApiRoutes() {
                     '-probesize', '5000000',        // 5MB max probe size
                     // Reconnect settings for IPTV streams
                     '-reconnect', '1',
+                    '-reconnect_at_eof', '1',
+                    '-reconnect_on_network_error', '1',
                     '-reconnect_streamed', '1',
                     '-reconnect_delay_max', '2',
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
