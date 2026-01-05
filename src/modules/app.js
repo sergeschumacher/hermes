@@ -817,6 +817,37 @@ function setupRoutes() {
 
 function setupApiRoutes() {
     const router = express.Router();
+    const tmdbRateWindowMs = 10000;
+    const tmdbRateLimit = 40;
+    const tmdbRequestBuckets = new Map();
+
+    function tmdbRateLimiter(req, res, next) {
+        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+        const now = Date.now();
+        let bucket = tmdbRequestBuckets.get(ip);
+        if (!bucket) {
+            bucket = [];
+            tmdbRequestBuckets.set(ip, bucket);
+        }
+
+        // Drop timestamps outside window
+        while (bucket.length && now - bucket[0] > tmdbRateWindowMs) {
+            bucket.shift();
+        }
+
+        if (bucket.length >= tmdbRateLimit) {
+            const retryAfterMs = tmdbRateWindowMs - (now - bucket[0]);
+            res.setHeader('Retry-After', Math.ceil(retryAfterMs / 1000));
+            res.setHeader('X-RateLimit-Limit', tmdbRateLimit);
+            res.setHeader('X-RateLimit-Remaining', 0);
+            return res.status(429).json({ error: 'TMDB rate limit exceeded' });
+        }
+
+        bucket.push(now);
+        res.setHeader('X-RateLimit-Limit', tmdbRateLimit);
+        res.setHeader('X-RateLimit-Remaining', Math.max(0, tmdbRateLimit - bucket.length));
+        return next();
+    }
 
     // Stats - filtered by preferred languages
     router.get('/stats', async (req, res) => {
@@ -3950,7 +3981,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // TMDB API endpoints - fetch full movie/TV data with caching
-    router.get('/tmdb/movie/:id', async (req, res) => {
+    router.get('/tmdb/movie/:id', tmdbRateLimiter, async (req, res) => {
         try {
             const tmdbId = req.params.id;
             if (!modules.tmdb) {
@@ -3964,7 +3995,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/tv/:id', async (req, res) => {
+    router.get('/tmdb/tv/:id', tmdbRateLimiter, async (req, res) => {
         try {
             const tmdbId = req.params.id;
             if (!modules.tmdb) {
@@ -3979,7 +4010,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // TMDB Search endpoints
-    router.get('/tmdb/search/movie', async (req, res) => {
+    router.get('/tmdb/search/movie', tmdbRateLimiter, async (req, res) => {
         try {
             const { query, year } = req.query;
             if (!query) {
@@ -3996,7 +4027,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/search/tv', async (req, res) => {
+    router.get('/tmdb/search/tv', tmdbRateLimiter, async (req, res) => {
         try {
             const { query, year } = req.query;
             if (!query) {
@@ -4013,7 +4044,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/tv/:id/season/:season', async (req, res) => {
+    router.get('/tmdb/tv/:id/season/:season', tmdbRateLimiter, async (req, res) => {
         try {
             const { id, season } = req.params;
             if (!modules.tmdb) {
@@ -4366,7 +4397,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // Fetch TMDB data for a show by name
-    router.get('/shows/:name/tmdb', async (req, res) => {
+    router.get('/shows/:name/tmdb', tmdbRateLimiter, async (req, res) => {
         try {
             const db = modules.db;
             let showName = decodeURIComponent(req.params.name);
@@ -4588,7 +4619,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // Fetch TMDB season details with episodes
-    router.get('/tmdb/tv/:id/season/:season', async (req, res) => {
+    router.get('/tmdb/tv/:id/season/:season', tmdbRateLimiter, async (req, res) => {
         try {
             if (!modules.tmdb) {
                 return res.status(400).json({ error: 'TMDB module not loaded' });
