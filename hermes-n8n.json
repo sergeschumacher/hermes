@@ -84,7 +84,8 @@
     "Switch Event": {
       "main": [
         [{ "node": "Format Download Message", "type": "main", "index": 0 }],
-        [{ "node": "Format Recording Message", "type": "main", "index": 0 }]
+        [{ "node": "Format Recording Message", "type": "main", "index": 0 }],
+        []
       ]
     },
     "Format Download Message": {
