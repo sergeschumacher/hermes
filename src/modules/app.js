@@ -337,8 +337,8 @@ function setupRoutes() {
     }));
 
     // JSON body parser
-    app.use(express.json());
-    app.use(express.urlencoded({ extended: true }));
+    app.use(express.json({ limit: '5mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '5mb' }));
 
     // Auth middleware
     app.use(async (req, res, next) => {
@@ -387,6 +387,9 @@ function setupRoutes() {
             return next();
         } catch (err) {
             logger?.error('auth', `Auth middleware failed: ${err.message}`);
+            if (req.path.startsWith('/api')) {
+                return res.status(500).json({ error: 'Auth error' });
+            }
             return res.status(500).send('Auth error');
         }
     });
@@ -1823,6 +1826,7 @@ function setupApiRoutes() {
                 SELECT
                     SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END) as movies,
                     SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END) as series,
+                    SUM(CASE WHEN media_type = 'live' THEN 1 ELSE 0 END) as live,
                     COUNT(*) as total
                 FROM media
                 WHERE source_id = ?
@@ -1850,6 +1854,7 @@ function setupApiRoutes() {
             res.json({
                 movies: mediaCounts?.movies || 0,
                 series: mediaCounts?.series || 0,
+                live: mediaCounts?.live || 0,
                 total: mediaCounts?.total || 0,
                 downloaded: downloadStats?.completed || 0,
                 enriched: enrichmentStats?.enriched || 0

@@ -897,6 +897,21 @@
         document.getElementById('current-date').textContent = formatDate(startTime);
     }
 
+    async function fetchJsonSafe(url, options) {
+        const response = await fetch(url, options);
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(text || \`Unexpected response (\${response.status})\`);
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            const message = data?.error || \`Request failed (\${response.status})\`;
+            throw new Error(message);
+        }
+        return data;
+    }
+
     async function loadEpg() {
         showLoading('Loading Live TV channels...');
         generateTimeHeader();
@@ -907,8 +922,7 @@
 
         try {
             // Fetch Live TV channels that have tvg_id set (EPG mapping)
-            const liveResp = await fetch('/api/epg/live-channels');
-            const channelsWithEpg = await liveResp.json();
+            const channelsWithEpg = await fetchJsonSafe('/api/epg/live-channels');
 
             if (channelsWithEpg.length === 0) {
                 hideLoading();
@@ -943,12 +957,11 @@
             showLoading(\`Loading program guide for \${allChannels.length} channels...\`);
 
             const channelIds = allChannels.map(c => c.tvg_id);
-            const epgResp = await fetch('/api/epg/guide', {
+            epgData = await fetchJsonSafe('/api/epg/guide', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ start, end, channels: channelIds })
             });
-            epgData = await epgResp.json();
 
             showLoading('Rendering guide...');
 

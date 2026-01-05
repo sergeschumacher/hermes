@@ -1367,6 +1367,21 @@
         }
     }
 
+    async function fetchJsonSafe(url, options) {
+        const response = await fetch(url, options);
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(text || 'Unexpected response (' + response.status + ')');
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            const message = data?.error || 'Request failed (' + response.status + ')';
+            throw new Error(message);
+        }
+        return data;
+    }
+
     async function syncGlobalEpg() {
         try {
             // Save current EPG country selection first
@@ -1376,12 +1391,11 @@
                 body: JSON.stringify({ epgCountries: selectedEpgCountries })
             });
 
-            const response = await fetch('/api/epg/sync-global', {
+            const result = await fetchJsonSafe('/api/epg/sync-all', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ countries: selectedEpgCountries })
             });
-            const result = await response.json();
             if (!result.success) throw new Error(result.error);
         } catch (err) {
             console.error('Failed to sync EPG:', err);
@@ -1693,7 +1707,7 @@
                         </div>
                     </div>
                     <!-- Stats row -->
-                    <div class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-dark-700 text-xs" id="source-stats-\${s.id}">
+                    <div class="grid grid-cols-5 gap-2 mt-3 pt-3 border-t border-dark-700 text-xs" id="source-stats-\${s.id}">
                         <span class="text-dark-500">Loading stats...</span>
                     </div>
                     <!-- Sync progress bar -->
@@ -3456,13 +3470,14 @@
                 el.innerHTML =
                     '<div><span class="text-dark-400">Movies</span><div class="text-white text-sm font-medium">' + stats.movies.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Series</span><div class="text-white text-sm font-medium">' + stats.series.toLocaleString() + '</div></div>' +
+                    '<div><span class="text-dark-400">Live TV</span><div class="text-white text-sm font-medium">' + stats.live.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Downloads</span><div class="text-white text-sm font-medium">' + stats.downloaded.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Enriched</span><div class="text-white text-sm font-medium">' + stats.enriched.toLocaleString() + ' / ' + stats.total.toLocaleString() + '</div></div>';
             }
         } catch (err) {
             console.error('Failed to load source stats:', err);
             const el = document.getElementById('source-stats-' + sourceId);
-            if (el) el.innerHTML = '<span class="text-dark-500 col-span-4">Failed to load stats</span>';
+            if (el) el.innerHTML = '<span class="text-dark-500 col-span-5">Failed to load stats</span>';
         }
     }
 

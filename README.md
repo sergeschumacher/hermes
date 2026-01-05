@@ -38,6 +38,8 @@ services:
       - ./downloads:/downloads
     environment:
       - TZ=Europe/Amsterdam
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=password
 ```
 
 ```bash
@@ -55,6 +57,8 @@ docker run -d \
   -v ./data:/data \
   -v ./downloads:/downloads \
   -e TZ=Europe/Amsterdam \
+  -e ADMIN_USERNAME=admin \
+  -e ADMIN_PASSWORD=password \
   ghcr.io/glom80/hermes:latest
 ```
 
@@ -77,7 +81,7 @@ For rich metadata enrichment, add your free TMDB API key:
 
 ### TMDB Rate Limit
 
-Hermes rate-limits TMDB API routes to **40 requests per 10 seconds per IP**. If you hit the limit, you’ll receive HTTP 429 responses with `Retry-After` headers. Consider caching or reducing concurrent lookups if you see throttling.
+TMDB requests are limited to **40 requests per 10 seconds per IP**. If you hit the limit, you’ll receive HTTP 429 responses with `Retry-After` headers. Consider caching or reducing concurrent lookups if you see throttling.
 
 ### Hardware Acceleration
 
