@@ -633,6 +633,12 @@
                         <label class="block text-xs text-dark-400 mb-1">OTPAuth URL</label>
                         <input type="text" id="totp-otpauth" class="input" readonly />
                     </div>
+                    <div id="totp-qr-section" class="hidden">
+                        <label class="block text-xs text-dark-400 mb-2">QR Code</label>
+                        <div class="bg-white p-3 rounded inline-block">
+                            <img id="totp-qr" alt="TOTP QR Code" class="w-40 h-40" />
+                        </div>
+                    </div>
                 </div>
 
                 <div class="border-t border-dark-700 pt-4 space-y-3">
@@ -3770,6 +3776,10 @@
             if (!response.ok) throw new Error(data.error || 'Failed to generate secret');
             document.getElementById('totp-secret').value = data.secret || '';
             document.getElementById('totp-otpauth').value = data.otpauthUrl || '';
+            if (data.qrDataUrl) {
+                document.getElementById('totp-qr').src = data.qrDataUrl;
+                document.getElementById('totp-qr-section').classList.remove('hidden');
+            }
             if (window.showToast) showToast('TOTP secret generated', 'success');
         } catch (err) {
             console.error('Failed to setup TOTP:', err);
@@ -3792,6 +3802,8 @@
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Failed to enable MFA');
             document.getElementById('totp-token').value = '';
+            document.getElementById('totp-qr-section').classList.add('hidden');
+            document.getElementById('totp-qr').src = '';
             if (window.showToast) showToast('MFA enabled', 'success');
             loadAuthStatus();
         } catch (err) {
@@ -3817,6 +3829,8 @@
             if (!response.ok) throw new Error(data.error || 'Failed to disable MFA');
             document.getElementById('mfa-disable-password').value = '';
             document.getElementById('mfa-disable-token').value = '';
+            document.getElementById('totp-qr-section').classList.add('hidden');
+            document.getElementById('totp-qr').src = '';
             if (window.showToast) showToast('MFA disabled', 'success');
             loadAuthStatus();
         } catch (err) {

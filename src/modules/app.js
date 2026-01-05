@@ -8,6 +8,7 @@ const axios = require('axios');
 const { spawn } = require('child_process');
 const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
+const qrcode = require('qrcode');
 
 let app = null;
 let server = null;
@@ -707,11 +708,12 @@ function setupRoutes() {
     app.post('/api/auth/totp/setup', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
         const secret = speakeasy.generateSecret({ name: `Hermes (${req.user.username})` });
+        const qrDataUrl = await qrcode.toDataURL(secret.otpauth_url);
         await modules.db.run(
             'UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
             [secret.base32, req.user.user_id]
         );
-        res.json({ secret: secret.base32, otpauthUrl: secret.otpauth_url });
+        res.json({ secret: secret.base32, otpauthUrl: secret.otpauth_url, qrDataUrl });
     });
 
     app.post('/api/auth/totp/enable', async (req, res) => {
