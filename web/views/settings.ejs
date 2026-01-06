@@ -2,7 +2,7 @@
 <div class="p-8">
     <div class="mb-8">
         <h1 class="text-3xl font-bold text-white">Settings</h1>
-        <p class="text-dark-400 mt-1">Configure Hermes</p>
+        <p class="text-dark-400 mt-1">Configure RecoStream</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -141,7 +141,7 @@
             <div class="p-4 border-b border-dark-700 flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold text-white">HDHomeRun Emulator</h2>
-                    <p class="text-xs text-dark-400">Makes Hermes appear as an HDHomeRun tuner for Plex Live TV</p>
+                    <p class="text-xs text-dark-400">Makes RecoStream appear as an HDHomeRun tuner for Plex Live TV</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="setting-hdhrEnabled" class="sr-only peer" onchange="toggleHdhr(this.checked)">
@@ -164,7 +164,7 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm text-dark-400 mb-1">Device Name</label>
-                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="Hermes HDHR" />
+                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="RecoStream HDHR" />
                     </div>
                     <div>
                         <label class="block text-sm text-dark-400 mb-1">Tuner Count</label>
@@ -175,7 +175,7 @@
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Base URL (leave blank to auto-detect)</label>
                     <input type="text" id="setting-hdhrBaseUrl" class="input" placeholder="http://192.168.1.XXX:5004" />
-                    <p class="text-xs text-dark-500 mt-1">Override if Hermes is behind NAT or in Docker</p>
+                    <p class="text-xs text-dark-500 mt-1">Override if RecoStream is behind NAT or in Docker</p>
                 </div>
 
                 <div>
@@ -204,7 +204,7 @@
                         <li>Enable HDHomeRun emulator above</li>
                         <li>Add channels using "Manage Channels"</li>
                         <li>In Plex: Settings > Live TV & DVR > Set Up Plex DVR</li>
-                        <li>Plex should auto-discover "Hermes HDHR"</li>
+                        <li>Plex should auto-discover "RecoStream HDHR"</li>
                         <li>Add the EPG URL below for guide data</li>
                     </ol>
                     <div class="mt-3 pt-2 border-t border-primary-500/20 space-y-2">

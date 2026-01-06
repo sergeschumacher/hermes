@@ -1,5 +1,5 @@
 {
-  "name": "hermes",
+  "name": "recostream",
   "version": "1.0.0",
   "description": "IPTV Media Manager - Browse, search, and download IPTV content with Overseerr and Plex integration",
   "main": "index.js",

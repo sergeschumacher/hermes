@@ -1,7 +1,7 @@
 services:
-  hermes:
-    image: ghcr.io/sergeschumacher/hermes:latest
-    container_name: hermes2
+  recostream:
+    image: ghcr.io/sergeschumacher/recostream:latest
+    container_name: recostream2
     restart: unless-stopped
     ports:
       - "33000:3000"
@@ -16,7 +16,7 @@ services:
       - ADMIN_USERNAME=admin
       - ADMIN_PASSWORD=password
     volumes:
-      - /mnt/user/appdata/hermes/data:/data
+      - /mnt/user/appdata/recostream/data:/data
       - /mnt/remotes/192.168.10.101_Plex_Movies/Series:/data/downloads/series
       - /mnt/remotes/192.168.10.101_Plex_Movies/Movies:/data/downloads/movies
       - /mnt/remotes/192.168.10.101_Plex_Movies/IPTV_Records:/data/recordings

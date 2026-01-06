@@ -1,9 +1,9 @@
 {
-  "name": "Hermes -> Telegram",
+  "name": "RecoStream -> Telegram",
   "nodes": [
     {
       "parameters": {
-        "path": "webhooks/hermes",
+        "path": "webhooks/recostream",
         "method": "POST",
         "responseMode": "onReceived",
         "options": {}

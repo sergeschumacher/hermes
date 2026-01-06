@@ -186,7 +186,7 @@ async function fetchEpgXml(url) {
             timeout: 120000,  // 2 minute timeout for large files
             responseType: 'arraybuffer',
             headers: {
-                'User-Agent': 'Hermes/1.0',
+                'User-Agent': 'RecoStream/1.0',
                 'Accept-Encoding': 'gzip, deflate'
             }
         });

@@ -271,7 +271,7 @@ async function apiRequest(indexer, action, params = {}) {
         const response = await axios.get(url, {
             timeout: 30000,
             headers: {
-                'User-Agent': indexer.user_agent || 'Hermes/1.0'
+                'User-Agent': indexer.user_agent || 'RecoStream/1.0'
             },
             responseType: 'text'
         });
@@ -417,7 +417,7 @@ async function getNzb(indexerId, guid) {
     const response = await axios.get(url, {
         timeout: 60000,
         headers: {
-            'User-Agent': indexer.user_agent || 'Hermes/1.0'
+            'User-Agent': indexer.user_agent || 'RecoStream/1.0'
         },
         responseType: 'text'
     });
@@ -552,7 +552,7 @@ async function fetchNzb(nzbUrl) {
         const response = await axios.get(nzbUrl, {
             timeout: 60000,
             headers: {
-                'User-Agent': 'Hermes/1.0'
+                'User-Agent': 'RecoStream/1.0'
             },
             responseType: 'text'
         });

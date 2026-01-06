@@ -1,5 +1,5 @@
 -- HDHomeRun Emulator Support
--- Enables Hermes to act as an HDHomeRun tuner for Plex integration
+-- Enables RecoStream to act as an HDHomeRun tuner for Plex integration
 
 -- HDHomeRun channel mappings (which channels to expose to Plex)
 CREATE TABLE IF NOT EXISTS hdhr_channels (

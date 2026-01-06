@@ -18,7 +18,7 @@ RUN npm run build:css
 # Production stage
 FROM node:20-alpine
 
-LABEL maintainer="Hermes"
+LABEL maintainer="RecoStream"
 LABEL description="IPTV Media Manager"
 
 # Install runtime dependencies (ffmpeg needed for transcoding)

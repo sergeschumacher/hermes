@@ -19,7 +19,7 @@ let modules = null;
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
-const SESSION_COOKIE = 'hermes_session';
+const SESSION_COOKIE = 'recostream_session';
 const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
 const SESSION_GRACE_MS = 1000 * 60 * 5;
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
@@ -67,7 +67,7 @@ async function sendWebhook(event, payload) {
         try {
             await axios.post(url, body, {
                 timeout: WEBHOOK_TIMEOUT_MS,
-                headers: { 'User-Agent': 'Hermes/1.0' }
+                headers: { 'User-Agent': 'RecoStream/1.0' }
             });
         } catch (err) {
             logger?.warn('webhook', `Failed to send ${event} webhook: ${err.message}`);
@@ -472,7 +472,7 @@ function setupRoutes() {
                 responseType: 'arraybuffer',
                 timeout: 15000,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; Hermes/1.0)'
+                    'User-Agent': 'Mozilla/5.0 (compatible; RecoStream/1.0)'
                 }
             });
 
@@ -528,7 +528,7 @@ function setupRoutes() {
                 const response = await axios.get(url, {
                     responseType: 'arraybuffer',
                     timeout: 5000,
-                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Hermes/1.0)' }
+                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecoStream/1.0)' }
                 });
 
                 if (response.data && response.data.length > 0) {
@@ -760,7 +760,7 @@ function setupRoutes() {
     app.post('/api/auth/totp/setup', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
         if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
-        const secret = speakeasy.generateSecret({ name: `Hermes (${req.user.username})` });
+        const secret = speakeasy.generateSecret({ name: `RecoStream (${req.user.username})` });
         const qrDataUrl = await qrcode.toDataURL(secret.otpauth_url);
         await modules.db.run(
             'UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -4998,7 +4998,7 @@ function setupRadarrApi() {
             migrationVersion: 1,
             urlBase: '',
             runtimeVersion: '6.0.0',
-            runtimeName: 'hermes'
+            runtimeName: 'recostream'
         });
     });
 
@@ -5591,7 +5591,7 @@ function setupRadarrApi() {
             const { name, movieIds, seriesId } = req.body;
             logger?.info('radarr-api', `Command received: ${name}`, { movieIds, seriesId });
 
-            // Return success - Hermes handles downloads differently
+            // Return success - RecoStream handles downloads differently
             res.json({
                 id: Date.now(),
                 name: name,

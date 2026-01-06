@@ -219,7 +219,7 @@ module.exports = {
     init: async (modules) => {
         logger = modules.logger;
 
-        const dbPath = path.join(PATHS.data, 'hermes.db');
+        const dbPath = path.join(PATHS.data, 'recostream.db');
 
         return new Promise((resolve, reject) => {
             db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, async (err) => {

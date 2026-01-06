@@ -1,5 +1,5 @@
 @echo off
-REM Hermes Unraid Deployment Script for Windows
+REM RecoStream Unraid Deployment Script for Windows
 REM Builds Docker image locally, transfers to Unraid, and runs with Intel QSV GPU support
 
 setlocal enabledelayedexpansion
@@ -10,10 +10,10 @@ REM ============================================================================
 set UNRAID_HOST=192.168.178.xxx
 set UNRAID_USER=root
 set UNRAID_PASS=
-set CONTAINER_NAME=hermes
-set IMAGE_NAME=hermes:latest
+set CONTAINER_NAME=recostream
+set IMAGE_NAME=recostream:latest
 set HOST_PATH=/mnt/disks/Movies
-set DATA_PATH=/hermesdata/data
+set DATA_PATH=/recostreamdata/data
 set PORT=4000
 
 REM =============================================================================
@@ -22,7 +22,7 @@ REM ============================================================================
 
 echo.
 echo ========================================
-echo        Hermes Unraid Deployment
+echo        RecoStream Unraid Deployment
 echo ========================================
 echo.
 
@@ -71,7 +71,7 @@ echo OK: Image built
 REM Step 2: Save image to tar
 echo.
 echo [2/6] Saving image to tar archive...
-docker save %IMAGE_NAME% -o hermes-image.tar
+docker save %IMAGE_NAME% -o recostream-image.tar
 if errorlevel 1 (
     echo ERROR: Failed to save image
     exit /b 1
@@ -81,10 +81,10 @@ echo OK: Image saved
 REM Step 3: Copy to Unraid
 echo.
 echo [3/6] Copying image to Unraid (this may take a few minutes)...
-pscp -pw %UNRAID_PASS% -batch hermes-image.tar %UNRAID_USER%@%UNRAID_HOST%:/tmp/
+pscp -pw %UNRAID_PASS% -batch recostream-image.tar %UNRAID_USER%@%UNRAID_HOST%:/tmp/
 if errorlevel 1 (
     echo ERROR: Failed to copy image to Unraid
-    del hermes-image.tar 2>nul
+    del recostream-image.tar 2>nul
     exit /b 1
 )
 echo OK: Image transferred
@@ -92,10 +92,10 @@ echo OK: Image transferred
 REM Step 4: Load image on Unraid
 echo.
 echo [4/6] Loading image on Unraid...
-plink -pw %UNRAID_PASS% -batch %UNRAID_USER%@%UNRAID_HOST% "docker load -i /tmp/hermes-image.tar && rm /tmp/hermes-image.tar"
+plink -pw %UNRAID_PASS% -batch %UNRAID_USER%@%UNRAID_HOST% "docker load -i /tmp/recostream-image.tar && rm /tmp/recostream-image.tar"
 if errorlevel 1 (
     echo ERROR: Failed to load image on Unraid
-    del hermes-image.tar 2>nul
+    del recostream-image.tar 2>nul
     exit /b 1
 )
 echo OK: Image loaded
@@ -109,16 +109,16 @@ echo OK: Old container removed
 REM Step 6: Create data directory and start container
 echo.
 echo [6/6] Starting container with Intel QSV GPU...
-plink -pw %UNRAID_PASS% -batch %UNRAID_USER%@%UNRAID_HOST% "mkdir -p %HOST_PATH%/data && docker run -d --name %CONTAINER_NAME% --restart unless-stopped --device=/dev/dri:/dev/dri -p %PORT%:3000 -v %HOST_PATH%:/hermesdata -e DATA_PATH=%DATA_PATH% %IMAGE_NAME%"
+plink -pw %UNRAID_PASS% -batch %UNRAID_USER%@%UNRAID_HOST% "mkdir -p %HOST_PATH%/data && docker run -d --name %CONTAINER_NAME% --restart unless-stopped --device=/dev/dri:/dev/dri -p %PORT%:3000 -v %HOST_PATH%:/recostreamdata -e DATA_PATH=%DATA_PATH% %IMAGE_NAME%"
 if errorlevel 1 (
     echo ERROR: Failed to start container
-    del hermes-image.tar 2>nul
+    del recostream-image.tar 2>nul
     exit /b 1
 )
 echo OK: Container started
 
 REM Cleanup local tar
-del hermes-image.tar 2>nul
+del recostream-image.tar 2>nul
 
 REM Verify container is running
 echo.
@@ -131,7 +131,7 @@ echo ========================================
 echo      Deployment Complete!
 echo ========================================
 echo.
-echo Hermes is now running at: http://%UNRAID_HOST%:%PORT%
+echo RecoStream is now running at: http://%UNRAID_HOST%:%PORT%
 echo.
 echo First-time setup:
 echo   1. Open http://%UNRAID_HOST%:%PORT%/settings
