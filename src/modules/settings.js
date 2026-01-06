@@ -22,6 +22,11 @@ const defaults = {
     // Webhooks
     webhookUrl: '',
 
+    // Telegram notifications
+    telegramEnabled: false,
+    telegramBotToken: '',
+    telegramChatId: '',
+
     // Plex
     plexUrl: '',
     plexToken: '',

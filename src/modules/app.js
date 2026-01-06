@@ -81,6 +81,51 @@ async function sendWebhook(event, payload) {
     }));
 }
 
+function getTelegramConfig() {
+    return {
+        enabled: settings?.get?.('telegramEnabled') === true,
+        botToken: settings?.get?.('telegramBotToken') || '',
+        chatId: settings?.get?.('telegramChatId') || ''
+    };
+}
+
+function formatTelegramMessage(event, payload) {
+    if (event === 'download_complete') {
+        if (payload.media_type === 'series') {
+            const seriesName = payload.series_name || payload.title || 'Unknown';
+            const season = String(payload.season ?? '').padStart(2, '0');
+            const episode = String(payload.episode ?? '').padStart(2, '0');
+            const episodeTitle = payload.title ? ` - ${payload.title}` : '';
+            return `Download complete: ${seriesName} S${season}E${episode}${episodeTitle}`;
+        }
+        return `Download complete: ${payload.title || 'Unknown'}`;
+    }
+    if (event === 'recording_finished') {
+        return `Recording finished: ${payload.title || 'Unknown'}`;
+    }
+    return null;
+}
+
+async function sendTelegramNotification(event, payload) {
+    const { enabled, botToken, chatId } = getTelegramConfig();
+    if (!enabled || !botToken || !chatId) return;
+
+    const message = formatTelegramMessage(event, payload);
+    if (!message) return;
+
+    try {
+        logger?.info('telegram', `Sending ${event} notification`);
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            chat_id: chatId,
+            text: message
+        }, { timeout: 10000 });
+        logger?.info('telegram', `Telegram notification delivered (${event})`);
+    } catch (err) {
+        const status = err.response?.status;
+        logger?.warn('telegram', `Failed to send Telegram notification${status ? ` (${status})` : ''}: ${err.message}`);
+    }
+}
+
 // Parse series title to extract show name, season, episode, language
 // Examples: "DE - The King of Queens S01 E01", "FR - Sam S03 E03", "EN - ER (1994) S04 E20"
 function parseSeriesTitle(title) {
@@ -5921,6 +5966,13 @@ function setupWebhookDispatch() {
                 path: data.path || download?.final_path || null,
                 completed_at: download?.completed_at || null
             });
+            await sendTelegramNotification('download_complete', {
+                media_type: mediaType,
+                title,
+                series_name: seriesName,
+                season: download?.season ?? null,
+                episode: download?.episode ?? null
+            });
         } catch (err) {
             logger?.warn('webhook', `Download webhook failed: ${err.message}`);
         }
@@ -5934,6 +5986,9 @@ function setupWebhookDispatch() {
                 title: data.title || null,
                 path: data.outputPath || null,
                 file_size: data.fileSize ?? null
+            });
+            await sendTelegramNotification('recording_finished', {
+                title: data.title || null
             });
         } catch (err) {
             logger?.warn('webhook', `Recording webhook failed: ${err.message}`);
