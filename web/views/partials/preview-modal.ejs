@@ -298,11 +298,32 @@
     let currentPreviewUrl = null;
     let currentHls = null;
 
+    let previewSessionId = null;
+
+    function notifyPreviewSession(action) {
+        if (!previewSessionId) return;
+        const payload = JSON.stringify({ action, sessionId: previewSessionId });
+        if (navigator.sendBeacon) {
+            const blob = new Blob([payload], { type: 'application/json' });
+            navigator.sendBeacon('/api/stream/session', blob);
+            return;
+        }
+        fetch('/api/stream/session', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+            keepalive: true
+        }).catch(() => {});
+    }
+
     window.openPreview = function(streamUrl, title, quality, language) {
         if (!streamUrl) {
             showToast('No stream URL available', 'error');
             return;
         }
+
+        previewSessionId = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        notifyPreviewSession('start');
 
         currentPreviewUrl = streamUrl;
 
@@ -354,6 +375,7 @@
             document.getElementById('preview-loading').classList.add('hidden');
             document.getElementById('preview-error').classList.remove('hidden');
             document.getElementById('preview-error-msg').textContent = errorMsg || 'Stream may be unavailable or incompatible';
+            notifyPreviewSession('stop');
         };
 
         if (isHls) {
@@ -455,6 +477,8 @@
         document.getElementById('preview-modal').classList.add('hidden');
         document.body.style.overflow = '';
         currentPreviewUrl = null;
+        notifyPreviewSession('stop');
+        previewSessionId = null;
     }
 
     window.togglePreviewFullscreen = function() {
@@ -472,5 +496,10 @@
         if (e.key === 'Escape' && !document.getElementById('preview-modal').classList.contains('hidden')) {
             closePreview();
         }
+    });
+
+    document.getElementById('preview-video').addEventListener('ended', () => {
+        notifyPreviewSession('stop');
+        previewSessionId = null;
     });
 </script>
