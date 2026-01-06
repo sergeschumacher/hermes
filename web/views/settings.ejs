@@ -297,10 +297,10 @@
             </div>
         </div>
 
-        <!-- Download Settings -->
+        <!-- Webhooks -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">Download Settings</h2>
+                <h2 class="text-lg font-semibold text-white">Webhooks</h2>
             </div>
             <div class="p-4 space-y-4">
                 <div>
@@ -308,6 +308,15 @@
                     <input type="text" id="setting-webhookUrl" class="input" placeholder="https://your-server/webhook (comma-separated supported)" />
                     <p class="text-xs text-dark-500 mt-1">Sent on download complete and recording finished.</p>
                 </div>
+            </div>
+        </div>
+
+        <!-- Download Settings -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Download Settings</h2>
+            </div>
+            <div class="p-4 space-y-4">
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Max Concurrent Downloads</label>
                     <input type="number" id="setting-maxConcurrentDownloads" class="input" min="1" max="5" value="2" />
