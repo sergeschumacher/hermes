@@ -1,5 +1,7 @@
 # RecoStream
 
+![RecoStream Logo](RecoStream-Logo.png)
+
 **Your personal IPTV media management system**
 
 RecoStream is a self-hosted media management application that transforms your IPTV subscriptions into a Netflix-like experience. Browse movies and series with rich metadata, preview streams before downloading, and manage your media library with ease.
