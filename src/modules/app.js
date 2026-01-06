@@ -55,7 +55,10 @@ function getWebhookUrls() {
 
 async function sendWebhook(event, payload) {
     const urls = getWebhookUrls();
-    if (!urls.length) return;
+    if (!urls.length) {
+        logger?.info('webhook', `No webhook URLs configured for event ${event}`);
+        return;
+    }
 
     const body = {
         event,
@@ -65,12 +68,15 @@ async function sendWebhook(event, payload) {
 
     await Promise.all(urls.map(async (url) => {
         try {
-            await axios.post(url, body, {
+            logger?.info('webhook', `Sending ${event} to ${url}`);
+            const response = await axios.post(url, body, {
                 timeout: WEBHOOK_TIMEOUT_MS,
                 headers: { 'User-Agent': 'RecoStream/1.0' }
             });
+            logger?.info('webhook', `Webhook ${event} delivered to ${url} (${response.status})`);
         } catch (err) {
-            logger?.warn('webhook', `Failed to send ${event} webhook: ${err.message}`);
+            const status = err.response?.status;
+            logger?.warn('webhook', `Failed to send ${event} webhook to ${url}${status ? ` (${status})` : ''}: ${err.message}`);
         }
     }));
 }
@@ -759,6 +765,14 @@ function setupRoutes() {
             },
             mfaEnabled: isMfaEnabled()
         });
+    });
+
+    app.post('/api/webhook/test', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const event = (req.body.event || 'test').trim();
+        const payload = req.body.payload && typeof req.body.payload === 'object' ? req.body.payload : {};
+        await sendWebhook(event, { test: true, ...payload });
+        res.json({ success: true });
     });
 
     app.post('/api/auth/totp/setup', async (req, res) => {
@@ -5879,6 +5893,7 @@ function setupWebhookDispatch() {
 
     app.on('download:complete', async (data) => {
         try {
+            logger?.info('webhook', `download:complete received for id ${data.id}`);
             const db = modules.db;
             const download = await db.get(`
                 SELECT d.id, d.final_path, d.completed_at,
@@ -5913,6 +5928,7 @@ function setupWebhookDispatch() {
 
     app.on('recording:completed', async (data) => {
         try {
+            logger?.info('webhook', `recording:completed received for id ${data.id}`);
             await sendWebhook('recording_finished', {
                 id: data.id,
                 title: data.title || null,
