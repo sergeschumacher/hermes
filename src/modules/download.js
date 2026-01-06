@@ -22,6 +22,31 @@ let newznab = null;
 let activeDownloads = 0;
 let downloadInterval = null;
 let streamPauseLogged = false;
+const activeTransfers = new Map();
+
+function pauseActiveDownloads() {
+    for (const [downloadId, transfer] of activeTransfers.entries()) {
+        if (transfer.paused || !transfer.response) continue;
+        transfer.paused = true;
+        if (transfer.pauseState) transfer.pauseState.paused = true;
+        transfer.bumpActivity?.();
+        transfer.response.pause?.();
+        transfer.throttle?.pause?.();
+        logger?.info('download', `Paused active download ${downloadId}`);
+    }
+}
+
+function resumeActiveDownloads() {
+    for (const [downloadId, transfer] of activeTransfers.entries()) {
+        if (!transfer.paused || !transfer.response) continue;
+        transfer.paused = false;
+        if (transfer.pauseState) transfer.pauseState.paused = false;
+        transfer.bumpActivity?.();
+        transfer.response.resume?.();
+        transfer.throttle?.resume?.();
+        logger?.info('download', `Resumed active download ${downloadId}`);
+    }
+}
 
 // Default assumed video duration for bitrate calculation (in seconds)
 // 90 minutes for movies, 45 minutes for episodes
@@ -256,12 +281,14 @@ async function processQueue() {
             logger?.info('download', 'Stream active, pausing new downloads');
             streamPauseLogged = true;
         }
+        pauseActiveDownloads();
         return;
     }
     if (streamPauseLogged) {
         logger?.info('download', 'Stream ended, resuming downloads');
         streamPauseLogged = false;
     }
+    resumeActiveDownloads();
 
     if (slowDiskMode) {
         // Slow disk mode: strictly sequential - one operation at a time
@@ -552,6 +579,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     let downloadedLength = 0;
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
+    const pauseState = { paused: false };
 
     // Calculate throttle settings
     let bytesPerSecond = Infinity;
@@ -589,6 +617,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         // Timeout for stalled downloads (no data received for 120 seconds when throttled, 60 when not)
         const stallTimeoutMs = throttleEnabled ? 120000 : 60000;
         const stallTimeout = setInterval(() => {
+            if (pauseState.paused) {
+                lastDataTime = Date.now();
+                return;
+            }
             if (Date.now() - lastDataTime > stallTimeoutMs) {
                 clearInterval(stallTimeout);
                 writer.destroy();
@@ -652,6 +684,22 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             throttle.destroy();
             logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
             reject(err);
+        });
+
+        activeTransfers.set(downloadId, {
+            response: response.data,
+            throttle,
+            paused: false,
+            bumpActivity: () => { lastDataTime = Date.now(); },
+            pauseState
+        });
+
+        response.data.on('close', () => {
+            activeTransfers.delete(downloadId);
+        });
+
+        writer.on('close', () => {
+            activeTransfers.delete(downloadId);
         });
 
         // Pipe through throttle to writer
