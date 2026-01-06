@@ -65,7 +65,8 @@
             }
 
             count.textContent = logs.length + ' entries';
-            list.innerHTML = logs.map(log => {
+            const ordered = logs.slice().reverse();
+            list.innerHTML = ordered.map(log => {
                 const time = formatTime(log.timestamp);
                 const level = escapeHtml(log.level || 'info');
                 const module = escapeHtml(log.module || 'app');
@@ -83,7 +84,7 @@
             }).join('');
 
             if (isOpen) {
-                body.scrollTop = body.scrollHeight;
+                body.scrollTop = 0;
             }
         }
 
