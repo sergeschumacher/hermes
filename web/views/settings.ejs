@@ -335,6 +335,9 @@
                     <label class="block text-sm text-dark-400 mb-1">Chat ID</label>
                     <input type="text" id="setting-telegramChatId" class="input" placeholder="-1001234567890" />
                 </div>
+                <div>
+                    <button onclick="testTelegram()" class="btn btn-secondary btn-sm">Send Test Message</button>
+                </div>
             </div>
         </div>
 
@@ -3888,6 +3891,18 @@
             if (window.showToast) showToast('Password updated', 'success');
         } catch (err) {
             console.error('Failed to update password:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function testTelegram() {
+        try {
+            const response = await fetch('/api/telegram/test', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to send test message');
+            if (window.showToast) showToast('Telegram test sent', 'success');
+        } catch (err) {
+            console.error('Failed to send Telegram test:', err);
             if (window.showToast) showToast(err.message, 'error');
         }
     }

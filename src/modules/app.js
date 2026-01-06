@@ -106,6 +106,25 @@ function formatTelegramMessage(event, payload) {
     return null;
 }
 
+async function sendTelegramMessage(text) {
+    const { enabled, botToken, chatId } = getTelegramConfig();
+    if (!enabled || !botToken || !chatId) return false;
+
+    try {
+        logger?.info('telegram', 'Sending test notification');
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            chat_id: chatId,
+            text
+        }, { timeout: 10000 });
+        logger?.info('telegram', 'Telegram notification delivered');
+        return true;
+    } catch (err) {
+        const status = err.response?.status;
+        logger?.warn('telegram', `Failed to send Telegram notification${status ? ` (${status})` : ''}: ${err.message}`);
+        return false;
+    }
+}
+
 async function sendTelegramNotification(event, payload) {
     const { enabled, botToken, chatId } = getTelegramConfig();
     if (!enabled || !botToken || !chatId) return;
@@ -817,6 +836,13 @@ function setupRoutes() {
         const event = (req.body.event || 'test').trim();
         const payload = req.body.payload && typeof req.body.payload === 'object' ? req.body.payload : {};
         await sendWebhook(event, { test: true, ...payload });
+        res.json({ success: true });
+    });
+
+    app.post('/api/telegram/test', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const ok = await sendTelegramMessage('RecoStream test notification');
+        if (!ok) return res.status(400).json({ error: 'Telegram not configured' });
         res.json({ success: true });
     });
 
