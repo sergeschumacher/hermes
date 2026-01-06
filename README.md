@@ -29,9 +29,9 @@ RecoStream is a self-hosted media management application that transforms your IP
 
 ```yaml
 services:
-  recostream2:
+  recostream:
     image: ghcr.io/sergeschumacher/recostream:latest
-    container_name: recostream2
+    container_name: recostream
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -55,7 +55,7 @@ Then open http://localhost:3000 in your browser.
 
 ```bash
 docker run -d \
-  --name recostream2 \
+  --name recostream \
   -p 3000:3000 \
   -v ./data:/data \
   -v ./downloads:/downloads \

@@ -1,7 +1,7 @@
 services:
   recostream:
     image: ghcr.io/sergeschumacher/recostream:latest
-    container_name: recostream2
+    container_name: recostream
     restart: unless-stopped
     ports:
       - "33000:3000"
