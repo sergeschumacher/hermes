@@ -21,6 +21,7 @@ RecoStream is a self-hosted media management application that transforms your IP
 - **Plex Integration** - Automatically scan new media into your Plex library
 - **DVR/Recording** - Schedule recordings from live TV streams
 - **Usenet Support** - Download via Usenet with NZB indexer integration
+- **Webhooks** - Send notifications on downloads and recordings (e.g., n8n/Telegram)
 - **Source Analyzer** - Analyze your IPTV sources for quality and availability
 
 ## Quick Start
