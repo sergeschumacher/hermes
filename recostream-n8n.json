@@ -18,6 +18,8 @@
         "dataType": "string",
         "value1": "={{$json.body.event}}",
         "rules": [
+          { "operation": "equal", "value2": "request_created" },
+          { "operation": "equal", "value2": "request_approved" },
           { "operation": "equal", "value2": "download_complete" },
           { "operation": "equal", "value2": "recording_finished" }
         ]
@@ -42,7 +44,7 @@
       "name": "Format Download Message",
       "type": "n8n-nodes-base.set",
       "typeVersion": 2,
-      "position": [700, 220]
+      "position": [700, 360]
     },
     {
       "parameters": {
@@ -59,7 +61,41 @@
       "name": "Format Recording Message",
       "type": "n8n-nodes-base.set",
       "typeVersion": 2,
-      "position": [700, 380]
+      "position": [700, 520]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "message",
+              "value": "={{$json.body.media_type === 'series' ? ('New series request: ' + ($json.body.series_name || $json.body.title || 'Unknown') + ' S' + String($json.body.season || '').padStart(2,'0') + 'E' + String($json.body.episode || '').padStart(2,'0') + ( $json.body.title ? ' - ' + $json.body.title : '' ) + ( $json.body.requested_by ? ' (by ' + $json.body.requested_by + ')' : '' )) : ('New movie request: ' + ($json.body.title || 'Unknown') + ( $json.body.requested_by ? ' (by ' + $json.body.requested_by + ')' : '' ))}}"
+            }
+          ]
+        }
+      },
+      "name": "Format Request Created",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [700, 80]
+    },
+    {
+      "parameters": {
+        "keepOnlySet": true,
+        "values": {
+          "string": [
+            {
+              "name": "message",
+              "value": "={{$json.body.media_type === 'series' ? ('Request approved: ' + ($json.body.series_name || $json.body.title || 'Unknown') + ' S' + String($json.body.season || '').padStart(2,'0') + 'E' + String($json.body.episode || '').padStart(2,'0') + ( $json.body.title ? ' - ' + $json.body.title : '' ) + ( $json.body.approved_by ? ' (by ' + $json.body.approved_by + ')' : '' )) : ('Request approved: ' + ($json.body.title || 'Unknown') + ( $json.body.approved_by ? ' (by ' + $json.body.approved_by + ')' : '' ))}}"
+            }
+          ]
+        }
+      },
+      "name": "Format Request Approved",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 2,
+      "position": [700, 220]
     },
     {
       "parameters": {
@@ -83,10 +119,18 @@
     },
     "Switch Event": {
       "main": [
+        [{ "node": "Format Request Created", "type": "main", "index": 0 }],
+        [{ "node": "Format Request Approved", "type": "main", "index": 0 }],
         [{ "node": "Format Download Message", "type": "main", "index": 0 }],
         [{ "node": "Format Recording Message", "type": "main", "index": 0 }],
         []
       ]
+    },
+    "Format Request Created": {
+      "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
+    },
+    "Format Request Approved": {
+      "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
     },
     "Format Download Message": {
       "main": [[{ "node": "Send Telegram", "type": "main", "index": 0 }]]
