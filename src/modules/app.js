@@ -6074,5 +6074,8 @@ module.exports = {
     },
 
     io: () => io,
-    emit: (event, data) => io?.emit(event, data)
+    emit: (event, data) => {
+        app?.emit(event, data);
+        io?.emit(event, data);
+    }
 };
