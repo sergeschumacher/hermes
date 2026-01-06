@@ -100,7 +100,7 @@
     {
       "parameters": {
         "chatId": "TELEGRAM_CHAT_ID",
-        "text": "={{$json.message}}"
+        "text": "={{$json.message && $json.message.trim().length ? $json.message : 'RecoStream notification'}}"
       },
       "name": "Send Telegram",
       "type": "n8n-nodes-base.telegram",
