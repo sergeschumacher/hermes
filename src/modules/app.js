@@ -162,6 +162,10 @@ function hashToken(token) {
     return crypto.createHash('sha256').update(token).digest('hex');
 }
 
+function normalizeTotpToken(token) {
+    return String(token || '').replace(/[^0-9]/g, '');
+}
+
 async function getUserCount() {
     const now = Date.now();
     if (userCountCache.count !== null && now - userCountCache.loadedAt < 3000) {
@@ -649,7 +653,7 @@ function setupRoutes() {
         const wantsJson = (req.headers.accept || '').includes('application/json') || req.is('application/json');
         const username = (req.body.username || '').trim();
         const password = req.body.password || '';
-        const token = (req.body.token || '').trim();
+        const token = normalizeTotpToken(req.body.token);
 
         if (!username || !password) {
             if (wantsJson) return res.status(400).json({ error: 'Username and password are required' });
@@ -677,7 +681,7 @@ function setupRoutes() {
                 secret: user.totp_secret,
                 encoding: 'base32',
                 token,
-                window: 1
+                window: 2
             });
             if (!verified) {
                 if (wantsJson) return res.status(401).json({ error: 'Invalid MFA code', mfaRequired: true });
@@ -772,7 +776,7 @@ function setupRoutes() {
     app.post('/api/auth/totp/enable', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
         if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
-        const token = (req.body.token || '').trim();
+        const token = normalizeTotpToken(req.body.token);
         if (!token) return res.status(400).json({ error: 'Token is required' });
 
         const user = await modules.db.get('SELECT totp_secret FROM users WHERE id = ?', [req.user.user_id]);
@@ -782,7 +786,7 @@ function setupRoutes() {
             secret: user.totp_secret,
             encoding: 'base32',
             token,
-            window: 1
+            window: 2
         });
 
         if (!verified) return res.status(400).json({ error: 'Invalid token' });
@@ -797,7 +801,7 @@ function setupRoutes() {
     app.post('/api/auth/totp/disable', async (req, res) => {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
         const password = req.body.password || '';
-        const token = (req.body.token || '').trim();
+        const token = normalizeTotpToken(req.body.token);
 
         if (!password) return res.status(400).json({ error: 'Password is required' });
 
@@ -811,7 +815,7 @@ function setupRoutes() {
                 secret: user.totp_secret,
                 encoding: 'base32',
                 token,
-                window: 1
+                window: 2
             });
             if (!verified) return res.status(400).json({ error: 'Invalid token' });
         }
