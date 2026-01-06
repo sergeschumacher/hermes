@@ -1,6 +1,6 @@
 # RecoStream
 
-![RecoStream Logo](RecoStream-Logo.png)
+<img src="RecoStream-Logo.png" alt="RecoStream Logo" width="420" />
 
 **Your personal IPTV media management system**
 
