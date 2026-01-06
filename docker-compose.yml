@@ -23,10 +23,10 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - lan102
+      - recostream
     runtime: nvidia
 
 networks:
-  lan102:
+  recostream:
     external: true
-    name: br0.102
+    name: recostream
