@@ -19,6 +19,7 @@ let isProcessing = false;
 let transcodeInterval = null;
 let watchInterval = null;
 let hwAccelCache = null;
+let streamPauseLogged = false;
 
 // Supported video extensions for watch folder
 const VIDEO_EXTENSIONS = ['.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mp4'];
@@ -482,6 +483,19 @@ async function queueWatchFile(inputPath, outputFolder, filename) {
  * Process the transcode queue
  */
 async function processQueue() {
+    const streamActive = modulesRef?.app?.isStreamActive?.() === true;
+    if (streamActive) {
+        if (!streamPauseLogged) {
+            logger?.info('transcoder', 'Stream active, pausing new transcodes');
+            streamPauseLogged = true;
+        }
+        return;
+    }
+    if (streamPauseLogged) {
+        logger?.info('transcoder', 'Stream ended, resuming transcodes');
+        streamPauseLogged = false;
+    }
+
     if (isProcessing || !settings?.get('transcodeFilesEnabled')) return;
 
     const job = await db.get(`

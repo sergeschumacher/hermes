@@ -16,6 +16,7 @@ let io = null;
 let logger = null;
 let settings = null;
 let modules = null;
+let activeStreamSessions = new Set();
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
@@ -79,6 +80,14 @@ async function sendWebhook(event, payload) {
             logger?.warn('webhook', `Failed to send ${event} webhook to ${url}${status ? ` (${status})` : ''}: ${err.message}`);
         }
     }));
+}
+
+function getActiveStreamCount() {
+    return activeStreamSessions.size;
+}
+
+function isStreamActive() {
+    return getActiveStreamCount() > 0;
 }
 
 function getTelegramConfig() {
@@ -837,6 +846,25 @@ function setupRoutes() {
         const payload = req.body.payload && typeof req.body.payload === 'object' ? req.body.payload : {};
         await sendWebhook(event, { test: true, ...payload });
         res.json({ success: true });
+    });
+
+    app.post('/api/stream/session', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const action = (req.body.action || '').trim().toLowerCase();
+        const sessionId = (req.body.sessionId || '').trim();
+        if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+        if (action === 'start') {
+            activeStreamSessions.add(sessionId);
+            logger?.info('stream', `Session started: ${sessionId} (active: ${getActiveStreamCount()})`);
+            return res.json({ success: true, active: getActiveStreamCount() });
+        }
+        if (action === 'stop') {
+            activeStreamSessions.delete(sessionId);
+            logger?.info('stream', `Session ended: ${sessionId} (active: ${getActiveStreamCount()})`);
+            return res.json({ success: true, active: getActiveStreamCount() });
+        }
+        return res.status(400).json({ error: 'Invalid action' });
     });
 
     app.post('/api/telegram/test', async (req, res) => {
@@ -6077,5 +6105,6 @@ module.exports = {
     emit: (event, data) => {
         app?.emit(event, data);
         io?.emit(event, data);
-    }
+    },
+    isStreamActive
 };

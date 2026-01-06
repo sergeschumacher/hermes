@@ -21,6 +21,7 @@ let newznab = null;
 
 let activeDownloads = 0;
 let downloadInterval = null;
+let streamPauseLogged = false;
 
 // Default assumed video duration for bitrate calculation (in seconds)
 // 90 minutes for movies, 45 minutes for episodes
@@ -248,6 +249,19 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 
 async function processQueue() {
     const slowDiskMode = settings.get('slowDiskMode');
+    const streamActive = modulesRef?.app?.isStreamActive?.() === true;
+
+    if (streamActive) {
+        if (!streamPauseLogged) {
+            logger?.info('download', 'Stream active, pausing new downloads');
+            streamPauseLogged = true;
+        }
+        return;
+    }
+    if (streamPauseLogged) {
+        logger?.info('download', 'Stream ended, resuming downloads');
+        streamPauseLogged = false;
+    }
 
     if (slowDiskMode) {
         // Slow disk mode: strictly sequential - one operation at a time

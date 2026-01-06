@@ -35,6 +35,22 @@
         const streamUrl = <%- JSON.stringify(streamUrl || '') %>;
         const video = document.getElementById('player-video');
         const errorEl = document.getElementById('player-error');
+        const sessionId = `player-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+        function notifySession(action) {
+            const payload = JSON.stringify({ action, sessionId });
+            if (navigator.sendBeacon) {
+                const blob = new Blob([payload], { type: 'application/json' });
+                navigator.sendBeacon('/api/stream/session', blob);
+                return;
+            }
+            fetch('/api/stream/session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: payload,
+                keepalive: true
+            }).catch(() => {});
+        }
 
         function showError(message) {
             errorEl.textContent = message;
@@ -52,6 +68,7 @@
         if (!streamUrl) {
             showError('No stream URL provided.');
         } else {
+            notifySession('start');
             const proxyUrl = '/api/stream/proxy?url=' + encodeURIComponent(streamUrl);
             const isHls = streamUrl.includes('.m3u8');
 
@@ -70,6 +87,10 @@
                 video.src = proxyUrl;
             }
         }
+
+        window.addEventListener('pagehide', () => notifySession('stop'));
+        window.addEventListener('beforeunload', () => notifySession('stop'));
+        video.addEventListener('ended', () => notifySession('stop'));
     </script>
 </body>
 </html>
