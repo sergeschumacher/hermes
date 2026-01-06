@@ -8,6 +8,12 @@ let logger = null;
 let db = null;
 let settings = null;
 let app = null;
+let modulesRef = null;
+
+function emitApp(event, data) {
+    (modulesRef?.app || app)?.emit(event, data);
+}
+
 let plex = null;
 let transcoder = null;
 let usenet = null;
@@ -366,7 +372,7 @@ async function processDownload(download) {
     await db.run('UPDATE downloads SET status = ?, started_at = CURRENT_TIMESTAMP, temp_path = ? WHERE id = ?',
         ['downloading', tempFile, download.id]);
 
-    app?.emit('download:start', { id: download.id, title: download.title });
+    emitApp('download:start', { id: download.id, title: download.title });
 
     try {
         const userAgent = settings.getRandomUserAgent();
@@ -423,7 +429,7 @@ async function processDownload(download) {
             await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', download.id]);
 
             logger.info('download', `Queued for transcoding: ${download.title}`);
-            app?.emit('download:transcoding', { id: download.id, title: download.title });
+            emitApp('download:transcoding', { id: download.id, title: download.title });
 
             // Note: Plex scan and final completion happen after transcoding completes (in transcoder module)
 
@@ -448,7 +454,7 @@ async function processDownload(download) {
             `, ['completed', finalPath, download.id]);
 
             logger.info('download', `Completed: ${download.title}`);
-            app?.emit('download:complete', { id: download.id, title: download.title, path: finalPath });
+            emitApp('download:complete', { id: download.id, title: download.title, path: finalPath });
 
             // Trigger Plex scan
             if (plex) {
@@ -477,7 +483,7 @@ async function processDownload(download) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, download.id]);
 
-        app?.emit('download:failed', { id: download.id, title: download.title, error: err.message });
+        emitApp('download:failed', { id: download.id, title: download.title, error: err.message });
     }
 }
 
@@ -593,7 +599,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 await db.run('UPDATE downloads SET progress = ?, downloaded_size = ?, file_size = ? WHERE id = ?',
                     [progress, downloadedLength, totalLength, downloadId]);
 
-                app?.emit('download:progress', {
+                emitApp('download:progress', {
                     id: downloadId,
                     progress: progress.toFixed(1),
                     downloaded: downloadedLength,
@@ -656,7 +662,7 @@ async function processUsenetDownload(download) {
     await db.run('UPDATE downloads SET status = ?, started_at = CURRENT_TIMESTAMP, source_type = ? WHERE id = ?',
         ['downloading', 'usenet', download.id]);
 
-    app?.emit('download:start', { id: download.id, title: download.title });
+    emitApp('download:start', { id: download.id, title: download.title });
 
     try {
         // Fetch NZB content
@@ -687,7 +693,7 @@ async function processUsenetDownload(download) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, download.id]);
 
-        app?.emit('download:failed', { id: download.id, title: download.title, error: err.message });
+        emitApp('download:failed', { id: download.id, title: download.title, error: err.message });
     }
 }
 
@@ -765,7 +771,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
             await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', downloadId]);
 
             logger.info('download', `Usenet download queued for transcoding: ${displayTitle}`);
-            app?.emit('download:transcoding', { id: downloadId, title: download.title });
+            emitApp('download:transcoding', { id: downloadId, title: download.title });
 
         } else {
             // Move to final destination
@@ -789,7 +795,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
             `, ['completed', finalPath, fileStats.size, downloadId]);
 
             logger.info('download', `Usenet download completed: ${displayTitle}`);
-            app?.emit('download:complete', { id: downloadId, title: download.title, path: finalPath });
+            emitApp('download:complete', { id: downloadId, title: download.title, path: finalPath });
 
             // Trigger Plex scan
             if (plex) {
@@ -822,7 +828,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, downloadId]);
 
-        app?.emit('download:failed', { id: downloadId, title: download.title, error: err.message });
+        emitApp('download:failed', { id: downloadId, title: download.title, error: err.message });
     }
 }
 
@@ -839,6 +845,7 @@ module.exports = {
         logger = modules.logger;
         db = modules.db;
         settings = modules.settings;
+        modulesRef = modules;
         app = modules.app;
         plex = modules.plex;
         transcoder = modules.transcoder;
@@ -922,7 +929,7 @@ module.exports = {
             [mediaId, episodeId, 'queued', priority]
         );
 
-        app?.emit('download:queued', { id: result.lastID, mediaId, episodeId });
+        emitApp('download:queued', { id: result.lastID, mediaId, episodeId });
         return { success: true, id: result.lastID };
     },
 
@@ -942,7 +949,7 @@ module.exports = {
             [mediaId, episodeId, 'queued', priority, nzbUrl, nzbTitle, 'usenet']
         );
 
-        app?.emit('download:queued', { id: result.lastID, mediaId, episodeId, type: 'usenet' });
+        emitApp('download:queued', { id: result.lastID, mediaId, episodeId, type: 'usenet' });
         logger?.info('download', `Queued usenet download: ${nzbTitle}`);
         return { success: true, id: result.lastID };
     },
@@ -950,7 +957,7 @@ module.exports = {
     // Cancel download
     cancel: async (downloadId) => {
         await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['cancelled', downloadId]);
-        app?.emit('download:cancelled', { id: downloadId });
+        emitApp('download:cancelled', { id: downloadId });
     },
 
     // Set priority for a download
@@ -958,7 +965,7 @@ module.exports = {
         const clampedPriority = Math.max(0, Math.min(100, priority));
         await db.run('UPDATE downloads SET priority = ? WHERE id = ? AND status = ?',
             [clampedPriority, downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: clampedPriority });
+        emitApp('download:priority', { id: downloadId, priority: clampedPriority });
         return { success: true, priority: clampedPriority };
     },
 
@@ -970,7 +977,7 @@ module.exports = {
 
         const newPriority = Math.min(100, (download.priority || 50) + 10);
         await db.run('UPDATE downloads SET priority = ? WHERE id = ?', [newPriority, downloadId]);
-        app?.emit('download:priority', { id: downloadId, priority: newPriority });
+        emitApp('download:priority', { id: downloadId, priority: newPriority });
         return { success: true, priority: newPriority };
     },
 
@@ -982,7 +989,7 @@ module.exports = {
 
         const newPriority = Math.max(0, (download.priority || 50) - 10);
         await db.run('UPDATE downloads SET priority = ? WHERE id = ?', [newPriority, downloadId]);
-        app?.emit('download:priority', { id: downloadId, priority: newPriority });
+        emitApp('download:priority', { id: downloadId, priority: newPriority });
         return { success: true, priority: newPriority };
     },
 
@@ -990,7 +997,7 @@ module.exports = {
     moveToTop: async (downloadId) => {
         await db.run('UPDATE downloads SET priority = 100 WHERE id = ? AND status = ?',
             [downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: 100 });
+        emitApp('download:priority', { id: downloadId, priority: 100 });
         return { success: true, priority: 100 };
     },
 
@@ -998,7 +1005,7 @@ module.exports = {
     moveToBottom: async (downloadId) => {
         await db.run('UPDATE downloads SET priority = 0 WHERE id = ? AND status = ?',
             [downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: 0 });
+        emitApp('download:priority', { id: downloadId, priority: 0 });
         return { success: true, priority: 0 };
     },
 
@@ -1009,7 +1016,7 @@ module.exports = {
             SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
             WHERE id = ? AND status IN ('failed', 'cancelled')
         `, [downloadId]);
-        app?.emit('download:retry', { id: downloadId });
+        emitApp('download:retry', { id: downloadId });
         return { success: true };
     },
 
