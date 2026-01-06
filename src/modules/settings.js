@@ -119,6 +119,35 @@ function load() {
                 logger?.info('settings', 'Migrated transcodeEnabled to transcodeFilesEnabled/transcodeStreamEnabled');
             }
 
+            // Migration: fix paths that reference non-existent base directories
+            // This handles container migrations where DATA_PATH changed
+            const pathSettings = [
+                'tempPath', 'downloadPath', 'movieDownloadPath', 'seriesDownloadPath',
+                'recordingsPath', 'transcodeWatchFolder', 'transcodeOutputFolder',
+                'usenetTempPath', 'usenetDownloadPath'
+            ];
+            let pathsFixed = false;
+            for (const key of pathSettings) {
+                const value = settings[key];
+                if (value && !value.startsWith('smb://')) {
+                    // Get the base directory (first two path components, e.g., /hermesdata/data)
+                    const parts = value.split('/').filter(Boolean);
+                    if (parts.length >= 2) {
+                        const baseDir = '/' + parts.slice(0, 2).join('/');
+                        // If base directory doesn't exist and doesn't match current DATA_PATH, reset to default
+                        if (!fs.existsSync(baseDir) && !value.startsWith(PATHS.data)) {
+                            logger?.warn('settings', `Path migration: ${key} references non-existent directory "${baseDir}", resetting to default`);
+                            settings[key] = defaults[key];
+                            pathsFixed = true;
+                        }
+                    }
+                }
+            }
+            if (pathsFixed) {
+                save();
+                logger?.info('settings', 'Migrated invalid paths to defaults');
+            }
+
             logger?.info('settings', 'Settings loaded');
         } else {
             settings = { ...defaults };
