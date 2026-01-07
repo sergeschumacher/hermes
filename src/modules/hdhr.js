@@ -1,6 +1,6 @@
 /**
  * HDHomeRun Emulator Module
- * Makes Hermes appear as an HDHomeRun tuner for Plex Live TV & DVR integration
+ * Makes RecoStream appear as an HDHomeRun tuner for Plex Live TV & DVR integration
  */
 
 const express = require('express');
@@ -78,7 +78,7 @@ function getAppBaseUrl() {
 // HDHomeRun Discovery Response
 function getDiscoverJson() {
     const deviceId = settings?.get('hdhrDeviceId') || generateDeviceId();
-    const friendlyName = settings?.get('hdhrFriendlyName') || 'Hermes HDHR';
+    const friendlyName = settings?.get('hdhrFriendlyName') || 'RecoStream HDHR';
     const tunerCount = settings?.get('hdhrTunerCount') || 2;
     const baseUrl = getBaseUrl();
 
@@ -88,7 +88,7 @@ function getDiscoverJson() {
         FirmwareName: 'hdhomerun5_atsc',
         FirmwareVersion: '20231001',
         DeviceID: deviceId,
-        DeviceAuth: 'hermes',
+        DeviceAuth: 'recostream',
         TunerCount: tunerCount,
         BaseURL: baseUrl,
         LineupURL: `${baseUrl}/lineup.json`
@@ -98,7 +98,7 @@ function getDiscoverJson() {
 // UPnP Device XML
 function getDeviceXml() {
     const deviceId = settings?.get('hdhrDeviceId') || generateDeviceId();
-    const friendlyName = settings?.get('hdhrFriendlyName') || 'Hermes HDHR';
+    const friendlyName = settings?.get('hdhrFriendlyName') || 'RecoStream HDHR';
 
     return `<?xml version="1.0" encoding="UTF-8"?>
 <root xmlns="urn:schemas-upnp-org:device-1-0">
@@ -113,7 +113,7 @@ function getDeviceXml() {
         <modelName>HDHR5-4US</modelName>
         <modelNumber>HDHR5-4US</modelNumber>
         <serialNumber>${deviceId}</serialNumber>
-        <UDN>uuid:${deviceId}-hermes-hdhr</UDN>
+        <UDN>uuid:${deviceId}-recostream-hdhr</UDN>
     </device>
 </root>`;
 }
@@ -213,7 +213,7 @@ async function generateXmltv() {
 
     let xml = '<?xml version="1.0" encoding="UTF-8"?>\n';
     xml += '<!DOCTYPE tv SYSTEM "xmltv.dtd">\n';
-    xml += '<tv generator-info-name="Hermes HDHR">\n';
+    xml += '<tv generator-info-name="RecoStream HDHR">\n';
 
     // Channel definitions
     for (const ch of channels) {
@@ -748,7 +748,7 @@ function getStatus() {
         port,
         baseUrl: getBaseUrl(),
         deviceId: settings?.get('hdhrDeviceId'),
-        friendlyName: settings?.get('hdhrFriendlyName') || 'Hermes HDHR',
+        friendlyName: settings?.get('hdhrFriendlyName') || 'RecoStream HDHR',
         tunerCount: settings?.get('hdhrTunerCount') || 2,
         activeStreams: activeStreams.size,
         xmltvUrl: `${getBaseUrl()}/xmltv`

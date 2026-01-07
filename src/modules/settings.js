@@ -19,6 +19,14 @@ const defaults = {
     // TMDB
     tmdbApiKey: '',
 
+    // Webhooks
+    webhookUrl: '',
+
+    // Telegram notifications
+    telegramEnabled: false,
+    telegramBotToken: '',
+    telegramChatId: '',
+
     // Plex
     plexUrl: '',
     plexToken: '',
@@ -34,6 +42,8 @@ const defaults = {
     downloadRetries: 3,
     downloadDelayMin: 1000,
     downloadDelayMax: 5000,
+    pauseDownloadsOnStream: true,
+    downloadSpeedLogs: false,
 
     // Language preferences (ISO 639-1 codes)
     // These filter movies, series, and live TV by language
@@ -48,7 +58,8 @@ const defaults = {
     sourceSyncIntervalHours: 24,  // How often to refresh IPTV sources
 
     // Transcoding settings
-    transcodeEnabled: true,           // Enable transcoding after download
+    transcodeFilesEnabled: true,      // Enable transcoding for downloads and watch folder
+    transcodeStreamEnabled: true,     // Enable transcoding for live TV/IPTV streams
     transcodeCodec: 'h264',           // 'h264' or 'hevc'
     transcodeHwAccel: 'auto',         // 'auto', 'videotoolbox', 'nvenc', 'amf', 'vaapi', 'software'
     transcodeSkipCompatible: true,    // Skip if already H.264/H.265 in MP4
@@ -88,10 +99,11 @@ const defaults = {
     hdhrEnabled: false,                   // Enable HDHomeRun emulator for Plex
     hdhrPort: 5004,                       // HTTP server port (standard HDHomeRun port)
     hdhrDeviceId: null,                   // Auto-generated 8-char hex device ID
-    hdhrFriendlyName: 'Hermes HDHR',      // Device name shown in Plex
+    hdhrFriendlyName: 'RecoStream HDHR',      // Device name shown in Plex
     hdhrTunerCount: 2,                    // Number of virtual tuners (concurrent streams)
     hdhrBaseUrl: null,                    // External URL override (auto-detected if null)
-    hdhrSourceId: null                    // IPTV source ID for channel/EPG filtering
+    hdhrSourceId: null,                   // IPTV source ID for channel/EPG filtering
+    appBaseUrl: null                      // External app URL for logos/images (e.g. http://192.168.1.100:4000)
 };
 
 function load() {
@@ -99,6 +111,45 @@ function load() {
         if (fs.existsSync(settingsPath)) {
             const data = fs.readFileSync(settingsPath, 'utf8');
             settings = { ...defaults, ...JSON.parse(data) };
+
+            // Migration: convert old transcodeEnabled to new settings
+            if (settings.transcodeEnabled !== undefined && settings.transcodeFilesEnabled === undefined) {
+                settings.transcodeFilesEnabled = settings.transcodeEnabled;
+                settings.transcodeStreamEnabled = true; // Default to enabled for streams
+                delete settings.transcodeEnabled;
+                save(); // Save migrated settings
+                logger?.info('settings', 'Migrated transcodeEnabled to transcodeFilesEnabled/transcodeStreamEnabled');
+            }
+
+            // Migration: fix paths that reference non-existent base directories
+            // This handles container migrations where DATA_PATH changed
+            const pathSettings = [
+                'tempPath', 'downloadPath', 'movieDownloadPath', 'seriesDownloadPath',
+                'recordingsPath', 'transcodeWatchFolder', 'transcodeOutputFolder',
+                'usenetTempPath', 'usenetDownloadPath'
+            ];
+            let pathsFixed = false;
+            for (const key of pathSettings) {
+                const value = settings[key];
+                if (value && !value.startsWith('smb://')) {
+                    // Get the base directory (first two path components, e.g., /hermesdata/data)
+                    const parts = value.split('/').filter(Boolean);
+                    if (parts.length >= 2) {
+                        const baseDir = '/' + parts.slice(0, 2).join('/');
+                        // If base directory doesn't exist and doesn't match current DATA_PATH, reset to default
+                        if (!fs.existsSync(baseDir) && !value.startsWith(PATHS.data)) {
+                            logger?.warn('settings', `Path migration: ${key} references non-existent directory "${baseDir}", resetting to default`);
+                            settings[key] = defaults[key];
+                            pathsFixed = true;
+                        }
+                    }
+                }
+            }
+            if (pathsFixed) {
+                save();
+                logger?.info('settings', 'Migrated invalid paths to defaults');
+            }
+
             logger?.info('settings', 'Settings loaded');
         } else {
             settings = { ...defaults };

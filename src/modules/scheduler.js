@@ -5,6 +5,12 @@ const fs = require('fs');
 let logger = null;
 let db = null;
 let app = null;
+let modulesRef = null;
+
+function emitApp(event, data) {
+    (modulesRef?.app || app)?.emit(event, data);
+}
+
 let settings = null;
 let epg = null;
 let iptv = null;
@@ -388,7 +394,7 @@ async function startRecording(recordingId) {
             WHERE id = ?
         `, [outputPath, ffmpegProcess.pid, actualStartTime, recordingId]);
 
-        app?.emit('recording:started', {
+        emitApp('recording:started', {
             id: recordingId,
             title: recording.title,
             outputPath
@@ -410,7 +416,7 @@ async function startRecording(recordingId) {
                 `, [stats?.size || 0, recordingId]);
 
                 logger.info('scheduler', `Recording completed: ${recording.title}`);
-                app?.emit('recording:completed', {
+                emitApp('recording:completed', {
                     id: recordingId,
                     title: recording.title,
                     outputPath,
@@ -424,7 +430,7 @@ async function startRecording(recordingId) {
                 `, [`ffmpeg exited with code ${code}`, recordingId]);
 
                 logger.error('scheduler', `Recording failed: ${recording.title} (code: ${code})`);
-                app?.emit('recording:failed', {
+                emitApp('recording:failed', {
                     id: recordingId,
                     title: recording.title,
                     error: `ffmpeg exited with code ${code}`
@@ -446,7 +452,7 @@ async function startRecording(recordingId) {
             WHERE id = ?
         `, [err.message, recordingId]);
 
-        app?.emit('recording:failed', {
+        emitApp('recording:failed', {
             id: recordingId,
             title: recording.title,
             error: err.message
@@ -513,7 +519,7 @@ async function cancelRecording(recordingId) {
 
     logger.info('scheduler', `Recording ${recordingId} cancelled`);
 
-    app?.emit('recording:cancelled', {
+    emitApp('recording:cancelled', {
         id: recordingId,
         title: recording.title
     });
@@ -568,7 +574,7 @@ async function scheduleRecording(mediaId, title, startTime, endTime, options = {
 
     logger.info('scheduler', `Scheduled recording: ${title} on ${media.title} from ${start.toISOString()} to ${end.toISOString()}`);
 
-    app?.emit('recording:scheduled', {
+    emitApp('recording:scheduled', {
         id: recordingId,
         title,
         channel: media.title,
@@ -763,6 +769,7 @@ module.exports = {
     init: async (modules) => {
         logger = modules.logger;
         db = modules.db;
+        modulesRef = modules;
         app = modules.app;
         settings = modules.settings;
         epg = modules.epg;

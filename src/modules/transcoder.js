@@ -5,6 +5,12 @@ const fs = require('fs');
 let logger = null;
 let db = null;
 let app = null;
+let modulesRef = null;
+
+function emitApp(event, data) {
+    (modulesRef?.app || app)?.emit(event, data);
+}
+
 let settings = null;
 let plex = null;
 
@@ -13,6 +19,7 @@ let isProcessing = false;
 let transcodeInterval = null;
 let watchInterval = null;
 let hwAccelCache = null;
+let streamPauseLogged = false;
 
 // Supported video extensions for watch folder
 const VIDEO_EXTENSIONS = ['.mkv', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v', '.mpg', '.mpeg', '.ts', '.mp4'];
@@ -466,7 +473,7 @@ async function queueWatchFile(inputPath, outputFolder, filename) {
     `, [inputPath, finalDir, mp4Filename, mediaType]);
 
     logger?.info('transcoder', `Queued from watch folder: ${filename} -> ${finalDir}`);
-    app?.emit('transcode:queued', { filename, source: 'watch', mediaType, finalDir });
+    emitApp('transcode:queued', { filename, source: 'watch', mediaType, finalDir });
 
     // Trigger queue processing
     processQueue();
@@ -476,7 +483,20 @@ async function queueWatchFile(inputPath, outputFolder, filename) {
  * Process the transcode queue
  */
 async function processQueue() {
-    if (isProcessing || !settings?.get('transcodeEnabled')) return;
+    const streamActive = modulesRef?.app?.isStreamActive?.() === true;
+    if (streamActive) {
+        if (!streamPauseLogged) {
+            logger?.info('transcoder', 'Stream active, pausing new transcodes');
+            streamPauseLogged = true;
+        }
+        return;
+    }
+    if (streamPauseLogged) {
+        logger?.info('transcoder', 'Stream ended, resuming transcodes');
+        streamPauseLogged = false;
+    }
+
+    if (isProcessing || !settings?.get('transcodeFilesEnabled')) return;
 
     const job = await db.get(`
         SELECT * FROM transcode_queue
@@ -557,7 +577,7 @@ async function skipJob(job) {
     // Handle based on source type
     if (job.source === 'watch' || !job.download_id) {
         // Watch folder job - just emit event
-        app?.emit('transcode:skipped', { id: job.id, filename: job.filename, source: 'watch', path: finalPath });
+        emitApp('transcode:skipped', { id: job.id, filename: job.filename, source: 'watch', path: finalPath });
         logger?.info('transcoder', `Skipped (already compatible): ${job.filename} -> ${finalPath}`);
     } else {
         // Download job - update download status
@@ -567,8 +587,8 @@ async function skipJob(job) {
         `, [finalPath, job.download_id]);
 
         const download = await db.get('SELECT * FROM downloads WHERE id = ?', [job.download_id]);
-        app?.emit('transcode:skipped', { id: job.id, downloadId: job.download_id, title: download?.title });
-        app?.emit('download:complete', { id: job.download_id, title: download?.title, path: finalPath });
+        emitApp('transcode:skipped', { id: job.id, downloadId: job.download_id, title: download?.title });
+        emitApp('download:complete', { id: job.download_id, title: download?.title, path: finalPath });
 
         // Trigger Plex scan
         await triggerPlexScan(job, finalPath);
@@ -623,7 +643,7 @@ async function transcodeFile(job) {
     // Get download info
     const download = await db.get('SELECT * FROM downloads WHERE id = ?', [job.download_id]);
 
-    app?.emit('transcode:start', {
+    emitApp('transcode:start', {
         id: job.id,
         downloadId: job.download_id,
         title: download?.title,
@@ -657,7 +677,7 @@ async function transcodeFile(job) {
                 if (progress > lastProgress) {
                     lastProgress = progress;
                     await db.run('UPDATE transcode_queue SET progress = ? WHERE id = ?', [progress, job.id]);
-                    app?.emit('transcode:progress', {
+                    emitApp('transcode:progress', {
                         id: job.id,
                         downloadId: job.download_id,
                         progress,
@@ -733,7 +753,7 @@ async function completeJob(job, transcodedPath) {
     // Handle based on source type
     if (job.source === 'watch' || !job.download_id) {
         // Watch folder job
-        app?.emit('transcode:complete', {
+        emitApp('transcode:complete', {
             id: job.id,
             filename: job.filename,
             source: 'watch',
@@ -748,14 +768,14 @@ async function completeJob(job, transcodedPath) {
 
         const download = await db.get('SELECT * FROM downloads WHERE id = ?', [job.download_id]);
 
-        app?.emit('transcode:complete', {
+        emitApp('transcode:complete', {
             id: job.id,
             downloadId: job.download_id,
             title: download?.title,
             path: finalPath
         });
 
-        app?.emit('download:complete', {
+        emitApp('download:complete', {
             id: job.download_id,
             title: download?.title,
             path: finalPath
@@ -780,7 +800,7 @@ async function failJob(job, errorMessage) {
     // Handle based on source type
     if (job.source === 'watch' || !job.download_id) {
         // Watch folder job
-        app?.emit('transcode:failed', {
+        emitApp('transcode:failed', {
             id: job.id,
             filename: job.filename,
             source: 'watch',
@@ -795,7 +815,7 @@ async function failJob(job, errorMessage) {
 
         const download = await db.get('SELECT * FROM downloads WHERE id = ?', [job.download_id]);
 
-        app?.emit('transcode:failed', {
+        emitApp('transcode:failed', {
             id: job.id,
             downloadId: job.download_id,
             title: download?.title,
@@ -873,6 +893,7 @@ module.exports = {
     init: async (modules) => {
         logger = modules.logger;
         db = modules.db;
+        modulesRef = modules;
         app = modules.app;
         settings = modules.settings;
         plex = modules.plex;

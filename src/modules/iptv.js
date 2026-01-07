@@ -103,6 +103,7 @@ function extractLanguageFromText(category, title) {
 
     // Known 2-letter language codes to match
     const knownLangCodes = ['DE', 'EN', 'ES', 'FR', 'IT', 'PT', 'NL', 'PL', 'TR', 'RU', 'AR', 'HI', 'KO', 'JA', 'ZH', 'SV', 'NO', 'DA', 'FI', 'EL', 'RO', 'HU', 'CS', 'SK', 'HR', 'SR', 'BG', 'UK', 'SQ', 'FA', 'HE'];
+    const englishCountryCodes = new Set(['US', 'UK', 'CA', 'AU', 'NZ']);
 
     // Common language patterns: [XX], |XX|, (XX), -XX-, XX- prefix
     const langPatterns = [
@@ -164,6 +165,19 @@ function extractLanguageFromText(category, title) {
         const regex = new RegExp(`(^|[\\s|\\[\\(\\-])${name}([\\s|\\]\\)\\-]|$)`, 'i');
         if (regex.test(text)) {
             return code;
+        }
+    }
+
+    // If category uses prefixes like "CA| ..." and suffixes like " ... EN",
+    // prefer the last 2-letter token (often the language).
+    const tokens = text.split(/[\s|\/\\-]+/).filter(Boolean);
+    for (let i = tokens.length - 1; i >= 0; i--) {
+        const token = tokens[i];
+        if (knownLangCodes.includes(token)) {
+            return token;
+        }
+        if (englishCountryCodes.has(token)) {
+            return 'EN';
         }
     }
 
@@ -609,6 +623,7 @@ async function syncXtreamSource(source) {
         // Parse title to extract metadata (title, year, quality, language, platform)
         const parsed = parseOriginalTitle(channel.name);
         const platform = parsed.platform || extractPlatform(categoryName);
+        const detectedLanguage = parsed.language || channel.lang || extractLanguageFromText(categoryName, channel.name);
 
         // Check if item exists and track changes
         const existing = await db.get(
@@ -631,7 +646,7 @@ async function syncXtreamSource(source) {
                 tvg_id = COALESCE(excluded.tvg_id, media.tvg_id),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, parsed.language || channel.lang, platform, channel.epg_channel_id || null]);
+        `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, detectedLanguage, platform, channel.epg_channel_id || null]);
 
         // Track statistics
         if (!existing) {
@@ -779,7 +794,6 @@ async function syncXtreamSource(source) {
 
     let seriesSaved = 0, seriesSkipped = 0;
     const filteredLanguages = {}; // Track what languages are being filtered
-    const seriesToFetchEpisodes = []; // Collect new series that need episode fetching
 
     // PHASE 1: Save all series metadata (fast - no API calls)
     await db.run('BEGIN TRANSACTION');
@@ -837,15 +851,13 @@ async function syncXtreamSource(source) {
         const isNew = !existing;
         if (isNew) {
             stats.added++;
-            // Only fetch episodes for NEW series (optimization!)
-            seriesToFetchEpisodes.push({
-                series_id: series.series_id,
-                media_id: result.lastID
-            });
-        } else if (existing.title !== series.name) {
-            stats.updated++;
+            // Episodes are now lazy-loaded when user views the show
         } else {
-            stats.unchanged++;
+            if (existing.title !== series.name) {
+                stats.updated++;
+            } else {
+                stats.unchanged++;
+            }
         }
         seriesSaved++;
 
@@ -859,76 +871,7 @@ async function syncXtreamSource(source) {
     }
     await db.run('COMMIT');
 
-    // PHASE 2: Fetch episodes for NEW series only (parallel, batched)
-    if (seriesToFetchEpisodes.length > 0) {
-        logger.info('iptv', `Fetching episodes for ${seriesToFetchEpisodes.length} new series...`);
-        const CONCURRENT_REQUESTS = 5; // Parallel episode fetches
-        const BATCH_SIZE = 50; // Commit every 50 series
-
-        let episodeBatch = [];
-        let fetchedCount = 0;
-
-        for (let i = 0; i < seriesToFetchEpisodes.length; i += CONCURRENT_REQUESTS) {
-            const batch = seriesToFetchEpisodes.slice(i, i + CONCURRENT_REQUESTS);
-
-            // Fetch episodes in parallel
-            const results = await Promise.allSettled(
-                batch.map(async ({ series_id, media_id }) => {
-                    const episodesUrl = `${baseUrl}/player_api.php?username=${cleanUsername}&password=${cleanPassword}&action=get_series_info&series_id=${series_id}`;
-                    const episodesResponse = await fetchWithRetry(episodesUrl, { headers, timeout: 30000 }, 2, source);
-                    return { media_id, episodes: episodesResponse.data?.episodes || {} };
-                })
-            );
-
-            // Collect episode data from successful fetches
-            for (const result of results) {
-                if (result.status === 'fulfilled' && result.value.media_id) {
-                    const { media_id, episodes } = result.value;
-                    for (const [season, eps] of Object.entries(episodes)) {
-                        for (const ep of eps) {
-                            const ext = ep.container_extension || 'mkv';
-                            const streamUrl = `${baseUrl}/series/${cleanUsername}/${cleanPassword}/${ep.id}.${ext}`;
-                            episodeBatch.push([
-                                media_id, String(ep.id), parseInt(season), ep.episode_num,
-                                ep.title, ep.info?.plot || null, ep.info?.air_date || null,
-                                ep.info?.duration_secs ? Math.floor(ep.info.duration_secs / 60) : null,
-                                streamUrl, ext
-                            ]);
-                        }
-                    }
-                }
-            }
-
-            fetchedCount += batch.length;
-
-            // Batch insert episodes every BATCH_SIZE series
-            if (episodeBatch.length > 0 && (fetchedCount % BATCH_SIZE === 0 || i + CONCURRENT_REQUESTS >= seriesToFetchEpisodes.length)) {
-                await db.run('BEGIN TRANSACTION');
-                for (const params of episodeBatch) {
-                    await db.run(`
-                        INSERT INTO episodes (media_id, external_id, season, episode, title, plot, air_date, runtime, stream_url, container)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(media_id, season, episode) DO UPDATE SET
-                            external_id = excluded.external_id,
-                            title = COALESCE(excluded.title, episodes.title),
-                            plot = COALESCE(episodes.plot, excluded.plot),
-                            air_date = COALESCE(episodes.air_date, excluded.air_date),
-                            runtime = COALESCE(episodes.runtime, excluded.runtime),
-                            stream_url = excluded.stream_url,
-                            container = excluded.container
-                    `, params);
-                }
-                await db.run('COMMIT');
-                episodeBatch = [];
-            }
-
-            // Emit progress
-            const episodePercent = 86 + Math.round((fetchedCount / seriesToFetchEpisodes.length) * 12); // 86-98%
-            const msg = `Episodes: ${fetchedCount}/${seriesToFetchEpisodes.length} series`;
-            updateSyncStatus(source.id, { step: 'episodes', message: msg, percent: episodePercent, current: fetchedCount, total: seriesToFetchEpisodes.length });
-            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'episodes', message: msg, current: fetchedCount, total: seriesToFetchEpisodes.length, percent: episodePercent });
-        }
-    }
+    // Episodes are now lazy-loaded when user views a show (see /api/shows/:name/fetch-episodes)
 
     logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language`);
 

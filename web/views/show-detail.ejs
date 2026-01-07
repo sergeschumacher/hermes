@@ -430,6 +430,28 @@
                 storedTrailers = await trailersResponse.json();
             }
 
+            // Lazy load episodes: If no episodes, fetch them on-demand from Xtream API
+            if (showData.totalEpisodes === 0) {
+                console.log('No episodes found, fetching from Xtream API...');
+                showLoadingEpisodes();
+                try {
+                    const fetchResponse = await fetch('/api/shows/' + encodeURIComponent(showName) + '/fetch-episodes', {
+                        method: 'POST'
+                    });
+                    if (fetchResponse.ok) {
+                        const fetchResult = await fetchResponse.json();
+                        console.log('Fetched ' + fetchResult.episodeCount + ' episodes');
+                        // Reload show data with episodes
+                        const reloadResponse = await fetch('/api/shows/' + encodeURIComponent(showName));
+                        if (reloadResponse.ok) {
+                            showData = await reloadResponse.json();
+                        }
+                    }
+                } catch (e) {
+                    console.log('Failed to fetch episodes:', e);
+                }
+            }
+
             // On-demand enrichment: If no TMDB data and we have media items, trigger enrichment
             if (!tmdbData && showData.items && showData.items.length > 0) {
                 const firstItem = showData.items[0];
@@ -467,6 +489,13 @@
             renderShow();
         } catch (err) {
             document.getElementById('show-container').innerHTML = '<div class="p-8 text-center text-red-400">Failed to load show</div>';
+        }
+    }
+
+    function showLoadingEpisodes() {
+        const container = document.getElementById('seasons-list');
+        if (container) {
+            container.innerHTML = '<div class="flex items-center gap-3 p-4 text-dark-400"><div class="animate-spin w-5 h-5 border-2 border-primary-500 border-t-transparent rounded-full"></div>Loading episodes...</div>';
         }
     }
 

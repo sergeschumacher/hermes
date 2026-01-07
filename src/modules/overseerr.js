@@ -6,6 +6,12 @@ let settings = null;
 let download = null;
 let tmdb = null;
 let app = null;
+let modulesRef = null;
+
+function emitApp(event, data) {
+    (modulesRef?.app || app)?.emit(event, data);
+}
+
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
 
@@ -101,6 +107,7 @@ module.exports = {
         settings = modules.settings;
         download = modules.download;
         tmdb = modules.tmdb;
+        modulesRef = modules;
         app = modules.app;
     },
 
@@ -283,7 +290,7 @@ module.exports = {
         }
 
         logger?.info('overseerr', `Starting Overseerr enrichment for ${items.length} items`);
-        app?.emit('enrich:start', { total: items.length, source: 'overseerr' });
+        emitApp('enrich:start', { total: items.length, source: 'overseerr' });
 
         let success = 0;
         let failed = 0;
@@ -400,7 +407,7 @@ module.exports = {
 
                 // Progress update
                 if ((i + 1) % 10 === 0 || i === items.length - 1) {
-                    app?.emit('enrich:progress', {
+                    emitApp('enrich:progress', {
                         current: i + 1,
                         total: items.length,
                         success,
@@ -418,7 +425,7 @@ module.exports = {
         }
 
         logger?.info('overseerr', `Overseerr enrichment complete: ${success} success, ${failed} failed`);
-        app?.emit('enrich:complete', { success, failed, total: items.length, source: 'overseerr' });
+        emitApp('enrich:complete', { success, failed, total: items.length, source: 'overseerr' });
 
         return { processed: items.length, success, failed, source: 'overseerr' };
     }

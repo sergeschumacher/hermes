@@ -56,7 +56,9 @@ const TABLE_MIGRATIONS = {
     'enrichment_cache': 26,
     'source_samples': 27,
     'hdhr_channels': 29,
-    'hdhr_category_rules': 29
+    'hdhr_category_rules': 29,
+    'users': 31,
+    'sessions': 31
 };
 
 // Map of table.column to migration version that adds them
@@ -70,6 +72,7 @@ const COLUMN_MIGRATIONS = {
     'media.last_seen_at': 24,
     'media.platform': 25,
     'sources.m3u_parser_config': 30,
+    'media.cached_logo': 31,
 };
 
 async function verifyTables() {
@@ -216,7 +219,7 @@ module.exports = {
     init: async (modules) => {
         logger = modules.logger;
 
-        const dbPath = path.join(PATHS.data, 'hermes.db');
+        const dbPath = path.join(PATHS.data, 'recostream.db');
 
         return new Promise((resolve, reject) => {
             db = new sqlite3.Database(dbPath, sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE, async (err) => {
@@ -230,6 +233,10 @@ module.exports = {
                 try {
                     // Enable foreign key support for CASCADE deletes
                     await runAsync('PRAGMA foreign_keys = ON');
+                    // Reduce lock contention for concurrent reads/writes
+                    await runAsync('PRAGMA journal_mode = WAL');
+                    await runAsync('PRAGMA synchronous = NORMAL');
+                    await runAsync('PRAGMA busy_timeout = 5000');
 
                     await applyMigrations();
                     resolve();

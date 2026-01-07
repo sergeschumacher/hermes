@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RecoStream - Setup</title>
+    <link rel="stylesheet" href="/static/css/output.css">
+</head>
+<body class="bg-dark-bg min-h-screen flex items-center justify-center text-white">
+    <div class="w-full max-w-md px-6">
+        <div class="card p-6">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="w-[35px] h-[35px] flex items-center justify-center">
+                    <img src="/static/images/recostream-icon-small.png" alt="RecoStream" class="w-[35px] h-[35px] object-contain" />
+                </div>
+                <div>
+                    <h1 class="text-2xl font-semibold">Create Admin</h1>
+                    <p class="text-sm text-dark-400">Set up your first RecoStream user</p>
+                </div>
+            </div>
+
+            <% if (error) { %>
+                <div class="mb-4 p-3 rounded bg-danger-500/10 text-danger-300 text-sm"><%= error %></div>
+            <% } %>
+
+            <form method="POST" action="/setup" class="space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Username</label>
+                    <input type="text" name="username" class="input" value="<%= username || '' %>" required />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Password</label>
+                    <input type="password" name="password" class="input" required />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Confirm Password</label>
+                    <input type="password" name="passwordConfirm" class="input" required />
+                </div>
+                <button type="submit" class="btn btn-primary w-full">Create User</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

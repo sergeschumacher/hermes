@@ -2,7 +2,7 @@
 <div class="p-8">
     <div class="mb-8">
         <h1 class="text-3xl font-bold text-white">Settings</h1>
-        <p class="text-dark-400 mt-1">Configure Hermes</p>
+        <p class="text-dark-400 mt-1">Configure RecoStream</p>
     </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -141,7 +141,7 @@
             <div class="p-4 border-b border-dark-700 flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold text-white">HDHomeRun Emulator</h2>
-                    <p class="text-xs text-dark-400">Makes Hermes appear as an HDHomeRun tuner for Plex Live TV</p>
+                    <p class="text-xs text-dark-400">Makes RecoStream appear as an HDHomeRun tuner for Plex Live TV</p>
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" id="setting-hdhrEnabled" class="sr-only peer" onchange="toggleHdhr(this.checked)">
@@ -164,7 +164,7 @@
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm text-dark-400 mb-1">Device Name</label>
-                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="Hermes HDHR" />
+                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="RecoStream HDHR" />
                     </div>
                     <div>
                         <label class="block text-sm text-dark-400 mb-1">Tuner Count</label>
@@ -175,7 +175,7 @@
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Base URL (leave blank to auto-detect)</label>
                     <input type="text" id="setting-hdhrBaseUrl" class="input" placeholder="http://192.168.1.XXX:5004" />
-                    <p class="text-xs text-dark-500 mt-1">Override if Hermes is behind NAT or in Docker</p>
+                    <p class="text-xs text-dark-500 mt-1">Override if RecoStream is behind NAT or in Docker</p>
                 </div>
 
                 <div>
@@ -204,7 +204,7 @@
                         <li>Enable HDHomeRun emulator above</li>
                         <li>Add channels using "Manage Channels"</li>
                         <li>In Plex: Settings > Live TV & DVR > Set Up Plex DVR</li>
-                        <li>Plex should auto-discover "Hermes HDHR"</li>
+                        <li>Plex should auto-discover "RecoStream HDHR"</li>
                         <li>Add the EPG URL below for guide data</li>
                     </ol>
                     <div class="mt-3 pt-2 border-t border-primary-500/20 space-y-2">
@@ -297,6 +297,50 @@
             </div>
         </div>
 
+        <!-- Webhooks -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Webhooks</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Webhook URL</label>
+                    <input type="text" id="setting-webhookUrl" class="input" placeholder="https://your-server/webhook (comma-separated supported)" />
+                    <p class="text-xs text-dark-500 mt-1">Sent on download complete and recording finished.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Telegram Notifications -->
+        <div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Telegram Notifications</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Enable Telegram Notifications</p>
+                        <p class="text-xs text-dark-400">Send download and recording updates to Telegram.</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-telegramEnabled" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Bot API Token</label>
+                    <input type="password" id="setting-telegramBotToken" class="input" placeholder="123456:ABCDEF..." />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Chat ID</label>
+                    <input type="text" id="setting-telegramChatId" class="input" placeholder="-1001234567890" />
+                </div>
+                <div>
+                    <button onclick="testTelegram()" class="btn btn-secondary btn-sm">Send Test Message</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Download Settings -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -306,6 +350,16 @@
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Max Concurrent Downloads</label>
                     <input type="number" id="setting-maxConcurrentDownloads" class="input" min="1" max="5" value="2" />
+                </div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Pause Downloads During Streaming</p>
+                        <p class="text-xs text-dark-400">Automatically pause active downloads when a stream starts</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-pauseDownloadsOnStream" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
                 </div>
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Retry Attempts</label>
@@ -332,11 +386,22 @@
             <div class="p-4 space-y-4">
                 <div class="flex items-center justify-between">
                     <div>
-                        <p class="text-sm text-white">Enable Transcoding</p>
+                        <p class="text-sm text-white">Enable File Transcoding</p>
                         <p class="text-xs text-dark-400">Convert downloads to MP4 for Plex compatibility</p>
                     </div>
                     <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="setting-transcodeEnabled" class="sr-only peer" />
+                        <input type="checkbox" id="setting-transcodeFilesEnabled" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                </div>
+
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Enable Stream Transcoding</p>
+                        <p class="text-xs text-dark-400">Transcode live TV streams for browser playback</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-transcodeStreamEnabled" class="sr-only peer" />
                         <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
                     </label>
                 </div>
@@ -415,25 +480,6 @@
             </div>
         </div>
 
-        <!-- IPTV Connection Settings -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">IPTV Connection</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Spoofed MAC Address</label>
-                    <input type="text" id="setting-spoofedMac" class="input" placeholder="77:f4:8b:a4:ed:10" />
-                    <p class="text-xs text-dark-500 mt-1">MAC address sent to IPTV providers (e.g. from IBU Player Pro)</p>
-                </div>
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Device Key</label>
-                    <input type="text" id="setting-spoofedDeviceKey" class="input" placeholder="006453" />
-                    <p class="text-xs text-dark-500 mt-1">Device key sent to IPTV providers</p>
-                </div>
-            </div>
-        </div>
-
         <!-- Language Preferences -->
         <div class="card">
             <div class="p-4 border-b border-dark-700">
@@ -454,54 +500,6 @@
                         <option value="">+ Add language...</option>
                     </select>
                 </div>
-            </div>
-        </div>
-
-        <!-- EPG Settings -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">EPG Settings</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <p class="text-sm text-dark-400">Select countries for TV guide data (from globetvapp/epg)</p>
-
-                <!-- Selected Countries (Badges) -->
-                <div id="selected-countries" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
-                    <!-- Badges populated by JS -->
-                    <span class="text-dark-500 text-sm" id="no-countries-msg">No countries selected</span>
-                </div>
-
-                <!-- Add Country Dropdown -->
-                <div class="relative">
-                    <select id="country-selector" class="select" onchange="addCountry(this.value)">
-                        <option value="">+ Add country...</option>
-                    </select>
-                </div>
-
-                <div class="flex gap-2 pt-2">
-                    <button onclick="syncGlobalEpg()" class="btn btn-primary" id="sync-epg-btn">Sync EPG Now</button>
-                    <span id="epg-sync-status" class="text-sm text-dark-400 self-center"></span>
-                </div>
-                <div id="epg-sync-progress" class="hidden">
-                    <div class="flex items-center gap-2 mb-2">
-                        <div class="animate-spin w-4 h-4 border-2 border-primary-500 border-t-transparent rounded-full"></div>
-                        <span class="text-sm text-dark-300" id="epg-sync-status-text">Syncing EPG...</span>
-                    </div>
-                    <div class="w-full bg-dark-700 rounded-full h-2">
-                        <div class="bg-primary-500 h-2 rounded-full transition-all duration-300" id="epg-sync-bar" style="width: 0%"></div>
-                    </div>
-                </div>
-                <div class="grid grid-cols-2 gap-4 pt-2 border-t border-dark-700">
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">Recordings Folder</label>
-                        <input type="text" id="setting-recordingsPath" class="input" placeholder="/path/to/recordings" />
-                    </div>
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">EPG Sync Hour (0-23)</label>
-                        <input type="number" id="setting-epgSyncHour" class="input" min="0" max="23" value="4" />
-                    </div>
-                </div>
-                <div id="ffmpeg-status" class="text-sm"></div>
             </div>
         </div>
 
@@ -582,16 +580,83 @@
             </div>
         </div>
 
-        <!-- Usenet Providers -->
+        <!-- Security -->
         <div class="card">
-            <div class="p-4 border-b border-dark-700 flex justify-between items-center">
-                <h2 class="text-lg font-semibold text-white">Usenet Providers</h2>
-                <button onclick="showAddUsenetProvider()" class="btn btn-primary btn-sm">Add Provider</button>
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Security</h2>
             </div>
-            <div class="p-4">
-                <p class="text-sm text-dark-400 mb-4">Configure NNTP servers for downloading from usenet (required for Newznab indexers)</p>
-                <div id="usenet-providers-list" class="space-y-2">
-                    <p class="text-dark-500 text-sm">Loading providers...</p>
+            <div class="p-4 space-y-6">
+                <div class="space-y-2">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-white">User</p>
+                            <p class="text-xs text-dark-400" id="auth-username">Loading...</p>
+                        </div>
+                        <div class="text-xs text-dark-400">MFA: <span id="auth-mfa-status">Loading...</span></div>
+                    </div>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3" id="mfa-controls">
+                    <p class="text-sm text-white">Enable MFA (TOTP)</p>
+                    <p class="text-xs text-dark-400">Scan with your authenticator app or enter the secret manually.</p>
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="setupTotp()" class="btn btn-secondary btn-sm">Generate Secret</button>
+                        <button onclick="enableTotp()" class="btn btn-primary btn-sm">Enable MFA</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">TOTP Secret</label>
+                            <input type="text" id="totp-secret" class="input" readonly />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Authenticator Code</label>
+                            <input type="text" id="totp-token" class="input" placeholder="123456" />
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-xs text-dark-400 mb-1">OTPAuth URL</label>
+                        <input type="text" id="totp-otpauth" class="input" readonly />
+                    </div>
+                    <div id="totp-qr-section" class="hidden">
+                        <label class="block text-xs text-dark-400 mb-2">QR Code</label>
+                        <div class="bg-white p-3 rounded inline-block">
+                            <img id="totp-qr" alt="TOTP QR Code" class="w-40 h-40" />
+                        </div>
+                    </div>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3" id="mfa-disable">
+                    <p class="text-sm text-white">Disable MFA</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Current Password</label>
+                            <input type="password" id="mfa-disable-password" class="input" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Authenticator Code</label>
+                            <input type="text" id="mfa-disable-token" class="input" placeholder="123456" />
+                        </div>
+                    </div>
+                    <button onclick="disableTotp()" class="btn btn-danger btn-sm">Disable MFA</button>
+                </div>
+                <div class="border-t border-dark-700 pt-4 space-y-2 hidden" id="mfa-disabled-note">
+                    <p class="text-sm text-white">MFA disabled</p>
+                    <p class="text-xs text-dark-400">MFA is disabled by configuration (MFA_ENABLED=false).</p>
+                </div>
+
+                <div class="border-t border-dark-700 pt-4 space-y-3">
+                    <p class="text-sm text-white">Change Password</p>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">Current Password</label>
+                            <input type="password" id="password-current" class="input" />
+                        </div>
+                        <div>
+                            <label class="block text-xs text-dark-400 mb-1">New Password</label>
+                            <input type="password" id="password-new" class="input" />
+                        </div>
+                    </div>
+                    <button onclick="changePassword()" class="btn btn-secondary btn-sm">Update Password</button>
                 </div>
             </div>
         </div>
@@ -913,8 +978,8 @@
 <script>
     // Socket is initialized globally in app.js (loaded via footer)
 
-    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
-    const booleanSettingKeys = ['transcodeEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode'];
+    const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'webhookUrl', 'telegramBotToken', 'telegramChatId', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
+    const booleanSettingKeys = ['transcodeFilesEnabled', 'transcodeStreamEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode', 'telegramEnabled', 'pauseDownloadsOnStream'];
 
     // LLM UI Functions
     function updateLLMProviderUI() {
@@ -1019,45 +1084,13 @@
         { code: 'zh', name: 'Chinese' }
     ];
 
-    let availableEpgCountries = [];
     let selectedLanguages = [];
-    let selectedEpgCountries = [];
 
     // Track which enrichment is running
     let activeEnrichment = null;
 
     // Initialize socket listeners when DOM is ready (socket from app.js)
     document.addEventListener('DOMContentLoaded', () => {
-        // EPG socket events
-        socket.on('epg:start', (data) => {
-            document.getElementById('epg-sync-progress').classList.remove('hidden');
-            document.getElementById('sync-epg-btn').disabled = true;
-            document.getElementById('epg-sync-status-text').textContent = 'Starting EPG sync...';
-        });
-
-        socket.on('epg:progress', (data) => {
-            document.getElementById('epg-sync-status-text').textContent = data.message;
-            if (data.total) {
-                const pct = Math.round((data.current / data.total) * 100);
-                document.getElementById('epg-sync-bar').style.width = pct + '%';
-            }
-        });
-
-        socket.on('epg:complete', (data) => {
-            document.getElementById('epg-sync-progress').classList.add('hidden');
-            document.getElementById('sync-epg-btn').disabled = false;
-            document.getElementById('epg-sync-status').textContent =
-                \`Synced: \${data.programCount} programs, \${data.channelCount} channels\`;
-            if (window.showToast) showToast('EPG sync complete!', 'success');
-        });
-
-        socket.on('epg:error', (data) => {
-            document.getElementById('epg-sync-progress').classList.add('hidden');
-            document.getElementById('sync-epg-btn').disabled = false;
-            document.getElementById('epg-sync-status').textContent = 'Error: ' + data.error;
-            if (window.showToast) showToast('EPG sync failed: ' + data.error, 'error');
-        });
-
         // Enrichment queue events
         socket.on('enrichment:queued', (data) => {
             if (window.showToast) showToast('Queued ' + data.added + ' items for enrichment', 'info');
@@ -1160,7 +1193,6 @@
         loadSources();
         loadEnrichStats();
         loadEnrichmentQueueStatus();
-        loadEpgCountries();
         loadSchedulerStatus();
         checkFfmpeg();
         loadTranscoderHwStatus();
@@ -1193,7 +1225,8 @@
         });
 
         // Toggle transcode options visibility on checkbox change
-        document.getElementById('setting-transcodeEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
+        document.getElementById('setting-transcodeFilesEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
+        document.getElementById('setting-transcodeStreamEnabled').addEventListener('change', updateTranscodeOptionsVisibility);
         document.getElementById('setting-transcodeWatchEnabled').addEventListener('change', updateWatchFolderOptionsVisibility);
     });
 
@@ -1290,6 +1323,21 @@
         }
     }
 
+    async function fetchJsonSafe(url, options) {
+        const response = await fetch(url, options);
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(text || 'Unexpected response (' + response.status + ')');
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            const message = data?.error || 'Request failed (' + response.status + ')';
+            throw new Error(message);
+        }
+        return data;
+    }
+
     async function syncGlobalEpg() {
         try {
             // Save current EPG country selection first
@@ -1299,12 +1347,11 @@
                 body: JSON.stringify({ epgCountries: selectedEpgCountries })
             });
 
-            const response = await fetch('/api/epg/sync-global', {
+            const result = await fetchJsonSafe('/api/epg/sync-all', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ countries: selectedEpgCountries })
             });
-            const result = await response.json();
             if (!result.success) throw new Error(result.error);
         } catch (err) {
             console.error('Failed to sync EPG:', err);
@@ -1471,10 +1518,6 @@
             selectedLanguages = settings.preferredLanguages || ['de', 'en'];
             renderLanguageBadges();
 
-            // Load EPG countries
-            selectedEpgCountries = settings.epgCountries || ['Germany'];
-            renderCountryBadges();
-
             // Update transcode options visibility
             updateTranscodeOptionsVisibility();
             updateWatchFolderOptionsVisibility();
@@ -1515,7 +1558,9 @@
     }
 
     function updateTranscodeOptionsVisibility() {
-        const enabled = document.getElementById('setting-transcodeEnabled').checked;
+        const filesEnabled = document.getElementById('setting-transcodeFilesEnabled').checked;
+        const streamEnabled = document.getElementById('setting-transcodeStreamEnabled').checked;
+        const enabled = filesEnabled || streamEnabled;
         const optionsEl = document.getElementById('transcode-options');
         if (optionsEl) {
             optionsEl.style.opacity = enabled ? '1' : '0.5';
@@ -1548,9 +1593,8 @@
             }
         });
 
-        // Add language preferences and EPG countries
+        // Add language preferences
         settings.preferredLanguages = selectedLanguages;
-        settings.epgCountries = selectedEpgCountries;
 
         // Handle hdhrSourceId - convert to integer or null
         if (settings.hdhrSourceId === '' || settings.hdhrSourceId === undefined) {
@@ -1611,12 +1655,13 @@
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                             </button>
                             <button onclick="syncSource(\${s.id})" class="btn btn-secondary btn-sm" id="sync-btn-\${s.id}">Sync</button>
+                            <button onclick="syncSourceEpg(\${s.id})" class="btn btn-secondary btn-sm" id="epg-btn-\${s.id}" title="Refresh EPG data">EPG</button>
                             <button onclick="editSource(\${s.id})" class="btn btn-secondary btn-sm">Edit</button>
                             <button onclick="deleteSource(\${s.id})" class="btn btn-danger btn-sm">Delete</button>
                         </div>
                     </div>
                     <!-- Stats row -->
-                    <div class="grid grid-cols-4 gap-2 mt-3 pt-3 border-t border-dark-700 text-xs" id="source-stats-\${s.id}">
+                    <div class="grid grid-cols-5 gap-2 mt-3 pt-3 border-t border-dark-700 text-xs" id="source-stats-\${s.id}">
                         <span class="text-dark-500">Loading stats...</span>
                     </div>
                     <!-- Sync progress bar -->
@@ -1647,6 +1692,16 @@
                         </div>
                         <div class="w-full bg-dark-700 rounded-full h-1.5">
                             <div class="bg-purple-500 h-1.5 rounded-full transition-all duration-300" id="enrich-bar-\${s.id}" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <!-- EPG progress bar -->
+                    <div id="epg-progress-\${s.id}" class="hidden mt-3">
+                        <div class="flex items-center gap-2 mb-1">
+                            <div class="animate-spin w-3 h-3 border-2 border-blue-500 border-t-transparent rounded-full"></div>
+                            <span class="text-xs text-dark-300" id="epg-status-\${s.id}">Syncing EPG...</span>
+                        </div>
+                        <div class="w-full bg-dark-700 rounded-full h-1.5">
+                            <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" id="epg-bar-\${s.id}" style="width: 0%"></div>
                         </div>
                     </div>
                 </div>
@@ -2911,41 +2966,43 @@
         }
     }
 
-    async function syncEpg(id) {
+    async function syncSourceEpg(id) {
         try {
             // Show progress UI
             const progressEl = document.getElementById('epg-progress-' + id);
-            const btnEl = document.getElementById('epg-sync-btn-' + id);
+            const btnEl = document.getElementById('epg-btn-' + id);
+            const statusEl = document.getElementById('epg-status-' + id);
+            const barEl = document.getElementById('epg-bar-' + id);
             if (progressEl) progressEl.classList.remove('hidden');
             if (btnEl) btnEl.disabled = true;
+            if (statusEl) statusEl.textContent = 'Starting EPG sync...';
+            if (barEl) barEl.style.width = '0%';
 
             const response = await fetch('/api/sources/' + id + '/sync-epg', { method: 'POST' });
             const result = await response.json();
 
             if (result.success) {
-                // Update EPG info display
-                const infoEl = document.getElementById('epg-info-' + id);
-                if (infoEl) {
-                    infoEl.textContent = \`EPG: \${result.programCount} programs, \${result.channelCount} channels\`;
-                }
-                if (window.showToast) {
-                    showToast('EPG sync complete!', 'success');
-                }
+                // API returns immediately, socket.io events will provide progress
+                if (statusEl) statusEl.textContent = 'Downloading EPG data...';
             } else {
                 throw new Error(result.error || 'EPG sync failed');
             }
         } catch (err) {
             console.error('Failed to sync EPG:', err);
+            const statusEl = document.getElementById('epg-status-' + id);
+            const progressEl = document.getElementById('epg-progress-' + id);
+            const btnEl = document.getElementById('epg-btn-' + id);
+            if (statusEl) statusEl.textContent = 'Failed: ' + err.message;
             if (window.showToast) {
                 showToast('EPG sync failed: ' + err.message, 'error');
             }
-        } finally {
-            // Hide progress
-            const progressEl = document.getElementById('epg-progress-' + id);
-            const btnEl = document.getElementById('epg-sync-btn-' + id);
-            if (progressEl) progressEl.classList.add('hidden');
+            // Hide after 3 seconds on error
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
             if (btnEl) btnEl.disabled = false;
         }
+        // Note: button is re-enabled by socket event handlers
     }
 
     async function fetchEpgStatus() {
@@ -3379,13 +3436,14 @@
                 el.innerHTML =
                     '<div><span class="text-dark-400">Movies</span><div class="text-white text-sm font-medium">' + stats.movies.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Series</span><div class="text-white text-sm font-medium">' + stats.series.toLocaleString() + '</div></div>' +
+                    '<div><span class="text-dark-400">Live TV</span><div class="text-white text-sm font-medium">' + stats.live.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Downloads</span><div class="text-white text-sm font-medium">' + stats.downloaded.toLocaleString() + '</div></div>' +
                     '<div><span class="text-dark-400">Enriched</span><div class="text-white text-sm font-medium">' + stats.enriched.toLocaleString() + ' / ' + stats.total.toLocaleString() + '</div></div>';
             }
         } catch (err) {
             console.error('Failed to load source stats:', err);
             const el = document.getElementById('source-stats-' + sourceId);
-            if (el) el.innerHTML = '<span class="text-dark-500 col-span-4">Failed to load stats</span>';
+            if (el) el.innerHTML = '<span class="text-dark-500 col-span-5">Failed to load stats</span>';
         }
     }
 
@@ -3541,6 +3599,59 @@
             }
             loadSourceStats(data.sourceId);
         });
+
+        // EPG sync socket listeners
+        socket.on('epg:start', (data) => {
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Downloading EPG data...';
+            if (barEl) barEl.style.width = '0%';
+        });
+
+        socket.on('epg:progress', (data) => {
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) {
+                statusEl.textContent = data.message || ('Inserting ' + (data.current || 0) + '/' + (data.total || 0) + ' programs...');
+            }
+            if (barEl && data.total > 0) {
+                barEl.style.width = Math.round((data.current / data.total) * 100) + '%';
+            }
+        });
+
+        socket.on('epg:complete', (data) => {
+            const progressEl = document.getElementById('epg-progress-' + data.sourceId);
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const btnEl = document.getElementById('epg-btn-' + data.sourceId);
+            const barEl = document.getElementById('epg-bar-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Done: ' + (data.programCount || 0) + ' programs, ' + (data.channelCount || 0) + ' channels';
+            if (barEl) barEl.style.width = '100%';
+            if (btnEl) btnEl.disabled = false;
+            if (window.showToast) {
+                showToast('EPG sync complete!', 'success');
+            }
+            // Update EPG status display
+            fetchEpgStatus();
+            // Hide after 3 seconds
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
+        });
+
+        socket.on('epg:error', (data) => {
+            const progressEl = document.getElementById('epg-progress-' + data.sourceId);
+            const statusEl = document.getElementById('epg-status-' + data.sourceId);
+            const btnEl = document.getElementById('epg-btn-' + data.sourceId);
+            if (statusEl) statusEl.textContent = 'Failed: ' + (data.error || 'Unknown error');
+            if (btnEl) btnEl.disabled = false;
+            if (window.showToast) {
+                showToast('EPG sync failed: ' + (data.error || 'Unknown error'), 'error');
+            }
+            // Hide after 3 seconds
+            setTimeout(() => {
+                if (progressEl) progressEl.classList.add('hidden');
+            }, 3000);
+        });
     });
 
     // =====================
@@ -3681,7 +3792,133 @@
         }
     }
 
+    async function loadAuthStatus() {
+        try {
+            const response = await fetch('/api/auth/status');
+            const data = await response.json();
+            document.getElementById('auth-username').textContent = data.user?.username || 'Unknown';
+            document.getElementById('auth-mfa-status').textContent = data.user?.totpEnabled ? 'Enabled' : 'Disabled';
+            if (data.mfaEnabled === false) {
+                const controls = document.getElementById('mfa-controls');
+                const disable = document.getElementById('mfa-disable');
+                const note = document.getElementById('mfa-disabled-note');
+                if (controls) controls.classList.add('hidden');
+                if (disable) disable.classList.add('hidden');
+                if (note) note.classList.remove('hidden');
+            }
+        } catch (err) {
+            console.error('Failed to load auth status:', err);
+        }
+    }
+
+    async function setupTotp() {
+        try {
+            const response = await fetch('/api/auth/totp/setup', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to generate secret');
+            document.getElementById('totp-secret').value = data.secret || '';
+            document.getElementById('totp-otpauth').value = data.otpauthUrl || '';
+            if (data.qrDataUrl) {
+                document.getElementById('totp-qr').src = data.qrDataUrl;
+                document.getElementById('totp-qr-section').classList.remove('hidden');
+            }
+            if (window.showToast) showToast('TOTP secret generated', 'success');
+        } catch (err) {
+            console.error('Failed to setup TOTP:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function enableTotp() {
+        const token = document.getElementById('totp-token').value.trim();
+        if (!token) {
+            if (window.showToast) showToast('Enter the authenticator code', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/totp/enable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ token })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to enable MFA');
+            document.getElementById('totp-token').value = '';
+            document.getElementById('totp-qr-section').classList.add('hidden');
+            document.getElementById('totp-qr').src = '';
+            if (window.showToast) showToast('MFA enabled', 'success');
+            loadAuthStatus();
+        } catch (err) {
+            console.error('Failed to enable MFA:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function disableTotp() {
+        const password = document.getElementById('mfa-disable-password').value;
+        const token = document.getElementById('mfa-disable-token').value.trim();
+        if (!password) {
+            if (window.showToast) showToast('Enter your password', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/totp/disable', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password, token })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to disable MFA');
+            document.getElementById('mfa-disable-password').value = '';
+            document.getElementById('mfa-disable-token').value = '';
+            document.getElementById('totp-qr-section').classList.add('hidden');
+            document.getElementById('totp-qr').src = '';
+            if (window.showToast) showToast('MFA disabled', 'success');
+            loadAuthStatus();
+        } catch (err) {
+            console.error('Failed to disable MFA:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function changePassword() {
+        const currentPassword = document.getElementById('password-current').value;
+        const newPassword = document.getElementById('password-new').value;
+        if (!currentPassword || !newPassword) {
+            if (window.showToast) showToast('Enter current and new passwords', 'warning');
+            return;
+        }
+        try {
+            const response = await fetch('/api/auth/password', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ currentPassword, newPassword })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to update password');
+            document.getElementById('password-current').value = '';
+            document.getElementById('password-new').value = '';
+            if (window.showToast) showToast('Password updated', 'success');
+        } catch (err) {
+            console.error('Failed to update password:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
+    async function testTelegram() {
+        try {
+            const response = await fetch('/api/telegram/test', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Failed to send test message');
+            if (window.showToast) showToast('Telegram test sent', 'success');
+        } catch (err) {
+            console.error('Failed to send Telegram test:', err);
+            if (window.showToast) showToast(err.message, 'error');
+        }
+    }
+
     // Load usenet providers on page load
     loadUsenetProviders();
+    loadAuthStatus();
 </script>
 ` }) %>

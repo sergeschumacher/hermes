@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get install -y --no-install-recommends python3 make g++ \
     && rm -rf /var/lib/apt/lists/*
 
-LABEL maintainer="Hermes"
+LABEL maintainer="RecoStream"
 LABEL description="IPTV Media Manager with Intel QSV GPU support"
 
 WORKDIR /app

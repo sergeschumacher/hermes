@@ -6,6 +6,9 @@ const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
 const { spawn } = require('child_process');
+const bcrypt = require('bcryptjs');
+const speakeasy = require('speakeasy');
+const qrcode = require('qrcode');
 
 let app = null;
 let server = null;
@@ -13,9 +16,143 @@ let io = null;
 let logger = null;
 let settings = null;
 let modules = null;
+let activeStreamSessions = new Set();
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
+const SESSION_COOKIE = 'recostream_session';
+const SESSION_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const SESSION_GRACE_MS = 1000 * 60 * 5;
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || '';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const MFA_ENABLED_ENV = process.env.MFA_ENABLED;
+const WEBHOOK_URLS_ENV = process.env.WEBHOOK_URLS || process.env.WEBHOOK_URL || '';
+const WEBHOOK_TIMEOUT_MS = parseInt(process.env.WEBHOOK_TIMEOUT_MS || '5000', 10);
+
+let userCountCache = { count: null, loadedAt: 0 };
+let adminSeedAttempted = false;
+
+function isMfaEnabled() {
+    if (MFA_ENABLED_ENV === undefined || MFA_ENABLED_ENV === null || MFA_ENABLED_ENV === '') return true;
+    const normalized = String(MFA_ENABLED_ENV).trim().toLowerCase();
+    return !['0', 'false', 'off', 'no'].includes(normalized);
+}
+
+function getWebhookUrls() {
+    const urls = new Set();
+    if (WEBHOOK_URLS_ENV) {
+        WEBHOOK_URLS_ENV.split(',').map((url) => url.trim()).filter(Boolean).forEach((url) => {
+            urls.add(url);
+        });
+    }
+    const settingsUrl = settings?.get?.('webhookUrl');
+    if (settingsUrl) {
+        String(settingsUrl).split(',').map((url) => url.trim()).filter(Boolean).forEach((url) => {
+            urls.add(url);
+        });
+    }
+    return Array.from(urls);
+}
+
+async function sendWebhook(event, payload) {
+    const urls = getWebhookUrls();
+    if (!urls.length) {
+        logger?.info('webhook', `No webhook URLs configured for event ${event}`);
+        return;
+    }
+
+    const body = {
+        event,
+        timestamp: new Date().toISOString(),
+        ...payload
+    };
+
+    await Promise.all(urls.map(async (url) => {
+        try {
+            logger?.info('webhook', `Sending ${event} to ${url}`);
+            const response = await axios.post(url, body, {
+                timeout: WEBHOOK_TIMEOUT_MS,
+                headers: { 'User-Agent': 'RecoStream/1.0' }
+            });
+            logger?.info('webhook', `Webhook ${event} delivered to ${url} (${response.status})`);
+        } catch (err) {
+            const status = err.response?.status;
+            logger?.warn('webhook', `Failed to send ${event} webhook to ${url}${status ? ` (${status})` : ''}: ${err.message}`);
+        }
+    }));
+}
+
+function getActiveStreamCount() {
+    return activeStreamSessions.size;
+}
+
+function isStreamActive() {
+    return getActiveStreamCount() > 0;
+}
+
+function getTelegramConfig() {
+    return {
+        enabled: settings?.get?.('telegramEnabled') === true,
+        botToken: settings?.get?.('telegramBotToken') || '',
+        chatId: settings?.get?.('telegramChatId') || ''
+    };
+}
+
+function formatTelegramMessage(event, payload) {
+    if (event === 'download_complete') {
+        if (payload.media_type === 'series') {
+            const seriesName = payload.series_name || payload.title || 'Unknown';
+            const season = String(payload.season ?? '').padStart(2, '0');
+            const episode = String(payload.episode ?? '').padStart(2, '0');
+            const episodeTitle = payload.title ? ` - ${payload.title}` : '';
+            return `Download complete: ${seriesName} S${season}E${episode}${episodeTitle}`;
+        }
+        return `Download complete: ${payload.title || 'Unknown'}`;
+    }
+    if (event === 'recording_finished') {
+        return `Recording finished: ${payload.title || 'Unknown'}`;
+    }
+    return null;
+}
+
+async function sendTelegramMessage(text) {
+    const { enabled, botToken, chatId } = getTelegramConfig();
+    if (!enabled || !botToken || !chatId) return false;
+
+    try {
+        logger?.info('telegram', 'Sending test notification');
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            chat_id: chatId,
+            text
+        }, { timeout: 10000 });
+        logger?.info('telegram', 'Telegram notification delivered');
+        return true;
+    } catch (err) {
+        const status = err.response?.status;
+        logger?.warn('telegram', `Failed to send Telegram notification${status ? ` (${status})` : ''}: ${err.message}`);
+        return false;
+    }
+}
+
+async function sendTelegramNotification(event, payload) {
+    const { enabled, botToken, chatId } = getTelegramConfig();
+    if (!enabled || !botToken || !chatId) return;
+
+    const message = formatTelegramMessage(event, payload);
+    if (!message) return;
+
+    try {
+        logger?.info('telegram', `Sending ${event} notification`);
+        await axios.post(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+            chat_id: chatId,
+            text: message
+        }, { timeout: 10000 });
+        logger?.info('telegram', `Telegram notification delivered (${event})`);
+    } catch (err) {
+        const status = err.response?.status;
+        logger?.warn('telegram', `Failed to send Telegram notification${status ? ` (${status})` : ''}: ${err.message}`);
+    }
+}
 
 // Parse series title to extract show name, season, episode, language
 // Examples: "DE - The King of Queens S01 E01", "FR - Sam S03 E03", "EN - ER (1994) S04 E20"
@@ -83,6 +220,123 @@ function getCacheFilename(url) {
     const hash = crypto.createHash('md5').update(url).digest('hex');
     const ext = path.extname(new URL(url).pathname) || '.jpg';
     return hash + ext;
+}
+
+function parseCookies(cookieHeader) {
+    if (!cookieHeader) return {};
+    return cookieHeader.split(';').reduce((acc, part) => {
+        const [key, ...valParts] = part.trim().split('=');
+        if (!key) return acc;
+        acc[key] = decodeURIComponent(valParts.join('='));
+        return acc;
+    }, {});
+}
+
+function getCookieValue(req, name) {
+    const cookies = parseCookies(req.headers.cookie || '');
+    return cookies[name];
+}
+
+function hashToken(token) {
+    return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+function normalizeTotpToken(token) {
+    return String(token || '').replace(/[^0-9]/g, '');
+}
+
+async function getUserCount() {
+    const now = Date.now();
+    if (userCountCache.count !== null && now - userCountCache.loadedAt < 3000) {
+        return userCountCache.count;
+    }
+    const row = await modules.db.get('SELECT COUNT(*) as count FROM users');
+    userCountCache = { count: row?.count || 0, loadedAt: now };
+    return userCountCache.count;
+}
+
+async function ensureAdminUser() {
+    if (adminSeedAttempted) return;
+    adminSeedAttempted = true;
+
+    if (!ADMIN_USERNAME || !ADMIN_PASSWORD) return;
+
+    const existingCount = await getUserCount();
+    if (existingCount > 0) return;
+
+    const existingUser = await modules.db.get('SELECT id FROM users WHERE username = ?', [ADMIN_USERNAME]);
+    if (existingUser) return;
+
+    const passwordHash = await bcrypt.hash(ADMIN_PASSWORD, 12);
+    await modules.db.run(
+        'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+        [ADMIN_USERNAME, passwordHash]
+    );
+
+    userCountCache = { count: null, loadedAt: 0 };
+    logger?.info('auth', `Seeded admin user: ${ADMIN_USERNAME}`);
+}
+
+async function getSessionUserByToken(token) {
+    if (!token) return null;
+    const tokenHash = hashToken(token);
+    const session = await modules.db.get(`
+        SELECT s.id as session_id, s.expires_at as expires_at, s.last_used_at as last_used_at,
+               u.id as user_id, u.username as username, u.totp_enabled as totp_enabled
+        FROM sessions s
+        JOIN users u ON u.id = s.user_id
+        WHERE s.token_hash = ?
+    `, [tokenHash]);
+
+    if (!session) return null;
+
+    const expiresAt = new Date(session.expires_at).getTime();
+    if (Number.isNaN(expiresAt) || expiresAt <= Date.now() - SESSION_GRACE_MS) {
+        await modules.db.run('DELETE FROM sessions WHERE id = ?', [session.session_id]);
+        return null;
+    }
+
+    const lastUsedAt = new Date(session.last_used_at).getTime();
+    if (Number.isNaN(lastUsedAt) || lastUsedAt <= Date.now() - 1000 * 60 * 5) {
+        await modules.db.run('UPDATE sessions SET last_used_at = CURRENT_TIMESTAMP WHERE id = ?', [session.session_id]);
+    }
+    return session;
+}
+
+function buildSessionCookie(token, req, maxAgeSeconds) {
+    const secure = req.secure || req.headers['x-forwarded-proto'] === 'https';
+    const parts = [
+        `${SESSION_COOKIE}=${encodeURIComponent(token)}`,
+        'Path=/',
+        'HttpOnly',
+        'SameSite=Lax'
+    ];
+    if (secure) parts.push('Secure');
+    if (typeof maxAgeSeconds === 'number') parts.push(`Max-Age=${maxAgeSeconds}`);
+    return parts.join('; ');
+}
+
+async function createSession(res, req, userId) {
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = hashToken(token);
+    const expiresAt = new Date(Date.now() + SESSION_TTL_MS).toISOString();
+
+    await modules.db.run(`
+        INSERT INTO sessions (user_id, token_hash, expires_at)
+        VALUES (?, ?, ?)
+    `, [userId, tokenHash, expiresAt]);
+
+    res.setHeader('Set-Cookie', buildSessionCookie(token, req, Math.floor(SESSION_TTL_MS / 1000)));
+    return token;
+}
+
+async function clearSession(req, res) {
+    const token = getCookieValue(req, SESSION_COOKIE);
+    if (token) {
+        const tokenHash = hashToken(token);
+        await modules.db.run('DELETE FROM sessions WHERE token_hash = ?', [tokenHash]);
+    }
+    res.setHeader('Set-Cookie', buildSessionCookie('', req, 0));
 }
 
 // Enrich media for a specific source (uses cache first)
@@ -213,7 +467,62 @@ function setupRoutes() {
     }));
 
     // JSON body parser
-    app.use(express.json());
+    app.use(express.json({ limit: '5mb' }));
+    app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+    // Auth middleware
+    app.use(async (req, res, next) => {
+        try {
+            const path = req.path;
+            if (path.startsWith('/static') ||
+                path.startsWith('/cache/images') ||
+                path.startsWith('/img') ||
+                path.startsWith('/socket.io')) {
+                return next();
+            }
+
+            const usersCount = await getUserCount();
+
+            if (usersCount === 0) {
+                if (path.startsWith('/setup') || path.startsWith('/api/auth/setup')) {
+                    return next();
+                }
+                return res.redirect('/setup');
+            }
+
+            if (path.startsWith('/setup') || path.startsWith('/api/auth/setup')) {
+                return res.redirect('/login');
+            }
+
+            if (path.startsWith('/login') || path.startsWith('/api/auth/login')) {
+                const existing = await getSessionUserByToken(getCookieValue(req, SESSION_COOKIE));
+                if (existing) return res.redirect('/');
+                return next();
+            }
+
+            if (path.startsWith('/logout')) {
+                return next();
+            }
+
+            const session = await getSessionUserByToken(getCookieValue(req, SESSION_COOKIE));
+            if (!session) {
+                if (path.startsWith('/api')) {
+                    return res.status(401).json({ error: 'Unauthorized' });
+                }
+                return res.redirect('/login');
+            }
+
+            req.user = session;
+            res.locals.user = session;
+            return next();
+        } catch (err) {
+            logger?.error('auth', `Auth middleware failed: ${err.message}`);
+            if (req.path.startsWith('/api')) {
+                return res.status(500).json({ error: 'Auth error' });
+            }
+            return res.status(500).send('Auth error');
+        }
+    });
 
     // Image proxy endpoint - caches remote images locally
     app.get('/img', async (req, res) => {
@@ -246,7 +555,7 @@ function setupRoutes() {
                 responseType: 'arraybuffer',
                 timeout: 15000,
                 headers: {
-                    'User-Agent': 'Mozilla/5.0 (compatible; Hermes/1.0)'
+                    'User-Agent': 'Mozilla/5.0 (compatible; RecoStream/1.0)'
                 }
             });
 
@@ -302,7 +611,7 @@ function setupRoutes() {
                 const response = await axios.get(url, {
                     responseType: 'arraybuffer',
                     timeout: 5000,
-                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; Hermes/1.0)' }
+                    headers: { 'User-Agent': 'Mozilla/5.0 (compatible; RecoStream/1.0)' }
                 });
 
                 if (response.data && response.data.length > 0) {
@@ -404,6 +713,261 @@ function setupRoutes() {
         }
     });
 
+    function renderLogin(res, data = {}) {
+        res.render('login', {
+            error: data.error || null,
+            mfaRequired: !!data.mfaRequired,
+            username: data.username || ''
+        });
+    }
+
+    function renderSetup(res, data = {}) {
+        res.render('setup', {
+            error: data.error || null,
+            username: data.username || ''
+        });
+    }
+
+    async function handleLogin(req, res) {
+        const wantsJson = (req.headers.accept || '').includes('application/json') || req.is('application/json');
+        const username = (req.body.username || '').trim();
+        const password = req.body.password || '';
+        const token = normalizeTotpToken(req.body.token);
+
+        if (!username || !password) {
+            if (wantsJson) return res.status(400).json({ error: 'Username and password are required' });
+            return renderLogin(res, { error: 'Username and password are required', username });
+        }
+
+        const user = await modules.db.get('SELECT * FROM users WHERE username = ?', [username]);
+        if (!user) {
+            if (wantsJson) return res.status(401).json({ error: 'Invalid credentials' });
+            return renderLogin(res, { error: 'Invalid credentials', username });
+        }
+
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) {
+            if (wantsJson) return res.status(401).json({ error: 'Invalid credentials' });
+            return renderLogin(res, { error: 'Invalid credentials', username });
+        }
+
+        if (isMfaEnabled() && user.totp_enabled) {
+            if (!token) {
+                if (wantsJson) return res.status(401).json({ error: 'MFA required', mfaRequired: true });
+                return renderLogin(res, { error: 'MFA code required', username, mfaRequired: true });
+            }
+            const verified = speakeasy.totp.verify({
+                secret: user.totp_secret,
+                encoding: 'base32',
+                token,
+                window: 2
+            });
+            if (!verified) {
+                if (wantsJson) return res.status(401).json({ error: 'Invalid MFA code', mfaRequired: true });
+                return renderLogin(res, { error: 'Invalid MFA code', username, mfaRequired: true });
+            }
+        }
+
+        await createSession(res, req, user.id);
+        if (wantsJson) return res.json({ success: true });
+        return res.redirect('/');
+    }
+
+    async function handleSetup(req, res) {
+        const wantsJson = (req.headers.accept || '').includes('application/json') || req.is('application/json');
+        const usersCount = await getUserCount();
+        if (usersCount > 0) {
+            if (wantsJson) return res.status(400).json({ error: 'Setup already completed' });
+            return res.redirect('/login');
+        }
+
+        const username = (req.body.username || '').trim();
+        const password = req.body.password || '';
+        const confirm = req.body.passwordConfirm || req.body.password || '';
+
+        if (!username || !password) {
+            if (wantsJson) return res.status(400).json({ error: 'Username and password are required' });
+            return renderSetup(res, { error: 'Username and password are required', username });
+        }
+
+        if (password !== confirm) {
+            if (wantsJson) return res.status(400).json({ error: 'Passwords do not match' });
+            return renderSetup(res, { error: 'Passwords do not match', username });
+        }
+
+        const existing = await modules.db.get('SELECT id FROM users WHERE username = ?', [username]);
+        if (existing) {
+            if (wantsJson) return res.status(400).json({ error: 'Username already exists' });
+            return renderSetup(res, { error: 'Username already exists', username });
+        }
+
+        const passwordHash = await bcrypt.hash(password, 12);
+        await modules.db.run(
+            'INSERT INTO users (username, password_hash) VALUES (?, ?)',
+            [username, passwordHash]
+        );
+
+        userCountCache = { count: null, loadedAt: 0 };
+        if (wantsJson) return res.json({ success: true });
+        return res.redirect('/login');
+    }
+
+    app.get('/login', (req, res) => renderLogin(res));
+    app.post('/login', (req, res) => handleLogin(req, res));
+    app.post('/api/auth/login', (req, res) => handleLogin(req, res));
+
+    app.get('/setup', (req, res) => renderSetup(res));
+    app.post('/setup', (req, res) => handleSetup(req, res));
+    app.post('/api/auth/setup', (req, res) => handleSetup(req, res));
+
+    app.post('/logout', async (req, res) => {
+        await clearSession(req, res);
+        res.redirect('/login');
+    });
+    app.get('/logout', async (req, res) => {
+        await clearSession(req, res);
+        res.redirect('/login');
+    });
+
+    app.get('/api/auth/status', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        res.json({
+            user: {
+                username: req.user.username,
+                totpEnabled: isMfaEnabled() && !!req.user.totp_enabled
+            },
+            mfaEnabled: isMfaEnabled()
+        });
+    });
+
+    app.post('/api/webhook/test', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const event = (req.body.event || 'test').trim();
+        const payload = req.body.payload && typeof req.body.payload === 'object' ? req.body.payload : {};
+        await sendWebhook(event, { test: true, ...payload });
+        res.json({ success: true });
+    });
+
+    app.post('/api/stream/session', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const action = (req.body.action || '').trim().toLowerCase();
+        const sessionId = (req.body.sessionId || '').trim();
+        if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
+
+        if (action === 'start') {
+            const wasActive = isStreamActive();
+            activeStreamSessions.add(sessionId);
+            logger?.info('stream', `Session started: ${sessionId} (active: ${getActiveStreamCount()})`);
+            if (!wasActive && isStreamActive()) {
+                app?.emit('stream:active', { active: getActiveStreamCount(), sessionId });
+            }
+            return res.json({ success: true, active: getActiveStreamCount() });
+        }
+        if (action === 'stop') {
+            const wasActive = isStreamActive();
+            activeStreamSessions.delete(sessionId);
+            logger?.info('stream', `Session ended: ${sessionId} (active: ${getActiveStreamCount()})`);
+            if (wasActive && !isStreamActive()) {
+                app?.emit('stream:inactive', { active: getActiveStreamCount(), sessionId });
+            }
+            return res.json({ success: true, active: getActiveStreamCount() });
+        }
+        return res.status(400).json({ error: 'Invalid action' });
+    });
+
+    app.post('/api/telegram/test', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const ok = await sendTelegramMessage('RecoStream test notification');
+        if (!ok) return res.status(400).json({ error: 'Telegram not configured' });
+        res.json({ success: true });
+    });
+
+    app.post('/api/auth/totp/setup', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
+        const secret = speakeasy.generateSecret({ name: `RecoStream (${req.user.username})` });
+        const qrDataUrl = await qrcode.toDataURL(secret.otpauth_url);
+        await modules.db.run(
+            'UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [secret.base32, req.user.user_id]
+        );
+        res.json({ secret: secret.base32, otpauthUrl: secret.otpauth_url, qrDataUrl });
+    });
+
+    app.post('/api/auth/totp/enable', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        if (!isMfaEnabled()) return res.status(403).json({ error: 'MFA is disabled by configuration' });
+        const token = normalizeTotpToken(req.body.token);
+        if (!token) return res.status(400).json({ error: 'Token is required' });
+
+        const user = await modules.db.get('SELECT totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+        if (!user?.totp_secret) return res.status(400).json({ error: 'No TOTP secret found. Generate one first.' });
+
+        const verified = speakeasy.totp.verify({
+            secret: user.totp_secret,
+            encoding: 'base32',
+            token,
+            window: 2
+        });
+
+        if (!verified) return res.status(400).json({ error: 'Invalid token' });
+
+        await modules.db.run(
+            'UPDATE users SET totp_enabled = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.user.user_id]
+        );
+        res.json({ success: true });
+    });
+
+    app.post('/api/auth/totp/disable', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const password = req.body.password || '';
+        const token = normalizeTotpToken(req.body.token);
+
+        if (!password) return res.status(400).json({ error: 'Password is required' });
+
+        const user = await modules.db.get('SELECT password_hash, totp_enabled, totp_secret FROM users WHERE id = ?', [req.user.user_id]);
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) return res.status(400).json({ error: 'Invalid password' });
+
+        if (user.totp_enabled) {
+            if (!token) return res.status(400).json({ error: 'Token is required' });
+            const verified = speakeasy.totp.verify({
+                secret: user.totp_secret,
+                encoding: 'base32',
+                token,
+                window: 2
+            });
+            if (!verified) return res.status(400).json({ error: 'Invalid token' });
+        }
+
+        await modules.db.run(
+            'UPDATE users SET totp_enabled = 0, totp_secret = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [req.user.user_id]
+        );
+        res.json({ success: true });
+    });
+
+    app.post('/api/auth/password', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const currentPassword = req.body.currentPassword || '';
+        const newPassword = req.body.newPassword || '';
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({ error: 'Current and new password are required' });
+        }
+
+        const user = await modules.db.get('SELECT password_hash FROM users WHERE id = ?', [req.user.user_id]);
+        const passwordOk = await bcrypt.compare(currentPassword, user.password_hash);
+        if (!passwordOk) return res.status(400).json({ error: 'Invalid current password' });
+
+        const newHash = await bcrypt.hash(newPassword, 12);
+        await modules.db.run(
+            'UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [newHash, req.user.user_id]
+        );
+        res.json({ success: true });
+    });
+
     // View routes
     app.get('/', (req, res) => res.render('index', { page: 'dashboard' }));
     app.get('/movies', (req, res) => res.render('movies', { page: 'movies' }));
@@ -420,6 +984,7 @@ function setupRoutes() {
     app.get('/requests', (req, res) => res.render('requests', { page: 'requests' }));
     app.get('/logs', (req, res) => res.render('logs', { page: 'logs' }));
     app.get('/epg', (req, res) => res.render('epg', { page: 'epg' }));
+    app.get('/player', (req, res) => res.render('player', { page: 'player', streamUrl: req.query.url || '' }));
 
     // API Routes
     setupApiRoutes();
@@ -430,12 +995,61 @@ function setupRoutes() {
 
 function setupApiRoutes() {
     const router = express.Router();
+    const tmdbRateWindowMs = 10000;
+    const tmdbRateLimit = 40;
+    const tmdbRequestBuckets = new Map();
+    const languageAliases = new Map([
+        ['EN', ['EN', 'ENG', 'ENGLISH', 'US', 'UK', 'CA', 'AU', 'NZ']]
+    ]);
+
+    function expandPreferredLanguages(preferredLangs) {
+        const expanded = new Set();
+        preferredLangs.forEach((lang) => {
+            if (!lang) return;
+            const upper = lang.toString().trim().toUpperCase();
+            if (!upper) return;
+            expanded.add(upper);
+            const aliases = languageAliases.get(upper);
+            if (aliases) {
+                aliases.forEach((alias) => expanded.add(alias));
+            }
+        });
+        return Array.from(expanded);
+    }
+
+    function tmdbRateLimiter(req, res, next) {
+        const ip = req.ip || req.headers['x-forwarded-for'] || req.connection?.remoteAddress || 'unknown';
+        const now = Date.now();
+        let bucket = tmdbRequestBuckets.get(ip);
+        if (!bucket) {
+            bucket = [];
+            tmdbRequestBuckets.set(ip, bucket);
+        }
+
+        // Drop timestamps outside window
+        while (bucket.length && now - bucket[0] > tmdbRateWindowMs) {
+            bucket.shift();
+        }
+
+        if (bucket.length >= tmdbRateLimit) {
+            const retryAfterMs = tmdbRateWindowMs - (now - bucket[0]);
+            res.setHeader('Retry-After', Math.ceil(retryAfterMs / 1000));
+            res.setHeader('X-RateLimit-Limit', tmdbRateLimit);
+            res.setHeader('X-RateLimit-Remaining', 0);
+            return res.status(429).json({ error: 'TMDB rate limit exceeded' });
+        }
+
+        bucket.push(now);
+        res.setHeader('X-RateLimit-Limit', tmdbRateLimit);
+        res.setHeader('X-RateLimit-Remaining', Math.max(0, tmdbRateLimit - bucket.length));
+        return next();
+    }
 
     // Stats - filtered by preferred languages
     router.get('/stats', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
 
             let stats;
             if (preferredLangs.length > 0) {
@@ -505,7 +1119,7 @@ function setupApiRoutes() {
     router.get('/featured', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             const limit = parseInt(req.query.limit) || 8;
 
             let langFilter = '';
@@ -550,7 +1164,7 @@ function setupApiRoutes() {
     router.get('/content/rows', async (req, res) => {
         try {
             const db = modules.db;
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             const mediaType = req.query.type; // 'movie' or 'series' or undefined for both
 
             let langFilter = '';
@@ -836,6 +1450,8 @@ function setupApiRoutes() {
                     '-probesize', '5000000',        // 5MB max probe size
                     // Reconnect settings for IPTV streams
                     '-reconnect', '1',
+                    '-reconnect_at_eof', '1',
+                    '-reconnect_on_network_error', '1',
                     '-reconnect_streamed', '1',
                     '-reconnect_delay_max', '2',
                     '-headers', 'User-Agent: VLC/3.0.20 LibVLC/3.0.20\r\nReferer: ' + new URL(url).origin + '/\r\n',
@@ -1385,6 +2001,7 @@ function setupApiRoutes() {
                 SELECT
                     SUM(CASE WHEN media_type = 'movie' THEN 1 ELSE 0 END) as movies,
                     SUM(CASE WHEN media_type = 'series' THEN 1 ELSE 0 END) as series,
+                    SUM(CASE WHEN media_type = 'live' THEN 1 ELSE 0 END) as live,
                     COUNT(*) as total
                 FROM media
                 WHERE source_id = ?
@@ -1412,6 +2029,7 @@ function setupApiRoutes() {
             res.json({
                 movies: mediaCounts?.movies || 0,
                 series: mediaCounts?.series || 0,
+                live: mediaCounts?.live || 0,
                 total: mediaCounts?.total || 0,
                 downloaded: downloadStats?.completed || 0,
                 enriched: enrichmentStats?.enriched || 0
@@ -2785,7 +3403,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                     d.priority DESC,
                     d.created_at DESC
             `);
-            res.json(downloads);
+            const activeStats = modules.download?.getActiveStats?.() || {};
+            const enriched = downloads.map((item) => {
+                const stats = activeStats[item.id];
+                if (stats) {
+                    return {
+                        ...item,
+                        speed_bps: stats.speedBps || 0,
+                        paused: stats.paused === true
+                    };
+                }
+                return item;
+            });
+            res.json(enriched);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -3066,7 +3696,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             });
 
             // Filter languages by preferred settings if configured
-            const preferredLangs = modules.settings?.get('preferredLanguages') || [];
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             let filteredLanguages = languages.map(l => l.language);
             if (preferredLangs.length > 0) {
                 const preferredUpper = preferredLangs.map(l => l.toUpperCase());
@@ -3563,7 +4193,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // TMDB API endpoints - fetch full movie/TV data with caching
-    router.get('/tmdb/movie/:id', async (req, res) => {
+    router.get('/tmdb/movie/:id', tmdbRateLimiter, async (req, res) => {
         try {
             const tmdbId = req.params.id;
             if (!modules.tmdb) {
@@ -3577,7 +4207,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/tv/:id', async (req, res) => {
+    router.get('/tmdb/tv/:id', tmdbRateLimiter, async (req, res) => {
         try {
             const tmdbId = req.params.id;
             if (!modules.tmdb) {
@@ -3592,7 +4222,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // TMDB Search endpoints
-    router.get('/tmdb/search/movie', async (req, res) => {
+    router.get('/tmdb/search/movie', tmdbRateLimiter, async (req, res) => {
         try {
             const { query, year } = req.query;
             if (!query) {
@@ -3609,7 +4239,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/search/tv', async (req, res) => {
+    router.get('/tmdb/search/tv', tmdbRateLimiter, async (req, res) => {
         try {
             const { query, year } = req.query;
             if (!query) {
@@ -3626,7 +4256,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
-    router.get('/tmdb/tv/:id/season/:season', async (req, res) => {
+    router.get('/tmdb/tv/:id/season/:season', tmdbRateLimiter, async (req, res) => {
         try {
             const { id, season } = req.params;
             if (!modules.tmdb) {
@@ -3979,7 +4609,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // Fetch TMDB data for a show by name
-    router.get('/shows/:name/tmdb', async (req, res) => {
+    router.get('/shows/:name/tmdb', tmdbRateLimiter, async (req, res) => {
         try {
             const db = modules.db;
             let showName = decodeURIComponent(req.params.name);
@@ -4201,7 +4831,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     });
 
     // Fetch TMDB season details with episodes
-    router.get('/tmdb/tv/:id/season/:season', async (req, res) => {
+    router.get('/tmdb/tv/:id/season/:season', tmdbRateLimiter, async (req, res) => {
         try {
             if (!modules.tmdb) {
                 return res.status(400).json({ error: 'TMDB module not loaded' });
@@ -4505,7 +5135,7 @@ function setupRadarrApi() {
             migrationVersion: 1,
             urlBase: '',
             runtimeVersion: '6.0.0',
-            runtimeName: 'hermes'
+            runtimeName: 'recostream'
         });
     });
 
@@ -5098,7 +5728,7 @@ function setupRadarrApi() {
             const { name, movieIds, seriesId } = req.body;
             logger?.info('radarr-api', `Command received: ${name}`, { movieIds, seriesId });
 
-            // Return success - Hermes handles downloads differently
+            // Return success - RecoStream handles downloads differently
             res.json({
                 id: Date.now(),
                 name: name,
@@ -5274,6 +5904,21 @@ function setupRadarrApi() {
 }
 
 function setupSocket() {
+    io.use(async (socket, next) => {
+        try {
+            const cookies = parseCookies(socket.handshake.headers.cookie || '');
+            const token = cookies[SESSION_COOKIE];
+            const session = await getSessionUserByToken(token);
+            if (!session) {
+                return next(new Error('Unauthorized'));
+            }
+            socket.user = session;
+            return next();
+        } catch (err) {
+            return next(err);
+        }
+    });
+
     io.on('connection', (socket) => {
         logger?.debug('app', `Client connected: ${socket.id}`);
 
@@ -5335,6 +5980,94 @@ function setupSyncEventRelay() {
     app.on('epg:error', (data) => {
         io.emit('epg:error', data);
     });
+
+    // Enrichment event relay (TMDB posters)
+    app.on('enrichment:queued', (data) => {
+        io.emit('enrichment:queued', data);
+    });
+
+    app.on('enrichment:workers:started', (data) => {
+        io.emit('enrichment:workers:started', data);
+    });
+
+    app.on('enrichment:progress', (data) => {
+        io.emit('enrichment:progress', data);
+    });
+
+    app.on('enrichment:workers:stopped', (data) => {
+        io.emit('enrichment:workers:stopped', data);
+    });
+
+    app.on('enrichment:item:complete', (data) => {
+        io.emit('enrichment:item:complete', data);
+    });
+
+    app.on('enrichment:item:failed', (data) => {
+        io.emit('enrichment:item:failed', data);
+    });
+}
+
+function setupWebhookDispatch() {
+    logger.info('app', 'Setting up webhook dispatch');
+
+    app.on('download:complete', async (data) => {
+        try {
+            logger?.info('webhook', `download:complete received for id ${data.id}`);
+            const db = modules.db;
+            const download = await db.get(`
+                SELECT d.id, d.final_path, d.completed_at,
+                       m.media_type, m.title as media_title, m.show_name,
+                       e.season, e.episode, e.title as episode_title
+                FROM downloads d
+                LEFT JOIN media m ON d.media_id = m.id
+                LEFT JOIN episodes e ON d.episode_id = e.id
+                WHERE d.id = ?
+            `, [data.id]);
+
+            const mediaType = download?.media_type || null;
+            const seriesName = mediaType === 'series' ? (download?.show_name || download?.media_title) : null;
+            const title = mediaType === 'series'
+                ? (download?.episode_title || seriesName || data.title || null)
+                : (download?.media_title || data.title || null);
+
+            await sendWebhook('download_complete', {
+                id: data.id,
+                media_type: mediaType,
+                title,
+                series_name: seriesName,
+                season: download?.season ?? null,
+                episode: download?.episode ?? null,
+                path: data.path || download?.final_path || null,
+                completed_at: download?.completed_at || null
+            });
+            await sendTelegramNotification('download_complete', {
+                media_type: mediaType,
+                title,
+                series_name: seriesName,
+                season: download?.season ?? null,
+                episode: download?.episode ?? null
+            });
+        } catch (err) {
+            logger?.warn('webhook', `Download webhook failed: ${err.message}`);
+        }
+    });
+
+    app.on('recording:completed', async (data) => {
+        try {
+            logger?.info('webhook', `recording:completed received for id ${data.id}`);
+            await sendWebhook('recording_finished', {
+                id: data.id,
+                title: data.title || null,
+                path: data.outputPath || null,
+                file_size: data.fileSize ?? null
+            });
+            await sendTelegramNotification('recording_finished', {
+                title: data.title || null
+            });
+        } catch (err) {
+            logger?.warn('webhook', `Recording webhook failed: ${err.message}`);
+        }
+    });
 }
 
 module.exports = {
@@ -5344,6 +6077,7 @@ module.exports = {
         settings = mods.settings;
 
         app = express();
+        app.set('trust proxy', true);
         app.set('view engine', 'ejs');
         app.set('views', PATHS.views);
 
@@ -5351,8 +6085,10 @@ module.exports = {
         io = new Server(server);
 
         setupRoutes();
+        await ensureAdminUser();
         setupSocket();
         setupSyncEventRelay();
+        setupWebhookDispatch();
 
         const port = settings.get('port');
         return new Promise((resolve) => {
@@ -5386,5 +6122,9 @@ module.exports = {
     },
 
     io: () => io,
-    emit: (event, data) => io?.emit(event, data)
+    emit: (event, data) => {
+        app?.emit(event, data);
+        io?.emit(event, data);
+    },
+    isStreamActive
 };

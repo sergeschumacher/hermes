@@ -109,7 +109,7 @@
             if (levelFilter && log.level !== levelFilter) return false;
             if (moduleFilter && log.module !== moduleFilter) return false;
             return true;
-        });
+        }).reverse();
 
         if (filtered.length === 0) {
             container.innerHTML = '<div class="text-dark-500 text-center py-8">No logs to display</div>';
@@ -133,7 +133,7 @@
         }).join('');
 
         if (autoScroll) {
-            container.scrollTop = container.scrollHeight;
+            container.scrollTop = 0;
         }
     }
 

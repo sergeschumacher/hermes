@@ -8,6 +8,12 @@ let logger = null;
 let db = null;
 let settings = null;
 let app = null;
+let modulesRef = null;
+
+function emitApp(event, data) {
+    (modulesRef?.app || app)?.emit(event, data);
+}
+
 let plex = null;
 let transcoder = null;
 let usenet = null;
@@ -15,6 +21,66 @@ let newznab = null;
 
 let activeDownloads = 0;
 let downloadInterval = null;
+let streamPauseLogged = false;
+const activeTransfers = new Map();
+
+function waitForStreamInactive() {
+    const appRef = modulesRef?.app || app;
+    if (!appRef?.isStreamActive?.() || appRef?.isStreamActive?.() === false) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        const handler = () => {
+            appRef.off?.('stream:inactive', handler);
+            resolve();
+        };
+        appRef.once?.('stream:inactive', handler);
+    });
+}
+
+async function reconcileStuckDownloads() {
+    if (!db || activeTransfers.size > 0) return;
+    try {
+        const row = await db.get("SELECT COUNT(*) as count FROM downloads WHERE status = 'downloading'");
+        if (row?.count > 0) {
+            await db.run("UPDATE downloads SET status = 'queued' WHERE status = 'downloading'");
+            logger?.warn('download', `Requeued ${row.count} stuck downloads`);
+        }
+        if (activeDownloads > 0) {
+            activeDownloads = 0;
+        }
+    } catch (err) {
+        logger?.warn('download', `Failed to reconcile stuck downloads: ${err.message}`);
+    }
+}
+
+function pauseActiveDownloads() {
+    for (const [downloadId, transfer] of activeTransfers.entries()) {
+        if (transfer.paused || !transfer.response) continue;
+        transfer.paused = true;
+        if (transfer.pauseState) {
+            transfer.pauseState.paused = true;
+            transfer.pauseState.reason = 'stream';
+        }
+        transfer.bumpActivity?.();
+        transfer.abort?.('stream');
+        transfer.response = null;
+        transfer.throttle = null;
+        logger?.info('download', `Paused active download ${downloadId}`);
+    }
+}
+
+function resumeActiveDownloads() {
+    for (const [downloadId, transfer] of activeTransfers.entries()) {
+        if (!transfer.paused || !transfer.response) continue;
+        transfer.paused = false;
+        if (transfer.pauseState) transfer.pauseState.paused = false;
+        transfer.bumpActivity?.();
+        transfer.response.resume?.();
+        transfer.throttle?.resume?.();
+        logger?.info('download', `Resumed active download ${downloadId}`);
+    }
+}
 
 // Default assumed video duration for bitrate calculation (in seconds)
 // 90 minutes for movies, 45 minutes for episodes
@@ -202,6 +268,30 @@ class ThrottledStream extends Transform {
     }
 }
 
+class SkipBytesStream extends Transform {
+    constructor(skipBytes) {
+        super();
+        this.skipBytes = Math.max(0, skipBytes || 0);
+    }
+
+    _transform(chunk, encoding, callback) {
+        if (this.skipBytes <= 0) {
+            callback(null, chunk);
+            return;
+        }
+
+        if (chunk.length <= this.skipBytes) {
+            this.skipBytes -= chunk.length;
+            callback();
+            return;
+        }
+
+        const remaining = chunk.slice(this.skipBytes);
+        this.skipBytes = 0;
+        callback(null, remaining);
+    }
+}
+
 async function getSourceSettings(mediaId) {
     // Get the source settings for this media item
     const media = await db.get(`
@@ -242,6 +332,24 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 
 async function processQueue() {
     const slowDiskMode = settings.get('slowDiskMode');
+    const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
+    const streamActive = modulesRef?.app?.isStreamActive?.() === true;
+
+    await reconcileStuckDownloads();
+
+    if (pauseOnStream && streamActive) {
+        if (!streamPauseLogged) {
+            logger?.info('download', 'Stream active, pausing new downloads');
+            streamPauseLogged = true;
+        }
+        pauseActiveDownloads();
+        return;
+    }
+    if (streamPauseLogged) {
+        logger?.info('download', 'Stream ended, resuming downloads');
+        streamPauseLogged = false;
+    }
+    resumeActiveDownloads();
 
     if (slowDiskMode) {
         // Slow disk mode: strictly sequential - one operation at a time
@@ -366,7 +474,7 @@ async function processDownload(download) {
     await db.run('UPDATE downloads SET status = ?, started_at = CURRENT_TIMESTAMP, temp_path = ? WHERE id = ?',
         ['downloading', tempFile, download.id]);
 
-    app?.emit('download:start', { id: download.id, title: download.title });
+    emitApp('download:start', { id: download.id, title: download.title });
 
     try {
         const userAgent = settings.getRandomUserAgent();
@@ -375,9 +483,24 @@ async function processDownload(download) {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
                 const isEpisode = !!download.episode_url;
-                await downloadFile(download.id, streamUrl, tempFile, userAgent, sourceSettings, isEpisode);
+                let resumeFrom = 0;
+                if (fs.existsSync(tempFile)) {
+                    try {
+                        const stats = fs.statSync(tempFile);
+                        resumeFrom = stats.size || 0;
+                    } catch (err) {
+                        logger.warn('download', `Failed to stat temp file for resume: ${err.message}`);
+                    }
+                }
+                await downloadFile(download.id, streamUrl, tempFile, userAgent, sourceSettings, isEpisode, resumeFrom);
                 break;
             } catch (err) {
+                if (err?.isPaused && settings.get('pauseDownloadsOnStream') !== false) {
+                    await waitForStreamInactive();
+                    await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+                        ['queued', download.id, 'downloading']);
+                    return;
+                }
                 if (attempt === retries) throw err;
 
                 logger.warn('download', `Retry ${attempt + 1}/${retries} for ${download.title}: ${err.message}`);
@@ -413,7 +536,7 @@ async function processDownload(download) {
         const finalPath = path.join(finalDir, filename);
 
         // Check if transcoding is enabled
-        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
+        const shouldTranscode = settings.get('transcodeFilesEnabled') && transcoder;
 
         if (shouldTranscode) {
             // Queue for transcoding - file stays in temp location
@@ -423,7 +546,7 @@ async function processDownload(download) {
             await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', download.id]);
 
             logger.info('download', `Queued for transcoding: ${download.title}`);
-            app?.emit('download:transcoding', { id: download.id, title: download.title });
+            emitApp('download:transcoding', { id: download.id, title: download.title });
 
             // Note: Plex scan and final completion happen after transcoding completes (in transcoder module)
 
@@ -448,7 +571,7 @@ async function processDownload(download) {
             `, ['completed', finalPath, download.id]);
 
             logger.info('download', `Completed: ${download.title}`);
-            app?.emit('download:complete', { id: download.id, title: download.title, path: finalPath });
+            emitApp('download:complete', { id: download.id, title: download.title, path: finalPath });
 
             // Trigger Plex scan
             if (plex) {
@@ -477,7 +600,7 @@ async function processDownload(download) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, download.id]);
 
-        app?.emit('download:failed', { id: download.id, title: download.title, error: err.message });
+        emitApp('download:failed', { id: download.id, title: download.title, error: err.message });
     }
 }
 
@@ -512,6 +635,18 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
     let response;
     try {
+        const headers = {
+            'User-Agent': userAgent,
+            'X-Device-MAC': spoofedMac,
+            'X-Forwarded-For': spoofedMac,
+            'X-Device-Key': spoofedDeviceKey,
+            'X-Device-ID': spoofedMac.replace(/:/g, ''),
+            'Accept': '*/*',
+            'Connection': 'keep-alive'
+        };
+        if (resumeFrom > 0) {
+            headers['Range'] = `bytes=${resumeFrom}-`;
+        }
         response = await axios({
             url,
             method: 'GET',
@@ -534,7 +669,6 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     if (statusCode >= 400) {
         const errorMsg = `HTTP ${statusCode} ${response.statusText || 'Error'}`;
         logger.error('download', `Download ${downloadId} failed: ${errorMsg}`);
-        writer.destroy();
         throw new Error(errorMsg);
     }
 
@@ -568,6 +702,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
+    const pauseState = { paused: false, reason: null };
 
     // Calculate throttle settings
     let bytesPerSecond = Infinity;
@@ -593,6 +728,9 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         logger.info('download', `Download ${downloadId} starting - Size: ${(totalLength / 1024 / 1024).toFixed(2)} MB`);
     } else {
         logger.warn('download', `Download ${downloadId} starting - Unknown size (no Content-Length header)`);
+    }
+    if (resumeFrom > 0) {
+        logger.info('download', `Download ${downloadId} resuming at ${(resumeFrom / 1024 / 1024).toFixed(2)} MB`);
     }
 
     // Create throttled stream if needed
@@ -636,12 +774,66 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
         // Timeout for stalled downloads (no data received for 120 seconds when throttled, 60 when not)
         const stallTimeoutMs = throttleEnabled ? 120000 : 60000;
-        const stallTimeout = setInterval(() => {
+        stallTimeout = setInterval(() => {
+            if (pauseState.paused) {
+                lastDataTime = Date.now();
+                return;
+            }
             if (Date.now() - lastDataTime > stallTimeoutMs) {
                 logger.error('download', `Download ${downloadId} stalled - no data for ${stallTimeoutMs/1000} seconds`);
                 safeReject(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
             }
         }, 10000);
+
+        function abort(reason) {
+            pauseState.paused = true;
+            pauseState.reason = reason || pauseState.reason || 'stream';
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
+            try { response.data.destroy(new Error('Paused')); } catch (err) {}
+            try { throttle.destroy(); } catch (err) {}
+            try { writer.destroy(); } catch (err) {}
+            activeTransfers.delete(downloadId);
+            rejectOnce(makePausedError());
+        }
+
+        const transferState = {
+            response: response.data,
+            throttle,
+            paused: false,
+            bumpActivity: () => { lastDataTime = Date.now(); },
+            pauseState,
+            abort,
+            speedBps: 0,
+            lastSpeedAt: null,
+            lastSpeedBytes: 0
+        };
+
+        let lastNetAt = Date.now();
+        let netBytesSince = 0;
+        let lastNetLogAt = Date.now();
+        let lastWriteLogAt = Date.now();
+        response.data.on('data', (chunk) => {
+            netBytesSince += chunk.length;
+            const now = Date.now();
+            if (now - lastNetLogAt >= 5000) {
+                if (!settings?.get?.('downloadSpeedLogs')) {
+                    lastNetAt = now;
+                    netBytesSince = 0;
+                    lastNetLogAt = now;
+                    return;
+                }
+                const elapsed = (now - lastNetAt) / 1000;
+                const netBps = elapsed > 0 ? Math.floor(netBytesSince / elapsed) : 0;
+                const writeBps = transferState.speedBps || 0;
+                logger?.debug('download', `Download ${downloadId} net=${Math.round(netBps / 1024)} KB/s write=${Math.round(writeBps / 1024)} KB/s`);
+                lastNetAt = now;
+                netBytesSince = 0;
+                lastNetLogAt = now;
+            }
+        });
 
         // Track data through throttle
         throttle.on('data', async (chunk) => {
@@ -655,19 +847,42 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             if (Date.now() - lastUpdate > updateInterval) {
                 lastUpdate = Date.now();
                 const progress = totalLength > 0 ? (downloadedLength / totalLength * 100) : 0;
+                if (!transferState.lastSpeedAt) {
+                    transferState.lastSpeedAt = Date.now();
+                    transferState.lastSpeedBytes = downloadedLength;
+                } else {
+                    const now = Date.now();
+                    const elapsed = (now - transferState.lastSpeedAt) / 1000;
+                    if (elapsed >= 1) {
+                        const deltaBytes = downloadedLength - transferState.lastSpeedBytes;
+                        transferState.speedBps = elapsed > 0 ? Math.max(0, Math.floor(deltaBytes / elapsed)) : 0;
+                        transferState.lastSpeedAt = now;
+                        transferState.lastSpeedBytes = downloadedLength;
+                    }
+                }
+                if (Date.now() - lastWriteLogAt >= 1000) {
+                    lastWriteLogAt = Date.now();
+                }
 
                 await db.run('UPDATE downloads SET progress = ?, downloaded_size = ?, file_size = ? WHERE id = ?',
                     [progress, downloadedLength, totalLength, downloadId]);
 
-                app?.emit('download:progress', {
+                emitApp('download:progress', {
                     id: downloadId,
                     progress: progress.toFixed(1),
                     downloaded: downloadedLength,
                     total: totalLength,
-                    throttled: throttleEnabled
+                    throttled: throttleEnabled,
+                    speedBps: transferState.speedBps
                 });
             }
         });
+
+        if (discardBytes > 0) {
+            response.data.on('data', () => {
+                lastDataTime = Date.now();
+            });
+        }
 
         throttle.on('end', () => {
             if (!isAborting) {
@@ -700,8 +915,13 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             safeReject(err);
         });
 
-        // Pipe through throttle to writer
-        response.data.pipe(throttle).pipe(writer);
+        // Pipe through optional skip and throttle to writer
+        const skipStream = discardBytes > 0 ? new SkipBytesStream(discardBytes) : null;
+        if (skipStream) {
+            response.data.pipe(skipStream).pipe(throttle).pipe(writer);
+        } else {
+            response.data.pipe(throttle).pipe(writer);
+        }
     });
 }
 
@@ -722,7 +942,7 @@ async function processUsenetDownload(download) {
     await db.run('UPDATE downloads SET status = ?, started_at = CURRENT_TIMESTAMP, source_type = ? WHERE id = ?',
         ['downloading', 'usenet', download.id]);
 
-    app?.emit('download:start', { id: download.id, title: download.title });
+    emitApp('download:start', { id: download.id, title: download.title });
 
     try {
         // Fetch NZB content
@@ -753,7 +973,7 @@ async function processUsenetDownload(download) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, download.id]);
 
-        app?.emit('download:failed', { id: download.id, title: download.title, error: err.message });
+        emitApp('download:failed', { id: download.id, title: download.title, error: err.message });
     }
 }
 
@@ -822,7 +1042,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
         const finalPath = path.join(finalDir, filename);
 
         // Check if transcoding is enabled
-        const shouldTranscode = settings.get('transcodeEnabled') && transcoder;
+        const shouldTranscode = settings.get('transcodeFilesEnabled') && transcoder;
 
         if (shouldTranscode) {
             // Queue for transcoding
@@ -831,7 +1051,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
             await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['transcoding', downloadId]);
 
             logger.info('download', `Usenet download queued for transcoding: ${displayTitle}`);
-            app?.emit('download:transcoding', { id: downloadId, title: download.title });
+            emitApp('download:transcoding', { id: downloadId, title: download.title });
 
         } else {
             // Move to final destination
@@ -855,7 +1075,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
             `, ['completed', finalPath, fileStats.size, downloadId]);
 
             logger.info('download', `Usenet download completed: ${displayTitle}`);
-            app?.emit('download:complete', { id: downloadId, title: download.title, path: finalPath });
+            emitApp('download:complete', { id: downloadId, title: download.title, path: finalPath });
 
             // Trigger Plex scan
             if (plex) {
@@ -888,7 +1108,7 @@ async function handleUsenetComplete(downloadId, tempDir, files) {
         await db.run('UPDATE downloads SET status = ?, error_message = ? WHERE id = ?',
             ['failed', err.message, downloadId]);
 
-        app?.emit('download:failed', { id: downloadId, title: download.title, error: err.message });
+        emitApp('download:failed', { id: downloadId, title: download.title, error: err.message });
     }
 }
 
@@ -905,6 +1125,7 @@ module.exports = {
         logger = modules.logger;
         db = modules.db;
         settings = modules.settings;
+        modulesRef = modules;
         app = modules.app;
         plex = modules.plex;
         transcoder = modules.transcoder;
@@ -959,6 +1180,27 @@ module.exports = {
             app.on('usenet:postprocess:status', (data) => {
                 app.emit('socket:broadcast', 'usenet:postprocess:status', data);
             });
+
+            app.on('stream:active', () => {
+                if (settings.get('pauseDownloadsOnStream') === false) return;
+                pauseActiveDownloads();
+                if (!streamPauseLogged) {
+                    logger?.info('download', 'Stream active, pausing downloads');
+                    streamPauseLogged = true;
+                }
+            });
+
+            app.on('stream:inactive', () => {
+                if (settings.get('pauseDownloadsOnStream') === false) return;
+                resumeActiveDownloads();
+                if (streamPauseLogged) {
+                    logger?.info('download', 'Stream ended, resuming downloads');
+                    streamPauseLogged = false;
+                }
+                reconcileStuckDownloads().finally(() => {
+                    processQueue();
+                });
+            });
         }
 
         // Start processing queue
@@ -970,6 +1212,17 @@ module.exports = {
         if (downloadInterval) {
             clearInterval(downloadInterval);
         }
+    },
+
+    getActiveStats: () => {
+        const stats = {};
+        for (const [downloadId, transfer] of activeTransfers.entries()) {
+            stats[downloadId] = {
+                speedBps: transfer.speedBps || 0,
+                paused: !!transfer.paused
+            };
+        }
+        return stats;
     },
 
     // Add to queue
@@ -988,7 +1241,7 @@ module.exports = {
             [mediaId, episodeId, 'queued', priority]
         );
 
-        app?.emit('download:queued', { id: result.lastID, mediaId, episodeId });
+        emitApp('download:queued', { id: result.lastID, mediaId, episodeId });
         return { success: true, id: result.lastID };
     },
 
@@ -1008,7 +1261,7 @@ module.exports = {
             [mediaId, episodeId, 'queued', priority, nzbUrl, nzbTitle, 'usenet']
         );
 
-        app?.emit('download:queued', { id: result.lastID, mediaId, episodeId, type: 'usenet' });
+        emitApp('download:queued', { id: result.lastID, mediaId, episodeId, type: 'usenet' });
         logger?.info('download', `Queued usenet download: ${nzbTitle}`);
         return { success: true, id: result.lastID };
     },
@@ -1016,7 +1269,7 @@ module.exports = {
     // Cancel download
     cancel: async (downloadId) => {
         await db.run('UPDATE downloads SET status = ? WHERE id = ?', ['cancelled', downloadId]);
-        app?.emit('download:cancelled', { id: downloadId });
+        emitApp('download:cancelled', { id: downloadId });
     },
 
     // Set priority for a download
@@ -1024,7 +1277,7 @@ module.exports = {
         const clampedPriority = Math.max(0, Math.min(100, priority));
         await db.run('UPDATE downloads SET priority = ? WHERE id = ? AND status = ?',
             [clampedPriority, downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: clampedPriority });
+        emitApp('download:priority', { id: downloadId, priority: clampedPriority });
         return { success: true, priority: clampedPriority };
     },
 
@@ -1036,7 +1289,7 @@ module.exports = {
 
         const newPriority = Math.min(100, (download.priority || 50) + 10);
         await db.run('UPDATE downloads SET priority = ? WHERE id = ?', [newPriority, downloadId]);
-        app?.emit('download:priority', { id: downloadId, priority: newPriority });
+        emitApp('download:priority', { id: downloadId, priority: newPriority });
         return { success: true, priority: newPriority };
     },
 
@@ -1048,7 +1301,7 @@ module.exports = {
 
         const newPriority = Math.max(0, (download.priority || 50) - 10);
         await db.run('UPDATE downloads SET priority = ? WHERE id = ?', [newPriority, downloadId]);
-        app?.emit('download:priority', { id: downloadId, priority: newPriority });
+        emitApp('download:priority', { id: downloadId, priority: newPriority });
         return { success: true, priority: newPriority };
     },
 
@@ -1056,7 +1309,7 @@ module.exports = {
     moveToTop: async (downloadId) => {
         await db.run('UPDATE downloads SET priority = 100 WHERE id = ? AND status = ?',
             [downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: 100 });
+        emitApp('download:priority', { id: downloadId, priority: 100 });
         return { success: true, priority: 100 };
     },
 
@@ -1064,7 +1317,7 @@ module.exports = {
     moveToBottom: async (downloadId) => {
         await db.run('UPDATE downloads SET priority = 0 WHERE id = ? AND status = ?',
             [downloadId, 'queued']);
-        app?.emit('download:priority', { id: downloadId, priority: 0 });
+        emitApp('download:priority', { id: downloadId, priority: 0 });
         return { success: true, priority: 0 };
     },
 
@@ -1075,7 +1328,7 @@ module.exports = {
             SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
             WHERE id = ? AND status IN ('failed', 'cancelled')
         `, [downloadId]);
-        app?.emit('download:retry', { id: downloadId });
+        emitApp('download:retry', { id: downloadId });
         return { success: true };
     },
 

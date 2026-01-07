@@ -1,4 +1,4 @@
-// Hermes Client-side JavaScript
+// RecoStream Client-side JavaScript
 
 const socket = io();
 

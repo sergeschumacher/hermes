@@ -114,12 +114,6 @@
                 </svg>
                 Browser
             </button>
-            <button onclick="playInVLC()" class="btn btn-success" id="play-vlc-btn" style="display:none;">
-                <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
-                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" />
-                </svg>
-                VLC
-            </button>
             <button onclick="scheduleRecording()" class="btn btn-primary" id="record-btn">
                 <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                     <circle cx="10" cy="10" r="6" fill="currentColor" />
@@ -903,6 +897,21 @@
         document.getElementById('current-date').textContent = formatDate(startTime);
     }
 
+    async function fetchJsonSafe(url, options) {
+        const response = await fetch(url, options);
+        const contentType = response.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+            const text = await response.text();
+            throw new Error(text || \`Unexpected response (\${response.status})\`);
+        }
+        const data = await response.json();
+        if (!response.ok) {
+            const message = data?.error || \`Request failed (\${response.status})\`;
+            throw new Error(message);
+        }
+        return data;
+    }
+
     async function loadEpg() {
         showLoading('Loading Live TV channels...');
         generateTimeHeader();
@@ -913,8 +922,7 @@
 
         try {
             // Fetch Live TV channels that have tvg_id set (EPG mapping)
-            const liveResp = await fetch('/api/epg/live-channels');
-            const channelsWithEpg = await liveResp.json();
+            const channelsWithEpg = await fetchJsonSafe('/api/epg/live-channels');
 
             if (channelsWithEpg.length === 0) {
                 hideLoading();
@@ -949,12 +957,11 @@
             showLoading(\`Loading program guide for \${allChannels.length} channels...\`);
 
             const channelIds = allChannels.map(c => c.tvg_id);
-            const epgResp = await fetch('/api/epg/guide', {
+            epgData = await fetchJsonSafe('/api/epg/guide', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ start, end, channels: channelIds })
             });
-            epgData = await epgResp.json();
 
             showLoading('Rendering guide...');
 
@@ -1196,13 +1203,13 @@
                 noSourceMsg.style.display = 'none';
                 select.style.display = 'block';
                 document.getElementById('record-btn').disabled = false;
-                document.getElementById('play-vlc-btn').style.display = 'flex';
+                // VLC buttons removed
                 document.getElementById('play-browser-btn').style.display = 'flex';
             } else {
                 noSourceMsg.style.display = 'block';
                 select.style.display = 'none';
                 document.getElementById('record-btn').disabled = true;
-                document.getElementById('play-vlc-btn').style.display = 'none';
+                // VLC buttons removed
                 document.getElementById('play-browser-btn').style.display = 'none';
             }
 
@@ -1218,40 +1225,6 @@
         document.getElementById('program-modal').classList.remove('flex');
         selectedProgram = null;
         matchingLiveChannels = [];
-    }
-
-    async function playInVLC() {
-        const selectedSource = document.getElementById('source-select').value;
-
-        // Find the channel to play - either selected or first available
-        let channelToPlay = null;
-        if (selectedSource) {
-            channelToPlay = matchingLiveChannels.find(ch => ch.id === parseInt(selectedSource));
-        } else if (matchingLiveChannels.length > 0) {
-            channelToPlay = matchingLiveChannels[0];
-        }
-
-        if (!channelToPlay || !channelToPlay.stream_url) {
-            if (window.showToast) showToast('No stream URL available', 'error');
-            return;
-        }
-
-        try {
-            const resp = await fetch('/api/play', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: channelToPlay.stream_url })
-            });
-            const data = await resp.json();
-            if (data.success) {
-                if (window.showToast) showToast('Opening in VLC...', 'success');
-            } else {
-                if (window.showToast) showToast('Failed to open VLC: ' + (data.error || 'Unknown error'), 'error');
-            }
-        } catch (err) {
-            console.error('Failed to open VLC:', err);
-            if (window.showToast) showToast('Failed to open VLC', 'error');
-        }
     }
 
     function playInBrowser() {
@@ -1273,9 +1246,9 @@
         // Close the program modal first
         closeModal();
 
-        // Open the preview modal with the stream
-        const title = selectedProgram?.title || channelToPlay.title;
-        window.openPreview(channelToPlay.stream_url, title, '', '');
+        const browserUrl = '/player?url=' + encodeURIComponent(channelToPlay.stream_url);
+        window.open(browserUrl, '_blank', 'noopener');
+        if (window.showToast) showToast('Opening in browser...', 'success');
     }
 
     async function scheduleRecording() {

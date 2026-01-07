@@ -2,7 +2,7 @@ const path = require('path');
 const fs = require('fs');
 
 // Global configuration
-global.APP_NAME = 'Hermes';
+global.APP_NAME = 'RecoStream';
 global.VERSION = '1.0.0';
 global.PATHS = {
     root: path.resolve(__dirname),

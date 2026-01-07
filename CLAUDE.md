@@ -1,4 +1,4 @@
-# Claude Code Guidelines for Hermes
+# Claude Code Guidelines for RecoStream
 
 ## Security - CRITICAL
 

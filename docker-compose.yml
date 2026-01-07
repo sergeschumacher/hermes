@@ -1,49 +1,29 @@
 services:
-  hermes:
-    # Use pre-built image from GitHub Container Registry
-    image: ghcr.io/sergeschumacher/hermes:latest
-    # Or build from source:
-    # build: .
-    container_name: hermes
-    labels:
-      - "io.portainer.accesscontrol.public=true"
-      - "io.portainer.application.icon=https://raw.githubusercontent.com/sergeschumacher/hermes/main/hermes.jpeg"
+  recostream:
+    image: ghcr.io/sergeschumacher/recostream:latest
+    container_name: recostream
     restart: unless-stopped
     ports:
       - "3000:3000"
-    volumes:
-      # Persistent data (database, config, cache)
-      - ./data:/data
-      # Downloads folder (optional, for DVR/recording features)
-      - ./downloads:/downloads
     environment:
       - NODE_ENV=production
-      - TZ=Europe/Amsterdam
-      # Optional: Set your TMDB API key for metadata enrichment
-      # - TMDB_API_KEY=your_tmdb_api_key
-      # Optional: Plex integration
-      # - PLEX_URL=http://192.168.1.100:32400
-      # - PLEX_TOKEN=your_plex_token
-    # GPU support for hardware transcoding (uncomment for NVIDIA)
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
-    # Intel QuickSync (uncomment for Intel iGPU)
-    # devices:
-    #   - /dev/dri:/dev/dri
+      - TZ=UTC
+      - ADMIN_USERNAME=admin
+      - ADMIN_PASSWORD=changeme
+      # - TMDB_API_KEY=
+      # - PLEX_URL=
+      # - NVIDIA_VISIBLE_DEVICES=all
+      # - NVIDIA_DRIVER_CAPABILITIES=compute,video,utility
+      - MFA_ENABLED=true
+    volumes:
+      - ./data:/data
+      - ./downloads:/data/downloads
+      - ./recordings:/data/recordings
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
-    networks:
-      - hermes
 
-networks:
-  hermes:
-    driver: bridge
+      # runtime: nvidia
