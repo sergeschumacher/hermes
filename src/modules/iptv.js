@@ -1613,6 +1613,15 @@ function parseM3U(content, parserConfig = null) {
                 }
             }
 
+            // If we have a language but category doesn't have country prefix, add it
+            // This ensures channels appear in the correct country group in Live TV
+            if (currentChannel.language && currentChannel.group) {
+                const hasCountryPrefix = /^\|?[A-Z]{2}\|/.test(currentChannel.group) || /^[A-Z]{2}\s/.test(currentChannel.group);
+                if (!hasCountryPrefix) {
+                    currentChannel.group = `|${currentChannel.language}| ${currentChannel.group}`;
+                }
+            }
+
         } else if (line && !line.startsWith('#') && currentChannel) {
             // This is the URL line
             currentChannel.url = line;
