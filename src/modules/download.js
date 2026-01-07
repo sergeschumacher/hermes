@@ -773,10 +773,21 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 clearInterval(stallTimeout);
                 stallTimeout = null;
             }
+            // Unpipe first to stop data flow
+            try { response.data.unpipe(throttle); } catch (err) {}
+            try { throttle.unpipe(writer); } catch (err) {}
+            // Destroy source and throttle
             try { response.data.destroy(new Error('Paused')); } catch (err) {}
             try { throttle.destroy(); } catch (err) {}
-            try { writer.destroy(); } catch (err) {}
-            activeTransfers.delete(downloadId);
+            // End writer gracefully to flush buffered data to disk
+            try {
+                writer.end(() => {
+                    activeTransfers.delete(downloadId);
+                });
+            } catch (err) {
+                try { writer.destroy(); } catch (e) {}
+                activeTransfers.delete(downloadId);
+            }
             rejectOnce(makePausedError());
         }
 
