@@ -325,6 +325,18 @@ async function processQueue() {
     const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
     const streamActive = modulesRef?.app?.isStreamActive?.() === true;
 
+    if (activeDownloads > 0 && activeTransfers.size === 0) {
+        try {
+            const row = await db.get("SELECT COUNT(*) as count FROM downloads WHERE status = 'downloading'");
+            if (!row || row.count === 0) {
+                logger?.warn('download', 'Resetting active download count (no active transfers)');
+                activeDownloads = 0;
+            }
+        } catch (err) {
+            logger?.warn('download', `Failed to reconcile active downloads: ${err.message}`);
+        }
+    }
+
     if (pauseOnStream && streamActive) {
         if (!streamPauseLogged) {
             logger?.info('download', 'Stream active, pausing new downloads');
