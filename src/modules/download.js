@@ -258,6 +258,30 @@ class ThrottledStream extends Transform {
     }
 }
 
+class SkipBytesStream extends Transform {
+    constructor(skipBytes) {
+        super();
+        this.skipBytes = Math.max(0, skipBytes || 0);
+    }
+
+    _transform(chunk, encoding, callback) {
+        if (this.skipBytes <= 0) {
+            callback(null, chunk);
+            return;
+        }
+
+        if (chunk.length <= this.skipBytes) {
+            this.skipBytes -= chunk.length;
+            callback();
+            return;
+        }
+
+        const remaining = chunk.slice(this.skipBytes);
+        this.skipBytes = 0;
+        callback(null, remaining);
+    }
+}
+
 async function getSourceSettings(mediaId) {
     // Get the source settings for this media item
     const media = await db.get(`
@@ -628,9 +652,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         totalLength = contentLength;
     }
 
+    let discardBytes = 0;
     if (resumeFrom > 0 && statusCode === 200) {
-        logger.warn('download', `Server did not honor Range for download ${downloadId}, restarting from beginning`);
-        resumeFrom = 0;
+        discardBytes = resumeFrom;
+        logger.warn('download', `Server did not honor Range for download ${downloadId}, discarding ${Math.round(resumeFrom / 1024 / 1024)} MB to resume`);
     }
 
     const writer = fs.createWriteStream(destPath, { flags: resumeFrom > 0 ? 'a' : 'w' });
@@ -735,6 +760,12 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             }
         });
 
+        if (discardBytes > 0) {
+            response.data.on('data', () => {
+                lastDataTime = Date.now();
+            });
+        }
+
         throttle.on('end', () => {
             clearInterval(stallTimeout);
             logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
@@ -811,8 +842,13 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             }
         });
 
-        // Pipe through throttle to writer
-        response.data.pipe(throttle).pipe(writer);
+        // Pipe through optional skip and throttle to writer
+        const skipStream = discardBytes > 0 ? new SkipBytesStream(discardBytes) : null;
+        if (skipStream) {
+            response.data.pipe(skipStream).pipe(throttle).pipe(writer);
+        } else {
+            response.data.pipe(throttle).pipe(writer);
+        }
     });
 }
 
