@@ -417,6 +417,11 @@ async function processQueue() {
 
     if (!download) return;
 
+    // Immediately mark as downloading to prevent race conditions
+    // (processQueue runs on interval and could pick same download twice)
+    await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+        ['downloading', download.id, 'queued']);
+
     activeDownloads++;
     processDownload(download).finally(() => {
         activeDownloads--;
