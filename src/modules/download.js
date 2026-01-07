@@ -799,11 +799,17 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         response.data.on('data', (chunk) => {
             netBytesSince += chunk.length;
             const now = Date.now();
-            if (now - lastNetLogAt >= 1000) {
+            if (now - lastNetLogAt >= 5000) {
+                if (!settings?.get?.('downloadSpeedLogs')) {
+                    lastNetAt = now;
+                    netBytesSince = 0;
+                    lastNetLogAt = now;
+                    return;
+                }
                 const elapsed = (now - lastNetAt) / 1000;
                 const netBps = elapsed > 0 ? Math.floor(netBytesSince / elapsed) : 0;
                 const writeBps = transferState.speedBps || 0;
-                logger?.info('download', `Download ${downloadId} net=${Math.round(netBps / 1024)} KB/s write=${Math.round(writeBps / 1024)} KB/s`);
+                logger?.debug('download', `Download ${downloadId} net=${Math.round(netBps / 1024)} KB/s write=${Math.round(writeBps / 1024)} KB/s`);
                 lastNetAt = now;
                 netBytesSince = 0;
                 lastNetLogAt = now;
