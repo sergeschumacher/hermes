@@ -605,6 +605,9 @@
                                     </span>
                                     <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
                                 </div>
+                                \${(d.speed_bps || 0) > 0 ? \`
+                                    <div class="text-xs text-gray-400 mb-2">Speed: \${formatBytes(d.speed_bps)} / s</div>
+                                \` : ''}
                                 <div class="progress-bar">
                                     <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
                                 </div>

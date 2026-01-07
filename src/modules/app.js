@@ -3403,7 +3403,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                     d.priority DESC,
                     d.created_at DESC
             `);
-            res.json(downloads);
+            const activeStats = modules.download?.getActiveStats?.() || {};
+            const enriched = downloads.map((item) => {
+                const stats = activeStats[item.id];
+                if (stats) {
+                    return {
+                        ...item,
+                        speed_bps: stats.speedBps || 0,
+                        paused: stats.paused === true
+                    };
+                }
+                return item;
+            });
+            res.json(enriched);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }

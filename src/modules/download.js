@@ -66,12 +66,6 @@ function pauseActiveDownloads() {
         transfer.abort?.('stream');
         transfer.response = null;
         transfer.throttle = null;
-        if (db) {
-            db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
-                ['queued', downloadId, 'downloading']).catch((err) => {
-                logger?.warn('download', `Failed to requeue paused download ${downloadId}: ${err.message}`);
-            });
-        }
         logger?.info('download', `Paused active download ${downloadId}`);
     }
 }
@@ -772,6 +766,18 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             }
         }, 10000);
 
+        const transferState = {
+            response: response.data,
+            throttle,
+            paused: false,
+            bumpActivity: () => { lastDataTime = Date.now(); },
+            pauseState,
+            abort,
+            speedBps: 0,
+            lastSpeedAt: null,
+            lastSpeedBytes: 0
+        };
+
         // Track data through throttle
         throttle.on('data', async (chunk) => {
             downloadedLength += chunk.length;
@@ -782,6 +788,19 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             if (Date.now() - lastUpdate > updateInterval) {
                 lastUpdate = Date.now();
                 const progress = totalLength > 0 ? (downloadedLength / totalLength * 100) : 0;
+                if (!transferState.lastSpeedAt) {
+                    transferState.lastSpeedAt = Date.now();
+                    transferState.lastSpeedBytes = downloadedLength;
+                } else {
+                    const now = Date.now();
+                    const elapsed = (now - transferState.lastSpeedAt) / 1000;
+                    if (elapsed >= 1) {
+                        const deltaBytes = downloadedLength - transferState.lastSpeedBytes;
+                        transferState.speedBps = elapsed > 0 ? Math.max(0, Math.floor(deltaBytes / elapsed)) : 0;
+                        transferState.lastSpeedAt = now;
+                        transferState.lastSpeedBytes = downloadedLength;
+                    }
+                }
 
                 await db.run('UPDATE downloads SET progress = ?, downloaded_size = ?, file_size = ? WHERE id = ?',
                     [progress, downloadedLength, totalLength, downloadId]);
@@ -791,7 +810,8 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                     progress: progress.toFixed(1),
                     downloaded: downloadedLength,
                     total: totalLength,
-                    throttled: throttleEnabled
+                    throttled: throttleEnabled,
+                    speedBps: transferState.speedBps
                 });
             }
         });
@@ -871,14 +891,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             rejectOnce(makePausedError());
         };
 
-        activeTransfers.set(downloadId, {
-            response: response.data,
-            throttle,
-            paused: false,
-            bumpActivity: () => { lastDataTime = Date.now(); },
-            pauseState,
-            abort
-        });
+        activeTransfers.set(downloadId, transferState);
 
         response.data.on('close', () => {
             activeTransfers.delete(downloadId);
@@ -1191,6 +1204,17 @@ module.exports = {
         if (downloadInterval) {
             clearInterval(downloadInterval);
         }
+    },
+
+    getActiveStats: () => {
+        const stats = {};
+        for (const [downloadId, transfer] of activeTransfers.entries()) {
+            stats[downloadId] = {
+                speedBps: transfer.speedBps || 0,
+                paused: !!transfer.paused
+            };
+        }
+        return stats;
     },
 
     // Add to queue
