@@ -792,6 +792,24 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             lastSpeedBytes: 0
         };
 
+        let lastNetAt = Date.now();
+        let netBytesSince = 0;
+        let lastNetLogAt = Date.now();
+        let lastWriteLogAt = Date.now();
+        response.data.on('data', (chunk) => {
+            netBytesSince += chunk.length;
+            const now = Date.now();
+            if (now - lastNetLogAt >= 1000) {
+                const elapsed = (now - lastNetAt) / 1000;
+                const netBps = elapsed > 0 ? Math.floor(netBytesSince / elapsed) : 0;
+                const writeBps = transferState.speedBps || 0;
+                logger?.info('download', `Download ${downloadId} net=${Math.round(netBps / 1024)} KB/s write=${Math.round(writeBps / 1024)} KB/s`);
+                lastNetAt = now;
+                netBytesSince = 0;
+                lastNetLogAt = now;
+            }
+        });
+
         // Track data through throttle
         throttle.on('data', async (chunk) => {
             downloadedLength += chunk.length;
@@ -814,6 +832,9 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                         transferState.lastSpeedAt = now;
                         transferState.lastSpeedBytes = downloadedLength;
                     }
+                }
+                if (Date.now() - lastWriteLogAt >= 1000) {
+                    lastWriteLogAt = Date.now();
                 }
 
                 await db.run('UPDATE downloads SET progress = ?, downloaded_size = ?, file_size = ? WHERE id = ?',
