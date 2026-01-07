@@ -482,11 +482,33 @@ async function processDownload(download) {
 }
 
 async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode) {
-    const writer = fs.createWriteStream(destPath);
+    // Check for existing partial file to resume
+    let resumeOffset = 0;
+    if (fs.existsSync(destPath)) {
+        const stats = fs.statSync(destPath);
+        resumeOffset = stats.size;
+    }
+
+    const writer = fs.createWriteStream(destPath, resumeOffset > 0 ? { flags: 'a' } : {});
 
     // Build headers mimicking IPTV player (IBU Player Pro style)
     const spoofedMac = sourceSettings.spoofedMac || '77:f4:8b:a4:ed:10';
     const spoofedDeviceKey = sourceSettings.spoofedDeviceKey || '006453';
+
+    const headers = {
+        'User-Agent': userAgent,
+        'X-Device-MAC': spoofedMac,
+        'X-Forwarded-For': spoofedMac,
+        'X-Device-Key': spoofedDeviceKey,
+        'X-Device-ID': spoofedMac.replace(/:/g, ''),
+        'Accept': '*/*',
+        'Connection': 'keep-alive'
+    };
+
+    // Add Range header for resume
+    if (resumeOffset > 0) {
+        headers['Range'] = `bytes=${resumeOffset}-`;
+    }
 
     let response;
     try {
@@ -495,19 +517,12 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             method: 'GET',
             responseType: 'stream',
             timeout: 60000,
-            headers: {
-                'User-Agent': userAgent,
-                'X-Device-MAC': spoofedMac,
-                'X-Forwarded-For': spoofedMac,
-                'X-Device-Key': spoofedDeviceKey,
-                'X-Device-ID': spoofedMac.replace(/:/g, ''),
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
-            },
+            headers,
             validateStatus: null // Allow us to handle all status codes
         });
     } catch (err) {
         logger.error('download', `HTTP request failed for download ${downloadId}: ${err.message}`);
+        writer.destroy();
         throw err;
     }
 
@@ -528,8 +543,29 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         logger.warn('download', `Download ${downloadId} received redirect ${statusCode}`);
     }
 
-    const totalLength = parseInt(response.headers['content-length'], 10) || 0;
-    let downloadedLength = 0;
+    // Parse content length - for 206 responses, use Content-Range header for total size
+    let totalLength = 0;
+    let downloadedLength = resumeOffset;
+
+    if (statusCode === 206) {
+        // Parse Content-Range: bytes 12345-67890/123456
+        const contentRange = response.headers['content-range'];
+        if (contentRange) {
+            const match = contentRange.match(/bytes \d+-\d+\/(\d+)/);
+            if (match) {
+                totalLength = parseInt(match[1], 10);
+            }
+        }
+        logger.info('download', `Download ${downloadId} resuming at ${(resumeOffset / 1024 / 1024).toFixed(2)} MB`);
+    } else {
+        totalLength = parseInt(response.headers['content-length'], 10) || 0;
+        // If we tried to resume but got 200, server doesn't support it - restart
+        if (resumeOffset > 0) {
+            logger.warn('download', `Download ${downloadId} - server doesn't support resume, restarting`);
+            downloadedLength = 0;
+        }
+    }
+
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
 
@@ -566,21 +602,51 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     });
 
     return new Promise((resolve, reject) => {
+        let isAborting = false;
+        let hasSettled = false;
+
+        const cleanup = () => {
+            if (isAborting) return;
+            isAborting = true;
+
+            // Unpipe first to stop data flow
+            try { response.data.unpipe(throttle); } catch (e) {}
+            try { throttle.unpipe(writer); } catch (e) {}
+
+            // Then destroy streams in reverse order (writer first, then throttle, then source)
+            try { writer.destroy(); } catch (e) {}
+            try { throttle.destroy(); } catch (e) {}
+            try { response.data.destroy(); } catch (e) {}
+        };
+
+        const safeReject = (err) => {
+            if (hasSettled) return;
+            hasSettled = true;
+            clearInterval(stallTimeout);
+            cleanup();
+            reject(err);
+        };
+
+        const safeResolve = () => {
+            if (hasSettled) return;
+            hasSettled = true;
+            clearInterval(stallTimeout);
+            resolve();
+        };
+
         // Timeout for stalled downloads (no data received for 120 seconds when throttled, 60 when not)
         const stallTimeoutMs = throttleEnabled ? 120000 : 60000;
         const stallTimeout = setInterval(() => {
             if (Date.now() - lastDataTime > stallTimeoutMs) {
-                clearInterval(stallTimeout);
-                writer.destroy();
-                throttle.destroy();
-                response.data.destroy();
                 logger.error('download', `Download ${downloadId} stalled - no data for ${stallTimeoutMs/1000} seconds`);
-                reject(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
+                safeReject(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
             }
         }, 10000);
 
         // Track data through throttle
         throttle.on('data', async (chunk) => {
+            if (isAborting) return; // Don't process data if we're aborting
+
             downloadedLength += chunk.length;
             lastDataTime = Date.now();
 
@@ -604,34 +670,34 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         });
 
         throttle.on('end', () => {
-            clearInterval(stallTimeout);
-            logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
+            if (!isAborting) {
+                logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
+            }
         });
 
         throttle.on('error', (err) => {
-            clearInterval(stallTimeout);
-            writer.destroy();
-            logger.error('download', `Download ${downloadId} throttle error: ${err.message}`);
-            reject(err);
+            if (!isAborting) {
+                logger.error('download', `Download ${downloadId} throttle error: ${err.message}`);
+            }
+            safeReject(err);
         });
 
         writer.on('finish', () => {
-            resolve();
+            safeResolve();
         });
 
         writer.on('error', (err) => {
-            clearInterval(stallTimeout);
-            throttle.destroy();
-            logger.error('download', `Download ${downloadId} write error: ${err.message}`);
-            reject(err);
+            if (!isAborting) {
+                logger.error('download', `Download ${downloadId} write error: ${err.message}`);
+            }
+            safeReject(err);
         });
 
         response.data.on('error', (err) => {
-            clearInterval(stallTimeout);
-            writer.destroy();
-            throttle.destroy();
-            logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
-            reject(err);
+            if (!isAborting) {
+                logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
+            }
+            safeReject(err);
         });
 
         // Pipe through throttle to writer
