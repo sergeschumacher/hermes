@@ -16,7 +16,7 @@ let io = null;
 let logger = null;
 let settings = null;
 let modules = null;
-let activeStreamSessions = new Set();
+let activeStreamSessions = new Map(); // sessionId -> { title, startedAt }
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
@@ -88,6 +88,13 @@ function getActiveStreamCount() {
 
 function isStreamActive() {
     return getActiveStreamCount() > 0;
+}
+
+function getActivePreviewTitle() {
+    if (activeStreamSessions.size === 0) return null;
+    const sessions = Array.from(activeStreamSessions.values());
+    sessions.sort((a, b) => b.startedAt - a.startedAt);
+    return sessions[0]?.title || 'another stream';
 }
 
 function getTelegramConfig() {
@@ -852,14 +859,15 @@ function setupRoutes() {
         if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
         const action = (req.body.action || '').trim().toLowerCase();
         const sessionId = (req.body.sessionId || '').trim();
+        const title = (req.body.title || '').trim();
         if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
 
         if (action === 'start') {
             const wasActive = isStreamActive();
-            activeStreamSessions.add(sessionId);
-            logger?.info('stream', `Session started: ${sessionId} (active: ${getActiveStreamCount()})`);
+            activeStreamSessions.set(sessionId, { title: title || 'Preview', startedAt: Date.now() });
+            logger?.info('stream', `Session started: ${sessionId} - "${title || 'Preview'}" (active: ${getActiveStreamCount()})`);
             if (!wasActive && isStreamActive()) {
-                app?.emit('stream:active', { active: getActiveStreamCount(), sessionId });
+                app?.emit('stream:active', { active: getActiveStreamCount(), sessionId, title: title || 'Preview' });
             }
             return res.json({ success: true, active: getActiveStreamCount() });
         }
@@ -6126,5 +6134,6 @@ module.exports = {
         app?.emit(event, data);
         io?.emit(event, data);
     },
-    isStreamActive
+    isStreamActive,
+    getActivePreviewTitle
 };

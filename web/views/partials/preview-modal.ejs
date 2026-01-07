@@ -299,10 +299,11 @@
     let currentHls = null;
 
     let previewSessionId = null;
+    let currentPreviewTitle = null;
 
-    function notifyPreviewSession(action) {
+    function notifyPreviewSession(action, title = null) {
         if (!previewSessionId) return;
-        const payload = JSON.stringify({ action, sessionId: previewSessionId });
+        const payload = JSON.stringify({ action, sessionId: previewSessionId, title: title || currentPreviewTitle });
         if (navigator.sendBeacon) {
             const blob = new Blob([payload], { type: 'application/json' });
             navigator.sendBeacon('/api/stream/session', blob);
@@ -322,8 +323,9 @@
             return;
         }
 
+        currentPreviewTitle = title || 'Preview';
         previewSessionId = `preview-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        notifyPreviewSession('start');
+        notifyPreviewSession('start', currentPreviewTitle);
 
         currentPreviewUrl = streamUrl;
 
