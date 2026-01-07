@@ -766,6 +766,20 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             }
         }, 10000);
 
+        function abort(reason) {
+            pauseState.paused = true;
+            pauseState.reason = reason || pauseState.reason || 'stream';
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
+            try { response.data.destroy(new Error('Paused')); } catch (err) {}
+            try { throttle.destroy(); } catch (err) {}
+            try { writer.destroy(); } catch (err) {}
+            activeTransfers.delete(downloadId);
+            rejectOnce(makePausedError());
+        }
+
         const transferState = {
             response: response.data,
             throttle,
@@ -876,20 +890,6 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
             rejectOnce(err);
         });
-
-        const abort = (reason) => {
-            pauseState.paused = true;
-            pauseState.reason = reason || pauseState.reason || 'stream';
-            if (stallTimeout) {
-                clearInterval(stallTimeout);
-                stallTimeout = null;
-            }
-            try { response.data.destroy(new Error('Paused')); } catch (err) {}
-            try { throttle.destroy(); } catch (err) {}
-            try { writer.destroy(); } catch (err) {}
-            activeTransfers.delete(downloadId);
-            rejectOnce(makePausedError());
-        };
 
         activeTransfers.set(downloadId, transferState);
 
