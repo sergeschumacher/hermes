@@ -878,7 +878,7 @@
         socket.on('download:removed', () => loadDownloads());
         socket.on('download:priority', () => loadDownloads());
         socket.on('download:paused', (data) => {
-            if (window.showToast) showToast(data.reason || `Download paused while previewing "${data.previewTitle}"`, 'info');
+            if (window.showToast) showToast(data.reason || 'Download paused while previewing', 'info');
             loadDownloads();
         });
         socket.on('download:resumed', (data) => {
