@@ -102,7 +102,7 @@ function extractLanguageFromText(category, title) {
     const text = `${category || ''} ${title || ''}`.toUpperCase();
 
     // Known 2-letter language codes to match
-    const knownLangCodes = ['DE', 'EN', 'ES', 'FR', 'IT', 'PT', 'NL', 'PL', 'TR', 'RU', 'AR', 'HI', 'KO', 'JA', 'ZH', 'SV', 'NO', 'DA', 'FI', 'EL', 'RO', 'HU', 'CS', 'SK', 'HR', 'SR', 'BG', 'UK', 'SQ', 'FA', 'HE'];
+    const knownLangCodes = ['DE', 'EN', 'ES', 'FR', 'IT', 'PT', 'NL', 'PL', 'TR', 'RU', 'AR', 'HI', 'KO', 'JA', 'ZH', 'SV', 'NO', 'DA', 'FI', 'EL', 'RO', 'HU', 'CS', 'SK', 'HR', 'SR', 'BG', 'UK', 'SQ', 'FA', 'HE', 'LU'];
     const englishCountryCodes = new Set(['US', 'UK', 'CA', 'AU', 'NZ']);
 
     // Common language patterns: [XX], |XX|, (XX), -XX-, XX- prefix
@@ -127,6 +127,7 @@ function extractLanguageFromText(category, title) {
     // Country name to language code mapping
     const countryToLang = {
         'GERMAN': 'DE', 'GERMANY': 'DE', 'DEUTSCH': 'DE', 'DEUTSCHE': 'DE',
+        'LUXEMBOURGISH': 'LU', 'LUXEMBOURG': 'LU', 'LUXEMBURG': 'LU', 'LËTZEBUERG': 'LU', 'LETZEBUERG': 'LU',
         'ENGLISH': 'EN', 'UK': 'EN', 'USA': 'EN', 'BRITISH': 'EN', 'AMERICAN': 'EN',
         'FRENCH': 'FR', 'FRANCE': 'FR', 'FRANCAIS': 'FR', 'FRANÇAIS': 'FR',
         'SPANISH': 'ES', 'SPAIN': 'ES', 'ESPANOL': 'ES', 'ESPAÑOL': 'ES', 'LATINO': 'ES',
