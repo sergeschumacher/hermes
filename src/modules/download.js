@@ -671,9 +671,15 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     }
 
     let discardBytes = 0;
+    const maxResumeDiscardBytes = settings?.get?.('resumeDiscardLimitBytes') || (100 * 1024 * 1024);
     if (resumeFrom > 0 && statusCode === 200) {
-        discardBytes = resumeFrom;
-        logger.warn('download', `Server did not honor Range for download ${downloadId}, discarding ${Math.round(resumeFrom / 1024 / 1024)} MB to resume`);
+        if (resumeFrom > maxResumeDiscardBytes) {
+            logger.warn('download', `Server did not honor Range for download ${downloadId}, resume offset ${Math.round(resumeFrom / 1024 / 1024)} MB exceeds discard limit (${Math.round(maxResumeDiscardBytes / 1024 / 1024)} MB), restarting`);
+            resumeFrom = 0;
+        } else {
+            discardBytes = resumeFrom;
+            logger.warn('download', `Server did not honor Range for download ${downloadId}, discarding ${Math.round(resumeFrom / 1024 / 1024)} MB to resume`);
+        }
     }
 
     const writer = fs.createWriteStream(destPath, { flags: resumeFrom > 0 ? 'a' : 'w' });
