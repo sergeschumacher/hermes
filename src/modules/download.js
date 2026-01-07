@@ -777,6 +777,8 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
             try { response.data.destroy(new Error('Paused')); } catch (err) {}
             try { throttle.destroy(); } catch (err) {}
             try { writer.destroy(); } catch (err) {}
+            activeTransfers.delete(downloadId);
+            rejectOnce(makePausedError());
         };
 
         activeTransfers.set(downloadId, {
@@ -790,10 +792,16 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
         response.data.on('close', () => {
             activeTransfers.delete(downloadId);
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+            }
         });
 
         writer.on('close', () => {
             activeTransfers.delete(downloadId);
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+            }
         });
 
         // Pipe through throttle to writer
