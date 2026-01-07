@@ -3689,7 +3689,19 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             const years = await modules.db.all(`SELECT DISTINCT year FROM media WHERE year IS NOT NULL ${typeFilter} ORDER BY year DESC`, typeParam);
             const qualities = await modules.db.all(`SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL ${typeFilter}`, typeParam);
             const languages = await modules.db.all(`SELECT DISTINCT language FROM media WHERE language IS NOT NULL ${typeFilter}`, typeParam);
-            const categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
+
+            // For live TV, get categories with their associated language for proper grouping
+            let categories;
+            if (type === 'live') {
+                categories = await modules.db.all(`
+                    SELECT DISTINCT category, language
+                    FROM media
+                    WHERE category IS NOT NULL AND media_type = 'live' AND is_active = 1
+                    ORDER BY category
+                `);
+            } else {
+                categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
+            }
             const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
             // Get genres - stored as comma or slash separated values, need to parse and dedupe
@@ -3713,11 +3725,12 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 );
             }
 
-            // Clean and sort categories
+            // Clean and sort categories - include language for live TV grouping
             const cleanedCategories = categories
                 .map(c => ({
                     value: c.category,
-                    display_name: modules.hdhr.cleanCategoryName(c.category)
+                    display_name: modules.hdhr.cleanCategoryName(c.category),
+                    language: c.language || null  // Include language for live TV country grouping
                 }))
                 .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
 

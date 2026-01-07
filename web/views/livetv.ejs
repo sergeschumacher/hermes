@@ -187,8 +187,16 @@
         return name || category;
     }
 
+    // Map to store category -> language associations from API
+    let categoryLanguageMap = {};
+
     function getCategoryCountry(category) {
         if (!category) return null;
+        // First check if we have a language from the API for this category
+        if (categoryLanguageMap[category]) {
+            return categoryLanguageMap[category].toUpperCase();
+        }
+        // Fall back to parsing from category name prefix like |DE| or DE|
         const match = category.match(/\\|?([A-Z]{2})\\|/i) || category.match(/^([A-Z]{2})\\s/i);
         return match ? match[1].toUpperCase() : null;
     }
@@ -206,6 +214,15 @@
 
             const response = await fetch('/api/filters?type=live');
             const filters = await response.json();
+
+            // Build category -> language map from API response
+            categoryLanguageMap = {};
+            filters.categories.filter(cat => cat).forEach(cat => {
+                if (typeof cat === 'object' && cat.language) {
+                    categoryLanguageMap[cat.value] = cat.language;
+                }
+            });
+
             // Handle both old (string) and new (object) category formats
             allCategories = filters.categories.filter(cat => cat).map(cat =>
                 typeof cat === 'object' ? cat.value : cat
@@ -214,7 +231,8 @@
             if (preferredLanguages.length > 0) {
                 allCategories = allCategories.filter(cat => {
                     const country = getCategoryCountry(cat);
-                    return country && preferredLanguages.includes(country);
+                    // Include if country matches preferred, OR if no country (show as "Other")
+                    return !country || preferredLanguages.includes(country);
                 });
             }
 
@@ -228,9 +246,14 @@
     function populateCountryFilter() {
         const select = document.getElementById('country-filter');
         const countries = new Set();
+        let hasOther = false;
         allCategories.forEach(cat => {
             const country = getCategoryCountry(cat);
-            if (country) countries.add(country);
+            if (country) {
+                countries.add(country);
+            } else {
+                hasOther = true;
+            }
         });
 
         const priority = ['DE', 'US', 'UK', 'FR', 'ES', 'IT'];
@@ -249,6 +272,10 @@
             const name = countryNames[code] || code;
             select.innerHTML += \`<option value="\${code}">\${flag} \${name}</option>\`;
         });
+        // Add "Other" option if there are categories without a recognized country
+        if (hasOther) {
+            select.innerHTML += '<option value="OTHER">\u{1F4FA} Other</option>';
+        }
     }
 
     function applyFilters() {
@@ -256,7 +283,12 @@
         let filtered = allCategories;
 
         if (currentCountry) {
-            filtered = filtered.filter(cat => getCategoryCountry(cat) === currentCountry);
+            if (currentCountry === 'OTHER') {
+                // Show categories without a country
+                filtered = filtered.filter(cat => !getCategoryCountry(cat));
+            } else {
+                filtered = filtered.filter(cat => getCategoryCountry(cat) === currentCountry);
+            }
         }
 
         if (query) {

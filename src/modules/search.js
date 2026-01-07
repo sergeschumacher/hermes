@@ -53,17 +53,32 @@ module.exports = {
     },
 
     // Get filter options
-    getFilters: async () => {
+    getFilters: async (type = null) => {
         const years = await db.all('SELECT DISTINCT year FROM media WHERE year IS NOT NULL ORDER BY year DESC');
         const qualities = await db.all('SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL');
         const languages = await db.all('SELECT DISTINCT language FROM media WHERE language IS NOT NULL');
-        const categories = await db.all('SELECT DISTINCT category FROM media WHERE category IS NOT NULL ORDER BY category');
+
+        // For live TV, get categories with their associated language
+        // This helps group categories by country even when category name doesn't have country prefix
+        let categories;
+        if (type === 'live') {
+            categories = await db.all(`
+                SELECT DISTINCT category, language
+                FROM media
+                WHERE category IS NOT NULL AND media_type = 'live' AND is_active = 1
+                ORDER BY category
+            `);
+        } else {
+            categories = await db.all('SELECT DISTINCT category FROM media WHERE category IS NOT NULL ORDER BY category');
+        }
 
         return {
             years: years.map(y => y.year),
             qualities: qualities.map(q => q.quality),
             languages: languages.map(l => l.language),
-            categories: categories.map(c => c.category)
+            categories: type === 'live'
+                ? categories.map(c => ({ value: c.category, language: c.language, display_name: c.category.replace(/^\|?[A-Z]{2}\|\s*/i, '') }))
+                : categories.map(c => c.category)
         };
     },
 
