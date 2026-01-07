@@ -1604,6 +1604,15 @@ function parseM3U(content, parserConfig = null) {
                 }
             }
 
+            // Extract country/language from tvg-id (iptv-org format: "ChannelName.XX@quality")
+            // e.g., "apartTV.lu@SD" -> "LU", "RTLTelevision.de@HD" -> "DE"
+            if (!currentChannel.language && currentChannel.id) {
+                const tvgIdMatch = currentChannel.id.match(/\.([a-z]{2})@/i);
+                if (tvgIdMatch) {
+                    currentChannel.language = tvgIdMatch[1].toUpperCase();
+                }
+            }
+
         } else if (line && !line.startsWith('#') && currentChannel) {
             // This is the URL line
             currentChannel.url = line;
