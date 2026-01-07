@@ -351,6 +351,16 @@
                     <label class="block text-sm text-dark-400 mb-1">Max Concurrent Downloads</label>
                     <input type="number" id="setting-maxConcurrentDownloads" class="input" min="1" max="5" value="2" />
                 </div>
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-sm text-white">Pause Downloads During Streaming</p>
+                        <p class="text-xs text-dark-400">Automatically pause active downloads when a stream starts</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="setting-pauseDownloadsOnStream" class="sr-only peer" />
+                        <div class="w-11 h-6 bg-dark-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500"></div>
+                    </label>
+                </div>
                 <div>
                     <label class="block text-sm text-dark-400 mb-1">Retry Attempts</label>
                     <input type="number" id="setting-downloadRetries" class="input" min="0" max="10" value="3" />
@@ -969,7 +979,7 @@
     // Socket is initialized globally in app.js (loaded via footer)
 
     const settingKeys = ['tempPath', 'movieDownloadPath', 'seriesDownloadPath', 'recordingsPath', 'tmdbApiKey', 'plexUrl', 'plexToken', 'plexMovieLibraryId', 'plexTvLibraryId', 'overseerrUrl', 'overseerrApiKey', 'webhookUrl', 'telegramBotToken', 'telegramChatId', 'maxConcurrentDownloads', 'downloadRetries', 'downloadDelayMin', 'downloadDelayMax', 'spoofedMac', 'spoofedDeviceKey', 'epgSyncHour', 'transcodeCodec', 'transcodeHwAccel', 'transcodeWatchFolder', 'llmProvider', 'openaiApiKey', 'openaiModel', 'ollamaUrl', 'ollamaModel', 'hdhrFriendlyName', 'hdhrTunerCount', 'hdhrBaseUrl', 'hdhrSourceId'];
-    const booleanSettingKeys = ['transcodeFilesEnabled', 'transcodeStreamEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode', 'telegramEnabled'];
+    const booleanSettingKeys = ['transcodeFilesEnabled', 'transcodeStreamEnabled', 'transcodeSkipCompatible', 'transcodeWatchEnabled', 'slowDiskMode', 'telegramEnabled', 'pauseDownloadsOnStream'];
 
     // LLM UI Functions
     function updateLLMProviderUI() {

@@ -274,9 +274,10 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 
 async function processQueue() {
     const slowDiskMode = settings.get('slowDiskMode');
+    const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
     const streamActive = modulesRef?.app?.isStreamActive?.() === true;
 
-    if (streamActive) {
+    if (pauseOnStream && streamActive) {
         if (!streamPauseLogged) {
             logger?.info('download', 'Stream active, pausing new downloads');
             streamPauseLogged = true;
@@ -961,6 +962,24 @@ module.exports = {
 
             app.on('usenet:postprocess:status', (data) => {
                 app.emit('socket:broadcast', 'usenet:postprocess:status', data);
+            });
+
+            app.on('stream:active', () => {
+                if (settings.get('pauseDownloadsOnStream') === false) return;
+                pauseActiveDownloads();
+                if (!streamPauseLogged) {
+                    logger?.info('download', 'Stream active, pausing downloads');
+                    streamPauseLogged = true;
+                }
+            });
+
+            app.on('stream:inactive', () => {
+                if (settings.get('pauseDownloadsOnStream') === false) return;
+                resumeActiveDownloads();
+                if (streamPauseLogged) {
+                    logger?.info('download', 'Stream ended, resuming downloads');
+                    streamPauseLogged = false;
+                }
             });
         }
 

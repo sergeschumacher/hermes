@@ -42,6 +42,7 @@ const defaults = {
     downloadRetries: 3,
     downloadDelayMin: 1000,
     downloadDelayMax: 5000,
+    pauseDownloadsOnStream: true,
 
     // Language preferences (ISO 639-1 codes)
     // These filter movies, series, and live TV by language

@@ -855,13 +855,21 @@ function setupRoutes() {
         if (!sessionId) return res.status(400).json({ error: 'sessionId is required' });
 
         if (action === 'start') {
+            const wasActive = isStreamActive();
             activeStreamSessions.add(sessionId);
             logger?.info('stream', `Session started: ${sessionId} (active: ${getActiveStreamCount()})`);
+            if (!wasActive && isStreamActive()) {
+                app?.emit('stream:active', { active: getActiveStreamCount(), sessionId });
+            }
             return res.json({ success: true, active: getActiveStreamCount() });
         }
         if (action === 'stop') {
+            const wasActive = isStreamActive();
             activeStreamSessions.delete(sessionId);
             logger?.info('stream', `Session ended: ${sessionId} (active: ${getActiveStreamCount()})`);
+            if (wasActive && !isStreamActive()) {
+                app?.emit('stream:inactive', { active: getActiveStreamCount(), sessionId });
+            }
             return res.json({ success: true, active: getActiveStreamCount() });
         }
         return res.status(400).json({ error: 'Invalid action' });
