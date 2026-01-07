@@ -720,6 +720,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
     return new Promise((resolve, reject) => {
         let settled = false;
+        let stallTimeout = null;
         const makePausedError = () => {
             const err = new Error('paused');
             err.isPaused = true;
@@ -729,28 +730,39 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         const rejectOnce = (err) => {
             if (settled) return;
             settled = true;
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             reject(err);
         };
         const resolveOnce = () => {
             if (settled) return;
             settled = true;
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             resolve();
         };
 
         // Timeout for stalled downloads (no data received for 120 seconds when throttled, 60 when not)
         const stallTimeoutMs = throttleEnabled ? 120000 : 60000;
-        const stallTimeout = setInterval(() => {
+        stallTimeout = setInterval(() => {
             if (pauseState.paused) {
                 lastDataTime = Date.now();
                 return;
             }
             if (Date.now() - lastDataTime > stallTimeoutMs) {
-                clearInterval(stallTimeout);
+                if (stallTimeout) {
+                    clearInterval(stallTimeout);
+                    stallTimeout = null;
+                }
                 writer.destroy();
                 throttle.destroy();
                 response.data.destroy();
                 logger.error('download', `Download ${downloadId} stalled - no data for ${stallTimeoutMs/1000} seconds`);
-                reject(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
+                rejectOnce(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
             }
         }, 10000);
 
@@ -785,12 +797,18 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         }
 
         throttle.on('end', () => {
-            clearInterval(stallTimeout);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
         });
 
         throttle.on('error', (err) => {
-            clearInterval(stallTimeout);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             writer.destroy();
             if (pauseState.paused) {
                 rejectOnce(makePausedError());
@@ -805,7 +823,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         });
 
         writer.on('error', (err) => {
-            clearInterval(stallTimeout);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             throttle.destroy();
             if (pauseState.paused) {
                 rejectOnce(makePausedError());
@@ -816,7 +837,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         });
 
         response.data.on('error', (err) => {
-            clearInterval(stallTimeout);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             writer.destroy();
             throttle.destroy();
             if (pauseState.paused) {
@@ -830,6 +854,10 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         const abort = (reason) => {
             pauseState.paused = true;
             pauseState.reason = reason || pauseState.reason || 'stream';
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             try { response.data.destroy(new Error('Paused')); } catch (err) {}
             try { throttle.destroy(); } catch (err) {}
             try { writer.destroy(); } catch (err) {}
