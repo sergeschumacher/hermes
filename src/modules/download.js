@@ -54,10 +54,12 @@ async function reconcileStuckDownloads() {
     }
 }
 
-function pauseActiveDownloads() {
+async function pauseActiveDownloads(previewTitle) {
+    const title = previewTitle || modulesRef?.app?.getActivePreviewTitle?.() || 'another stream';
     for (const [downloadId, transfer] of activeTransfers.entries()) {
         if (transfer.paused || !transfer.response) continue;
         transfer.paused = true;
+        transfer.pauseReason = `Paused while previewing "${title}"`;
         if (transfer.pauseState) {
             transfer.pauseState.paused = true;
             transfer.pauseState.reason = 'stream';
@@ -66,19 +68,44 @@ function pauseActiveDownloads() {
         transfer.abort?.('stream');
         transfer.response = null;
         transfer.throttle = null;
-        logger?.info('download', `Paused active download ${downloadId}`);
+
+        // Update database status
+        await db?.run(
+            "UPDATE downloads SET status = 'paused', error_message = ? WHERE id = ?",
+            [transfer.pauseReason, downloadId]
+        );
+
+        // Emit event for UI update
+        emitApp('download:paused', { id: downloadId, previewTitle: title, reason: transfer.pauseReason });
+        logger?.info('download', `Paused download ${downloadId}: ${transfer.pauseReason}`);
     }
 }
 
-function resumeActiveDownloads() {
+async function resumeActiveDownloads() {
+    // Find paused downloads and requeue them
+    const pausedDownloads = await db?.all("SELECT id, media_id FROM downloads WHERE status = 'paused'") || [];
+
+    for (const download of pausedDownloads) {
+        // Reset to queued with high priority so it resumes soon
+        await db?.run(
+            "UPDATE downloads SET status = 'queued', error_message = NULL, priority = 90 WHERE id = ?",
+            [download.id]
+        );
+
+        // Emit event for UI update
+        emitApp('download:resumed', { id: download.id });
+        logger?.info('download', `Resumed download ${download.id} - requeued with high priority`);
+    }
+
+    // Also handle in-memory paused transfers
     for (const [downloadId, transfer] of activeTransfers.entries()) {
-        if (!transfer.paused || !transfer.response) continue;
+        if (!transfer.paused) continue;
         transfer.paused = false;
+        transfer.pauseReason = null;
         if (transfer.pauseState) transfer.pauseState.paused = false;
         transfer.bumpActivity?.();
-        transfer.response.resume?.();
+        transfer.response?.resume?.();
         transfer.throttle?.resume?.();
-        logger?.info('download', `Resumed active download ${downloadId}`);
     }
 }
 
@@ -1211,11 +1238,11 @@ module.exports = {
                 app.emit('socket:broadcast', 'usenet:postprocess:status', data);
             });
 
-            app.on('stream:active', () => {
+            app.on('stream:active', (data) => {
                 if (settings.get('pauseDownloadsOnStream') === false) return;
-                pauseActiveDownloads();
+                pauseActiveDownloads(data?.title);
                 if (!streamPauseLogged) {
-                    logger?.info('download', 'Stream active, pausing downloads');
+                    logger?.info('download', `Stream active${data?.title ? `: ${data.title}` : ''}, pausing downloads`);
                     streamPauseLogged = true;
                 }
             });

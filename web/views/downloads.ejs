@@ -465,7 +465,7 @@
     }
 
     function renderDownloads() {
-        const active = downloads.filter(d => d.status === 'downloading');
+        const active = downloads.filter(d => d.status === 'downloading' || d.status === 'paused');
         const queued = downloads.filter(d => d.status === 'queued');
         const completed = downloads.filter(d => d.status === 'completed');
         const failed = downloads.filter(d => d.status === 'failed' || d.status === 'cancelled');
@@ -529,15 +529,23 @@
                             </button>
                         </div>
                         <div class="mt-4">
+                            \${d.status === 'paused' ? \`
+                                <div class="flex items-center gap-2 mb-3 p-2 rounded-lg bg-yellow-500/10 border border-yellow-500/20">
+                                    <svg class="w-5 h-5 text-yellow-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                    <span class="text-yellow-400 text-sm">\${d.error_message || 'Paused while previewing'}</span>
+                                </div>
+                            \` : ''}
                             <div class="flex items-center justify-between text-sm mb-2">
                                 <span class="text-gray-400" data-size-text="\${d.id}">
                                     \${formatBytes(d.downloaded_size || 0)} / \${formatBytes(d.file_size || 0)}
                                 </span>
-                                <span class="text-primary-400 font-medium" data-progress-text="\${d.id}">\${(d.progress || 0).toFixed(1)}%</span>
+                                <span class="\${d.status === 'paused' ? 'text-yellow-400' : 'text-primary-400'} font-medium" data-progress-text="\${d.id}">\${(d.progress || 0).toFixed(1)}%</span>
                             </div>
-                            <div class="text-xs text-gray-400 mb-2" data-speed-text="\${d.id}">\${(d.speed_bps || 0) > 0 ? \`Speed: \${formatBytes(d.speed_bps)} / s\` : ''}</div>
+                            <div class="text-xs text-gray-400 mb-2" data-speed-text="\${d.id}">\${d.status === 'paused' ? '' : ((d.speed_bps || 0) > 0 ? \`Speed: \${formatBytes(d.speed_bps)} / s\` : '')}</div>
                             <div class="progress-bar">
-                                <div class="progress-bar-fill" data-progress-bar="\${d.id}" style="width: \${d.progress || 0}%"></div>
+                                <div class="progress-bar-fill \${d.status === 'paused' ? 'bg-yellow-500' : ''}" data-progress-bar="\${d.id}" style="width: \${d.progress || 0}%"></div>
                             </div>
                         </div>
                     </div>
@@ -869,6 +877,14 @@
         socket.on('download:cancelled', () => loadDownloads());
         socket.on('download:removed', () => loadDownloads());
         socket.on('download:priority', () => loadDownloads());
+        socket.on('download:paused', (data) => {
+            if (window.showToast) showToast(data.reason || `Download paused while previewing "${data.previewTitle}"`, 'info');
+            loadDownloads();
+        });
+        socket.on('download:resumed', (data) => {
+            if (window.showToast) showToast('Download resumed', 'success');
+            loadDownloads();
+        });
 
         // Transcode events
         socket.on('transcode:queued', () => loadTranscodeQueue());

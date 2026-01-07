@@ -304,15 +304,12 @@
     function notifyPreviewSession(action, title = null) {
         if (!previewSessionId) return;
         const payload = JSON.stringify({ action, sessionId: previewSessionId, title: title || currentPreviewTitle });
-        if (navigator.sendBeacon) {
-            const blob = new Blob([payload], { type: 'application/json' });
-            navigator.sendBeacon('/api/stream/session', blob);
-            return;
-        }
+        // Use fetch with credentials to ensure auth cookies are sent
         fetch('/api/stream/session', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: payload,
+            credentials: 'same-origin',
             keepalive: true
         }).catch(() => {});
     }
