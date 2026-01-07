@@ -50,6 +50,12 @@ function pauseActiveDownloads() {
         transfer.abort?.('stream');
         transfer.response = null;
         transfer.throttle = null;
+        if (db) {
+            db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+                ['queued', downloadId, 'downloading']).catch((err) => {
+                logger?.warn('download', `Failed to requeue paused download ${downloadId}: ${err.message}`);
+            });
+        }
         logger?.info('download', `Paused active download ${downloadId}`);
     }
 }
@@ -455,8 +461,9 @@ async function processDownload(download) {
             } catch (err) {
                 if (err?.isPaused && settings.get('pauseDownloadsOnStream') !== false) {
                     await waitForStreamInactive();
-                    attempt -= 1;
-                    continue;
+                    await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+                        ['queued', download.id, 'downloading']);
+                    return;
                 }
                 if (attempt === retries) throw err;
 
@@ -1081,6 +1088,7 @@ module.exports = {
                     logger?.info('download', 'Stream ended, resuming downloads');
                     streamPauseLogged = false;
                 }
+                processQueue();
             });
         }
 
