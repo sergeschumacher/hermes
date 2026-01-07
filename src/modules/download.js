@@ -604,34 +604,10 @@ async function processDownload(download) {
     }
 }
 
-async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode) {
-    // Check for existing partial file to resume
-    let resumeOffset = 0;
-    if (fs.existsSync(destPath)) {
-        const stats = fs.statSync(destPath);
-        resumeOffset = stats.size;
-    }
-
-    const writer = fs.createWriteStream(destPath, resumeOffset > 0 ? { flags: 'a' } : {});
-
+async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode, resumeFrom = 0) {
     // Build headers mimicking IPTV player (IBU Player Pro style)
     const spoofedMac = sourceSettings.spoofedMac || '77:f4:8b:a4:ed:10';
     const spoofedDeviceKey = sourceSettings.spoofedDeviceKey || '006453';
-
-    const headers = {
-        'User-Agent': userAgent,
-        'X-Device-MAC': spoofedMac,
-        'X-Forwarded-For': spoofedMac,
-        'X-Device-Key': spoofedDeviceKey,
-        'X-Device-ID': spoofedMac.replace(/:/g, ''),
-        'Accept': '*/*',
-        'Connection': 'keep-alive'
-    };
-
-    // Add Range header for resume
-    if (resumeOffset > 0) {
-        headers['Range'] = `bytes=${resumeOffset}-`;
-    }
 
     let response;
     try {
@@ -657,7 +633,6 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         });
     } catch (err) {
         logger.error('download', `HTTP request failed for download ${downloadId}: ${err.message}`);
-        writer.destroy();
         throw err;
     }
 
@@ -677,29 +652,33 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         logger.warn('download', `Download ${downloadId} received redirect ${statusCode}`);
     }
 
-    // Parse content length - for 206 responses, use Content-Range header for total size
+    const contentLength = parseInt(response.headers['content-length'], 10) || 0;
+    const contentRange = response.headers['content-range'];
     let totalLength = 0;
-    let downloadedLength = resumeOffset;
-
-    if (statusCode === 206) {
-        // Parse Content-Range: bytes 12345-67890/123456
-        const contentRange = response.headers['content-range'];
-        if (contentRange) {
-            const match = contentRange.match(/bytes \d+-\d+\/(\d+)/);
-            if (match) {
-                totalLength = parseInt(match[1], 10);
-            }
-        }
-        logger.info('download', `Download ${downloadId} resuming at ${(resumeOffset / 1024 / 1024).toFixed(2)} MB`);
+    if (contentRange) {
+        const match = contentRange.match(/\/(\d+)$/);
+        totalLength = match ? parseInt(match[1], 10) : 0;
+    } else if (statusCode === 206 && resumeFrom > 0) {
+        totalLength = resumeFrom + contentLength;
     } else {
-        totalLength = parseInt(response.headers['content-length'], 10) || 0;
-        // If we tried to resume but got 200, server doesn't support it - restart
-        if (resumeOffset > 0) {
-            logger.warn('download', `Download ${downloadId} - server doesn't support resume, restarting`);
-            downloadedLength = 0;
+        totalLength = contentLength;
+    }
+
+    let discardBytes = 0;
+    const maxResumeDiscardBytes = settings?.get?.('resumeDiscardLimitBytes') || (10 * 1024 * 1024);
+    if (resumeFrom > 0 && statusCode === 200) {
+        if (resumeFrom > maxResumeDiscardBytes) {
+            logger.warn('download', `Server did not honor Range for download ${downloadId}, resume offset ${Math.round(resumeFrom / 1024 / 1024)} MB exceeds discard limit (${Math.round(maxResumeDiscardBytes / 1024 / 1024)} MB), restarting`);
+            resumeFrom = 0;
+        } else {
+            discardBytes = resumeFrom;
+            logger.warn('download', `Server did not honor Range for download ${downloadId}, discarding ${Math.round(resumeFrom / 1024 / 1024)} MB to resume`);
         }
     }
 
+    const writer = fs.createWriteStream(destPath, { flags: resumeFrom > 0 ? 'a' : 'w' });
+
+    let downloadedLength = resumeFrom;
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
     const pauseState = { paused: false, reason: null };
@@ -740,35 +719,30 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     });
 
     return new Promise((resolve, reject) => {
-        let isAborting = false;
-        let hasSettled = false;
-
-        const cleanup = () => {
-            if (isAborting) return;
-            isAborting = true;
-
-            // Unpipe first to stop data flow
-            try { response.data.unpipe(throttle); } catch (e) {}
-            try { throttle.unpipe(writer); } catch (e) {}
-
-            // Then destroy streams in reverse order (writer first, then throttle, then source)
-            try { writer.destroy(); } catch (e) {}
-            try { throttle.destroy(); } catch (e) {}
-            try { response.data.destroy(); } catch (e) {}
+        let settled = false;
+        let stallTimeout = null;
+        const makePausedError = () => {
+            const err = new Error('paused');
+            err.isPaused = true;
+            err.reason = pauseState.reason || 'stream';
+            return err;
         };
-
-        const safeReject = (err) => {
-            if (hasSettled) return;
-            hasSettled = true;
-            clearInterval(stallTimeout);
-            cleanup();
+        const rejectOnce = (err) => {
+            if (settled) return;
+            settled = true;
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             reject(err);
         };
-
-        const safeResolve = () => {
-            if (hasSettled) return;
-            hasSettled = true;
-            clearInterval(stallTimeout);
+        const resolveOnce = () => {
+            if (settled) return;
+            settled = true;
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
+            }
             resolve();
         };
 
@@ -780,8 +754,15 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 return;
             }
             if (Date.now() - lastDataTime > stallTimeoutMs) {
+                if (stallTimeout) {
+                    clearInterval(stallTimeout);
+                    stallTimeout = null;
+                }
+                writer.destroy();
+                throttle.destroy();
+                response.data.destroy();
                 logger.error('download', `Download ${downloadId} stalled - no data for ${stallTimeoutMs/1000} seconds`);
-                safeReject(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
+                rejectOnce(new Error(`Download stalled - no data received for ${stallTimeoutMs/1000} seconds`));
             }
         }, 10000);
 
@@ -837,8 +818,6 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
 
         // Track data through throttle
         throttle.on('data', async (chunk) => {
-            if (isAborting) return; // Don't process data if we're aborting
-
             downloadedLength += chunk.length;
             lastDataTime = Date.now();
 
@@ -885,34 +864,74 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         }
 
         throttle.on('end', () => {
-            if (!isAborting) {
-                logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
             }
+            logger.info('download', `Download ${downloadId} stream ended - ${(downloadedLength / 1024 / 1024).toFixed(2)} MB received`);
         });
 
         throttle.on('error', (err) => {
-            if (!isAborting) {
-                logger.error('download', `Download ${downloadId} throttle error: ${err.message}`);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
             }
-            safeReject(err);
+            writer.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
+            logger.error('download', `Download ${downloadId} throttle error: ${err.message}`);
+            rejectOnce(err);
         });
 
         writer.on('finish', () => {
-            safeResolve();
+            resolveOnce();
         });
 
         writer.on('error', (err) => {
-            if (!isAborting) {
-                logger.error('download', `Download ${downloadId} write error: ${err.message}`);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
             }
-            safeReject(err);
+            throttle.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
+            logger.error('download', `Download ${downloadId} write error: ${err.message}`);
+            rejectOnce(err);
         });
 
         response.data.on('error', (err) => {
-            if (!isAborting) {
-                logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
+            if (stallTimeout) {
+                clearInterval(stallTimeout);
+                stallTimeout = null;
             }
-            safeReject(err);
+            writer.destroy();
+            throttle.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
+            logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
+            rejectOnce(err);
+        });
+
+        activeTransfers.set(downloadId, transferState);
+
+        response.data.on('close', () => {
+            activeTransfers.delete(downloadId);
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+            }
+        });
+
+        writer.on('close', () => {
+            activeTransfers.delete(downloadId);
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+            }
         });
 
         // Pipe through optional skip and throttle to writer
