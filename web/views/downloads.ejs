@@ -536,14 +536,14 @@
                                     \${d.usenet_speed ? \`<span class="text-sm text-gray-400">\${d.usenet_speed}</span>\` : ''}
                                 </div>
                                 <div class="flex items-center justify-between text-sm mb-2">
-                                    <span class="text-gray-400">
+                                    <span class="text-gray-400" data-segments-text="\${d.id}">
                                         \${d.completed_segments || 0} / \${d.total_segments || 0} segments
                                         \${d.failed_segments > 0 ? \`<span class="text-danger-400">(\${d.failed_segments} failed)</span>\` : ''}
                                     </span>
-                                    <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
+                                    <span class="text-primary-400 font-medium" data-progress-text="\${d.id}">\${(d.progress || 0).toFixed(1)}%</span>
                                 </div>
                                 <div class="progress-bar mb-3">
-                                    <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
+                                    <div class="progress-bar-fill" data-progress-bar="\${d.id}" style="width: \${d.progress || 0}%"></div>
                                 </div>
                                 \${d.par2_status || d.extract_status ? \`
                                     <div class="flex items-center gap-4 text-sm">
@@ -600,16 +600,14 @@
                             \` : \`
                                 <!-- Standard IPTV/HTTP download progress -->
                                 <div class="flex items-center justify-between text-sm mb-2">
-                                    <span class="text-gray-400">
+                                    <span class="text-gray-400" data-size-text="\${d.id}">
                                         \${formatBytes(d.downloaded_size || 0)} / \${formatBytes(d.file_size || 0)}
                                     </span>
-                                    <span class="text-primary-400 font-medium">\${(d.progress || 0).toFixed(1)}%</span>
+                                    <span class="text-primary-400 font-medium" data-progress-text="\${d.id}">\${(d.progress || 0).toFixed(1)}%</span>
                                 </div>
-                                \${(d.speed_bps || 0) > 0 ? \`
-                                    <div class="text-xs text-gray-400 mb-2">Speed: \${formatBytes(d.speed_bps)} / s</div>
-                                \` : ''}
+                                <div class="text-xs text-gray-400 mb-2" data-speed-text="\${d.id}">\${(d.speed_bps || 0) > 0 ? \`Speed: \${formatBytes(d.speed_bps)} / s\` : ''}</div>
                                 <div class="progress-bar">
-                                    <div class="progress-bar-fill" style="width: \${d.progress || 0}%"></div>
+                                    <div class="progress-bar-fill" data-progress-bar="\${d.id}" style="width: \${d.progress || 0}%"></div>
                                 </div>
                             \`}
                         </div>
@@ -896,14 +894,42 @@
 
     // Initialize when DOM is ready (ensures app.js has loaded and socket is available)
     document.addEventListener('DOMContentLoaded', () => {
-        // Real-time updates
+        // Real-time updates - use targeted DOM updates for performance
         socket.on('download:progress', (data) => {
             const download = downloads.find(d => d.id === data.id);
             if (download) {
                 download.progress = parseFloat(data.progress);
                 download.downloaded_size = data.downloaded;
                 download.file_size = data.total;
-                renderDownloads();
+                download.speed_bps = data.speedBps || 0;
+
+                // Use data attributes for reliable element selection
+                const progressBar = document.querySelector(\`[data-progress-bar="\${data.id}"]\`);
+                const progressText = document.querySelector(\`[data-progress-text="\${data.id}"]\`);
+                const sizeText = document.querySelector(\`[data-size-text="\${data.id}"]\`);
+                const speedText = document.querySelector(\`[data-speed-text="\${data.id}"]\`);
+
+                if (progressBar || progressText) {
+                    // Update progress bar
+                    if (progressBar) {
+                        progressBar.style.width = \`\${download.progress}%\`;
+                    }
+                    // Update progress text
+                    if (progressText) {
+                        progressText.textContent = \`\${download.progress.toFixed(1)}%\`;
+                    }
+                    // Update size text
+                    if (sizeText && download.file_size) {
+                        sizeText.textContent = \`\${formatBytes(download.downloaded_size || 0)} / \${formatBytes(download.file_size || 0)}\`;
+                    }
+                    // Update speed text
+                    if (speedText) {
+                        speedText.textContent = download.speed_bps > 0 ? \`Speed: \${formatBytes(download.speed_bps)} / s\` : '';
+                    }
+                } else {
+                    // Fallback to full render if elements not found (new download)
+                    renderDownloads();
+                }
             }
         });
 
@@ -915,7 +941,7 @@
         socket.on('download:removed', () => loadDownloads());
         socket.on('download:priority', () => loadDownloads());
 
-        // Usenet events
+        // Usenet events - use targeted DOM updates for performance
         socket.on('usenet:download:progress', (data) => {
             const download = downloads.find(d => d.id === data.downloadId);
             if (download) {
@@ -924,7 +950,29 @@
                 download.failed_segments = data.failedSegments;
                 download.progress = data.percent;
                 download.usenet_speed = data.speed;
-                renderDownloads();
+
+                // Use data attributes for reliable element selection
+                const progressBar = document.querySelector(\`[data-progress-bar="\${data.downloadId}"]\`);
+                const progressText = document.querySelector(\`[data-progress-text="\${data.downloadId}"]\`);
+                const segmentsText = document.querySelector(\`[data-segments-text="\${data.downloadId}"]\`);
+
+                if (progressBar || progressText) {
+                    if (progressBar) {
+                        progressBar.style.width = \`\${download.progress}%\`;
+                    }
+                    if (progressText) {
+                        progressText.textContent = \`\${download.progress.toFixed(1)}%\`;
+                    }
+                    if (segmentsText) {
+                        let text = \`\${download.completed_segments || 0} / \${download.total_segments || 0} segments\`;
+                        if (download.failed_segments > 0) {
+                            text += \` <span class="text-danger-400">(\${download.failed_segments} failed)</span>\`;
+                        }
+                        segmentsText.innerHTML = text;
+                    }
+                } else {
+                    renderDownloads();
+                }
             }
         });
 
@@ -933,6 +981,7 @@
             if (download) {
                 if (data.par2_status) download.par2_status = data.par2_status;
                 if (data.extract_status) download.extract_status = data.extract_status;
+                // Full render for status changes as they change the UI structure
                 renderDownloads();
             }
         });
@@ -947,7 +996,20 @@
             const job = transcodeJobs.find(j => j.id === data.id);
             if (job) {
                 job.progress = data.progress;
-                renderTranscodeQueue();
+                // Targeted update for transcode progress
+                const jobEl = document.querySelector(\`[data-id="\${data.id}"]\`);
+                if (jobEl) {
+                    const progressBar = jobEl.querySelector('.progress-bar-fill');
+                    if (progressBar) {
+                        progressBar.style.width = \`\${job.progress}%\`;
+                    }
+                    const progressText = jobEl.querySelector('.text-purple-400.font-medium');
+                    if (progressText) {
+                        progressText.textContent = \`\${job.progress}%\`;
+                    }
+                } else {
+                    renderTranscodeQueue();
+                }
             }
         });
         socket.on('transcode:complete', () => loadTranscodeQueue());
