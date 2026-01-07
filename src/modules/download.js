@@ -24,14 +24,32 @@ let downloadInterval = null;
 let streamPauseLogged = false;
 const activeTransfers = new Map();
 
+function waitForStreamInactive() {
+    const appRef = modulesRef?.app || app;
+    if (!appRef?.isStreamActive?.() || appRef?.isStreamActive?.() === false) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        const handler = () => {
+            appRef.off?.('stream:inactive', handler);
+            resolve();
+        };
+        appRef.once?.('stream:inactive', handler);
+    });
+}
+
 function pauseActiveDownloads() {
     for (const [downloadId, transfer] of activeTransfers.entries()) {
         if (transfer.paused || !transfer.response) continue;
         transfer.paused = true;
-        if (transfer.pauseState) transfer.pauseState.paused = true;
+        if (transfer.pauseState) {
+            transfer.pauseState.paused = true;
+            transfer.pauseState.reason = 'stream';
+        }
         transfer.bumpActivity?.();
-        transfer.response.pause?.();
-        transfer.throttle?.pause?.();
+        transfer.abort?.('stream');
+        transfer.response = null;
+        transfer.throttle = null;
         logger?.info('download', `Paused active download ${downloadId}`);
     }
 }
@@ -435,6 +453,11 @@ async function processDownload(download) {
                 await downloadFile(download.id, streamUrl, tempFile, userAgent, sourceSettings, isEpisode, resumeFrom);
                 break;
             } catch (err) {
+                if (err?.isPaused && settings.get('pauseDownloadsOnStream') !== false) {
+                    await waitForStreamInactive();
+                    attempt -= 1;
+                    continue;
+                }
                 if (attempt === retries) throw err;
 
                 logger.warn('download', `Retry ${attempt + 1}/${retries} for ${download.title}: ${err.message}`);
@@ -608,7 +631,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     let downloadedLength = resumeFrom;
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
-    const pauseState = { paused: false };
+    const pauseState = { paused: false, reason: null };
 
     // Calculate throttle settings
     let bytesPerSecond = Infinity;
@@ -646,6 +669,24 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     });
 
     return new Promise((resolve, reject) => {
+        let settled = false;
+        const makePausedError = () => {
+            const err = new Error('paused');
+            err.isPaused = true;
+            err.reason = pauseState.reason || 'stream';
+            return err;
+        };
+        const rejectOnce = (err) => {
+            if (settled) return;
+            settled = true;
+            reject(err);
+        };
+        const resolveOnce = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+        };
+
         // Timeout for stalled downloads (no data received for 120 seconds when throttled, 60 when not)
         const stallTimeoutMs = throttleEnabled ? 120000 : 60000;
         const stallTimeout = setInterval(() => {
@@ -695,35 +736,56 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         throttle.on('error', (err) => {
             clearInterval(stallTimeout);
             writer.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
             logger.error('download', `Download ${downloadId} throttle error: ${err.message}`);
-            reject(err);
+            rejectOnce(err);
         });
 
         writer.on('finish', () => {
-            resolve();
+            resolveOnce();
         });
 
         writer.on('error', (err) => {
             clearInterval(stallTimeout);
             throttle.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
             logger.error('download', `Download ${downloadId} write error: ${err.message}`);
-            reject(err);
+            rejectOnce(err);
         });
 
         response.data.on('error', (err) => {
             clearInterval(stallTimeout);
             writer.destroy();
             throttle.destroy();
+            if (pauseState.paused) {
+                rejectOnce(makePausedError());
+                return;
+            }
             logger.error('download', `Download ${downloadId} stream error: ${err.message}`);
-            reject(err);
+            rejectOnce(err);
         });
+
+        const abort = (reason) => {
+            pauseState.paused = true;
+            pauseState.reason = reason || pauseState.reason || 'stream';
+            try { response.data.destroy(new Error('Paused')); } catch (err) {}
+            try { throttle.destroy(); } catch (err) {}
+            try { writer.destroy(); } catch (err) {}
+        };
 
         activeTransfers.set(downloadId, {
             response: response.data,
             throttle,
             paused: false,
             bumpActivity: () => { lastDataTime = Date.now(); },
-            pauseState
+            pauseState,
+            abort
         });
 
         response.data.on('close', () => {
