@@ -423,7 +423,16 @@ async function processDownload(download) {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
                 const isEpisode = !!download.episode_url;
-                await downloadFile(download.id, streamUrl, tempFile, userAgent, sourceSettings, isEpisode);
+                let resumeFrom = 0;
+                if (fs.existsSync(tempFile)) {
+                    try {
+                        const stats = fs.statSync(tempFile);
+                        resumeFrom = stats.size || 0;
+                    } catch (err) {
+                        logger.warn('download', `Failed to stat temp file for resume: ${err.message}`);
+                    }
+                }
+                await downloadFile(download.id, streamUrl, tempFile, userAgent, sourceSettings, isEpisode, resumeFrom);
                 break;
             } catch (err) {
                 if (attempt === retries) throw err;
@@ -529,29 +538,31 @@ async function processDownload(download) {
     }
 }
 
-async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode) {
-    const writer = fs.createWriteStream(destPath);
-
+async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings, isEpisode, resumeFrom = 0) {
     // Build headers mimicking IPTV player (IBU Player Pro style)
     const spoofedMac = sourceSettings.spoofedMac || '77:f4:8b:a4:ed:10';
     const spoofedDeviceKey = sourceSettings.spoofedDeviceKey || '006453';
 
     let response;
     try {
+        const headers = {
+            'User-Agent': userAgent,
+            'X-Device-MAC': spoofedMac,
+            'X-Forwarded-For': spoofedMac,
+            'X-Device-Key': spoofedDeviceKey,
+            'X-Device-ID': spoofedMac.replace(/:/g, ''),
+            'Accept': '*/*',
+            'Connection': 'keep-alive'
+        };
+        if (resumeFrom > 0) {
+            headers['Range'] = `bytes=${resumeFrom}-`;
+        }
         response = await axios({
             url,
             method: 'GET',
             responseType: 'stream',
             timeout: 60000,
-            headers: {
-                'User-Agent': userAgent,
-                'X-Device-MAC': spoofedMac,
-                'X-Forwarded-For': spoofedMac,
-                'X-Device-Key': spoofedDeviceKey,
-                'X-Device-ID': spoofedMac.replace(/:/g, ''),
-                'Accept': '*/*',
-                'Connection': 'keep-alive'
-            },
+            headers,
             validateStatus: null // Allow us to handle all status codes
         });
     } catch (err) {
@@ -567,7 +578,6 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     if (statusCode >= 400) {
         const errorMsg = `HTTP ${statusCode} ${response.statusText || 'Error'}`;
         logger.error('download', `Download ${downloadId} failed: ${errorMsg}`);
-        writer.destroy();
         throw new Error(errorMsg);
     }
 
@@ -576,8 +586,26 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         logger.warn('download', `Download ${downloadId} received redirect ${statusCode}`);
     }
 
-    const totalLength = parseInt(response.headers['content-length'], 10) || 0;
-    let downloadedLength = 0;
+    const contentLength = parseInt(response.headers['content-length'], 10) || 0;
+    const contentRange = response.headers['content-range'];
+    let totalLength = 0;
+    if (contentRange) {
+        const match = contentRange.match(/\/(\d+)$/);
+        totalLength = match ? parseInt(match[1], 10) : 0;
+    } else if (statusCode === 206 && resumeFrom > 0) {
+        totalLength = resumeFrom + contentLength;
+    } else {
+        totalLength = contentLength;
+    }
+
+    if (resumeFrom > 0 && statusCode === 200) {
+        logger.warn('download', `Server did not honor Range for download ${downloadId}, restarting from beginning`);
+        resumeFrom = 0;
+    }
+
+    const writer = fs.createWriteStream(destPath, { flags: resumeFrom > 0 ? 'a' : 'w' });
+
+    let downloadedLength = resumeFrom;
     let lastUpdate = Date.now();
     let lastDataTime = Date.now();
     const pauseState = { paused: false };
@@ -606,6 +634,9 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         logger.info('download', `Download ${downloadId} starting - Size: ${(totalLength / 1024 / 1024).toFixed(2)} MB`);
     } else {
         logger.warn('download', `Download ${downloadId} starting - Unknown size (no Content-Length header)`);
+    }
+    if (resumeFrom > 0) {
+        logger.info('download', `Download ${downloadId} resuming at ${(resumeFrom / 1024 / 1024).toFixed(2)} MB`);
     }
 
     // Create throttled stream if needed
