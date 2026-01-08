@@ -780,6 +780,14 @@ module.exports = {
 
         // Start the scheduler
         startScheduler();
+
+        if (epg) {
+            setTimeout(() => {
+                epg.syncAllSourcesEpg().catch(err => {
+                    logger.error('scheduler', `Startup EPG preload failed: ${err.message}`);
+                });
+            }, 2000);
+        }
     },
 
     shutdown: async () => {

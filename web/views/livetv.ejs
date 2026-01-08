@@ -26,14 +26,6 @@
                 <option value="">All Countries</option>
             </select>
 
-            <!-- Back Button (when viewing channels) -->
-            <button id="back-btn" class="btn-hero-secondary hidden">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                </svg>
-                Back to Categories
-            </button>
-
             <!-- Count -->
             <div class="filter-actions">
                 <span class="result-count">
@@ -43,26 +35,49 @@
         </div>
     </div>
 
-    <!-- Categories View (initial, shows horizontal rows by region) -->
-    <div id="categories-view" class="livetv-categories"></div>
+    <div class="livetv-layout">
+        <!-- Categories Column -->
+        <aside class="livetv-column livetv-column-categories">
+            <div class="livetv-column-header">
+                <h2>Categories</h2>
+                <span id="categories-count" class="livetv-column-count">0</span>
+            </div>
+            <div id="categories-view" class="livetv-category-list"></div>
+        </aside>
 
-    <!-- Channels View (when category selected) -->
-    <div id="channels-view" class="hidden">
-        <div class="livetv-channels-grid" id="channels-grid"></div>
-        <div class="mt-8 text-center">
-            <button id="load-more" class="btn-hero-secondary hidden">Load More Channels</button>
-        </div>
-    </div>
+        <!-- Channels Column -->
+        <section class="livetv-column livetv-column-channels">
+            <div class="livetv-column-header">
+                <h2 id="channels-title">Channels</h2>
+                <span id="channels-count" class="livetv-column-count">0</span>
+            </div>
+            <div id="channels-view" class="livetv-channels-list">
+                <div class="livetv-placeholder" id="channels-placeholder">Select a category to view channels.</div>
+                <div class="empty-state hidden" id="empty-state">
+                    <div class="empty-state-icon">
+                        <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
+                        </svg>
+                    </div>
+                    <p class="empty-state-title">No channels found</p>
+                    <p class="empty-state-text">Try a different search term</p>
+                </div>
+            </div>
+            <div class="livetv-load-more">
+                <button id="load-more" class="btn-hero-secondary hidden">Load More Channels</button>
+            </div>
+        </section>
 
-    <!-- Empty State -->
-    <div class="empty-state hidden" id="empty-state">
-        <div class="empty-state-icon">
-            <svg class="w-12 h-12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M6 20.25h12m-7.5-3v3m3-3v3m-10.125-3h17.25c.621 0 1.125-.504 1.125-1.125V4.875c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125z" />
-            </svg>
-        </div>
-        <p class="empty-state-title">No channels found</p>
-        <p class="empty-state-text">Try a different search term</p>
+        <!-- EPG Column -->
+        <aside class="livetv-column livetv-column-epg">
+            <div class="livetv-column-header">
+                <h2>EPG</h2>
+                <span id="epg-channel-name" class="livetv-column-count">No channel selected</span>
+            </div>
+            <div id="epg-view" class="livetv-epg-view">
+                <div class="livetv-placeholder" id="epg-placeholder">Select a channel to see program info.</div>
+            </div>
+        </aside>
     </div>
 </div>
 
@@ -149,6 +164,7 @@
     const limit = 100;
     let loading = false;
     let currentCategory = null;
+    let currentChannel = null;
     let allCategories = [];
     let currentCountry = '';
     let preferredLanguages = [];
@@ -301,6 +317,18 @@
         renderCategories(filtered);
     }
 
+    function updateResultCount() {
+        const countEl = document.getElementById('results-count');
+        const labelEl = document.getElementById('results-label');
+        if (currentCategory) {
+            countEl.textContent = document.getElementById('channels-count').textContent || '0';
+            labelEl.textContent = 'channels';
+        } else {
+            countEl.textContent = document.getElementById('categories-count').textContent || '0';
+            labelEl.textContent = 'categories';
+        }
+    }
+
     // Country colors for gradient backgrounds
     const countryColors = {
         'DE': { from: '#000000', to: '#DD0000', accent: '#FFCC00' },
@@ -334,112 +362,156 @@
         const container = document.getElementById('categories-view');
         container.innerHTML = '';
 
-        // Fetch channel counts per category
         const channelCounts = await fetchChannelCounts();
-
-        // Group by country
-        const grouped = {};
-        categories.forEach(cat => {
-            const country = getCategoryCountry(cat) || 'OTHER';
-            if (!grouped[country]) grouped[country] = [];
-            grouped[country].push(cat);
+        const sorted = [...categories].sort((a, b) => {
+            const countryA = getCategoryCountry(a) || '';
+            const countryB = getCategoryCountry(b) || '';
+            if (countryA !== countryB) return countryA.localeCompare(countryB);
+            return getCategoryDisplayName(a).localeCompare(getCategoryDisplayName(b));
         });
 
-        const priority = ['DE', 'US', 'UK', 'FR', 'ES', 'IT'];
-        const sortedCountries = Object.keys(grouped).sort((a, b) => {
-            const aIdx = priority.indexOf(a);
-            const bIdx = priority.indexOf(b);
-            if (aIdx !== -1 && bIdx !== -1) return aIdx - bIdx;
-            if (aIdx !== -1) return -1;
-            if (bIdx !== -1) return 1;
-            if (a === 'OTHER') return 1;
-            if (b === 'OTHER') return -1;
-            return a.localeCompare(b);
-        });
-
-        // Create horizontal rows for each country
-        sortedCountries.forEach(country => {
-            const countryCategories = grouped[country];
-            const countryName = countryNames[country] || country;
-            const flag = countryFlags[country] || '';
-            const colors = getCountryColors(country);
-            const totalChannels = countryCategories.reduce((sum, cat) => sum + (channelCounts[cat] || 0), 0);
-
-            const cards = countryCategories.map(cat => {
+        if (sorted.length === 0) {
+            container.innerHTML = '<div class="livetv-empty">No categories found</div>';
+        } else {
+            sorted.forEach(cat => {
                 const displayName = getCategoryDisplayName(cat);
                 const count = channelCounts[cat] || 0;
-                return \`
-                <div class="livetv-category-card" onclick="selectCategory('\${cat.replace(/'/g, "\\\\'")}')">
-                    <div class="livetv-category-bg" style="background: linear-gradient(135deg, \${colors.from}22 0%, \${colors.to}22 100%);"></div>
-                    <div class="livetv-category-content">
-                        <div class="livetv-category-icon">\${getCategoryIcon(cat)}</div>
-                        <div class="livetv-category-info">
-                            <h3 class="livetv-category-name">\${displayName}</h3>
-                            <span class="livetv-category-count">\${count > 0 ? count + ' channels' : ''}</span>
-                        </div>
-                        <div class="livetv-category-arrow">
-                            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/>
-                            </svg>
-                        </div>
-                    </div>
-                </div>
-            \`}).join('');
+                const isActive = currentCategory === cat;
+                const country = getCategoryCountry(cat);
+                const flag = countryFlags[country] || 'TV';
+                const colors = getCountryColors(country);
 
-            container.innerHTML += \`
-                <section class="livetv-country-section">
-                    <div class="livetv-country-header">
-                        <div class="livetv-country-title">
-                            <span class="livetv-country-flag">\${flag}</span>
-                            <h2>\${countryName}</h2>
-                        </div>
-                        <span class="livetv-country-total">\${totalChannels > 0 ? totalChannels + ' channels' : ''}</span>
-                    </div>
-                    <div class="livetv-category-grid">\${cards}</div>
-                </section>
-            \`;
-        });
+                container.innerHTML += `
+                    <button class="livetv-category-item ${isActive ? 'active' : ''}"
+                        onclick="selectCategory('${cat.replace(/'/g, \"\\'\")}')">
+                        <span class="livetv-category-flag">${flag}</span>
+                        <span class="livetv-category-label">
+                            <span class="livetv-category-name">${displayName}</span>
+                            <span class="livetv-category-meta">${count > 0 ? count + ' channels' : 'No channels'}</span>
+                        </span>
+                        <span class="livetv-category-accent" style="background: linear-gradient(135deg, ${colors.from}55 0%, ${colors.to}55 100%);"></span>
+                    </button>
+                `;
+            });
+        }
 
-        document.getElementById('results-count').textContent = categories.length;
-        document.getElementById('results-label').textContent = 'categories';
+        document.getElementById('categories-count').textContent = categories.length;
+        updateResultCount();
     }
-
-    window.scrollRow = function(btn, direction) {
-        const track = btn.parentElement.querySelector('.livetv-category-track');
-        const cardWidth = track.querySelector('.livetv-category-card')?.offsetWidth || 200;
-        const scrollAmount = (cardWidth + 16) * 3 * direction;
-        track.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-    };
 
     function selectCategory(category) {
         currentCategory = category;
         currentOffset = 0;
+        currentChannel = null;
 
-        document.getElementById('categories-view').classList.add('hidden');
-        document.getElementById('channels-view').classList.remove('hidden');
-        document.getElementById('back-btn').classList.remove('hidden');
         document.getElementById('page-subtitle').textContent = getCategoryDisplayName(category);
-        document.getElementById('results-label').textContent = 'channels';
         document.getElementById('search-input').placeholder = 'Search in ' + getCategoryDisplayName(category) + '...';
         document.getElementById('search-input').value = '';
+        document.getElementById('channels-title').textContent = getCategoryDisplayName(category);
+        document.getElementById('channels-count').textContent = '0';
+        document.getElementById('channels-placeholder').classList.add('hidden');
+        document.getElementById('empty-state').classList.add('hidden');
 
+        resetEpgPanel();
+        updateResultCount();
+        applyFilters();
         loadChannels(true);
     }
 
-    function showCategories() {
+    function resetChannelsPanel() {
         currentCategory = null;
+        currentChannel = null;
         currentOffset = 0;
 
-        document.getElementById('categories-view').classList.remove('hidden');
-        document.getElementById('channels-view').classList.add('hidden');
-        document.getElementById('back-btn').classList.add('hidden');
-        document.getElementById('page-subtitle').textContent = 'Select a category to browse channels';
-        document.getElementById('results-label').textContent = 'categories';
-        document.getElementById('search-input').placeholder = 'Search channels or categories...';
-        document.getElementById('search-input').value = '';
+        document.getElementById('channels-title').textContent = 'Channels';
+        document.getElementById('channels-count').textContent = '0';
+        document.querySelectorAll('.livetv-channel-row').forEach(row => row.remove());
+        document.getElementById('channels-placeholder').classList.remove('hidden');
+        document.getElementById('load-more').classList.add('hidden');
         document.getElementById('empty-state').classList.add('hidden');
+        document.getElementById('page-subtitle').textContent = 'Select a category to browse channels';
+        document.getElementById('search-input').placeholder = 'Search channels or categories...';
 
-        applyFilters();
+        resetEpgPanel();
+        updateResultCount();
+    }
+
+    function resetEpgPanel() {
+        document.getElementById('epg-channel-name').textContent = 'No channel selected';
+        document.getElementById('epg-view').innerHTML = '<div class="livetv-placeholder">Select a channel to see program info.</div>';
+    }
+
+    function selectChannel(channel) {
+        currentChannel = channel;
+        const channelName = cleanChannelTitle(channel.title);
+
+        document.getElementById('epg-channel-name').textContent = channelName;
+        document.querySelectorAll('.livetv-channel-row').forEach(row => {
+            row.classList.toggle('active', row.dataset.channelId === String(channel.id));
+        });
+
+        loadChannelEpg(channel);
+    }
+
+    function formatEpgTime(dateStr) {
+        if (!dateStr) return '--:--';
+        const date = new Date(dateStr);
+        if (Number.isNaN(date.getTime())) return '--:--';
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    async function loadChannelEpg(channel) {
+        const epgView = document.getElementById('epg-view');
+        if (!channel?.tvg_id) {
+            epgView.innerHTML = '<div class="livetv-placeholder">No EPG data for this channel.</div>';
+            return;
+        }
+
+        epgView.innerHTML = '<div class="livetv-epg-loading">Loading program info...</div>';
+
+        try {
+            const response = await fetch('/api/epg/channel/' + encodeURIComponent(channel.tvg_id));
+            const data = await response.json();
+            renderEpgPanel(data);
+        } catch (err) {
+            console.error('Failed to load channel EPG:', err);
+            epgView.innerHTML = '<div class="livetv-placeholder">Failed to load EPG data.</div>';
+        }
+    }
+
+    function renderEpgPanel(data) {
+        const epgView = document.getElementById('epg-view');
+        const current = data?.current;
+        const upcoming = data?.upcoming || [];
+
+        const currentBlock = current ? `
+            <div class="livetv-epg-block">
+                <div class="livetv-epg-label">Now</div>
+                <div class="livetv-epg-title">${current.title || 'Unknown'}</div>
+                <div class="livetv-epg-time">${formatEpgTime(current.start_time)} - ${formatEpgTime(current.end_time)}</div>
+                <div class="livetv-epg-desc">${current.description || 'No description available.'}</div>
+            </div>
+        ` : `
+            <div class="livetv-epg-block">
+                <div class="livetv-epg-label">Now</div>
+                <div class="livetv-epg-title">No current program</div>
+            </div>
+        `;
+
+        const upcomingItems = upcoming.length ? upcoming.map(item => `
+            <div class="livetv-epg-item">
+                <div class="livetv-epg-item-time">${formatEpgTime(item.start_time)} - ${formatEpgTime(item.end_time)}</div>
+                <div class="livetv-epg-item-title">${item.title || 'Unknown'}</div>
+            </div>
+        `).join('') : '<div class="livetv-epg-empty">No upcoming programs.</div>';
+
+        epgView.innerHTML = `
+            ${currentBlock}
+            <div class="livetv-epg-block">
+                <div class="livetv-epg-label">Up Next</div>
+                <div class="livetv-epg-list">${upcomingItems}</div>
+            </div>
+        `;
     }
 
     // Smart title cleaning - detects and removes country/language prefixes
@@ -480,12 +552,15 @@
     }
 
     async function loadChannels(reset = false) {
-        if (loading) return;
+        if (loading || !currentCategory) return;
         loading = true;
+
+        const list = document.getElementById('channels-view');
+        const emptyState = document.getElementById('empty-state');
 
         if (reset) {
             currentOffset = 0;
-            document.getElementById('channels-grid').innerHTML = '';
+            document.querySelectorAll('.livetv-channel-row').forEach(row => row.remove());
         }
 
         const params = new URLSearchParams({
@@ -500,79 +575,63 @@
             const response = await fetch('/api/media?' + params);
             const data = await response.json();
             const channels = data.items || data;
-            const grid = document.getElementById('channels-grid');
-            const emptyState = document.getElementById('empty-state');
-
-            if (reset) grid.innerHTML = '';
 
             if (channels.length === 0 && currentOffset === 0) {
                 emptyState.classList.remove('hidden');
-                grid.classList.add('hidden');
-            } else {
-                emptyState.classList.add('hidden');
-                grid.classList.remove('hidden');
+                document.getElementById('channels-count').textContent = '0';
+                updateResultCount();
+                loading = false;
+                return;
             }
 
+            emptyState.classList.add('hidden');
+            document.getElementById('channels-placeholder').classList.add('hidden');
+
             channels.forEach((channel, index) => {
-                // Use cached logo endpoint for persistent logos
-                const imgSrc = channel.id ? \`/logo/\${channel.id}\` : '/static/img/no-logo.svg';
+                const imgSrc = channel.id ? `/logo/${channel.id}` : '/static/img/no-logo.svg';
                 const isEager = currentOffset === 0 && index < 16;
-                let displayName = cleanChannelTitle(channel.title);
+                const displayName = cleanChannelTitle(channel.title);
                 const channelJson = JSON.stringify(channel).replace(/"/g, '&quot;');
 
-                grid.innerHTML += \`
-                    <div class="livetv-channel-card" oncontextmenu="showContextMenu(event, \${channelJson})">
-                        <!-- Live Badge -->
-                        <div class="livetv-live-badge">
-                            <span class="livetv-live-dot"></span>
-                            LIVE
-                        </div>
-
-                        <!-- Logo Area -->
+                list.innerHTML += `
+                    <div class="livetv-channel-row" data-channel-id="${channel.id}" oncontextmenu="showContextMenu(event, ${channelJson})" onclick="selectChannel(${channelJson})">
                         <div class="livetv-channel-logo">
-                            <img src="\${isEager ? imgSrc : '/static/img/no-logo.svg'}"
-                                 data-src="\${imgSrc}"
-                                 alt="\${displayName}"
-                                 class="\${isEager ? '' : 'lazy-image'}"
+                            <img src="${isEager ? imgSrc : '/static/img/no-logo.svg'}"
+                                 data-src="${imgSrc}"
+                                 alt="${displayName}"
+                                 class="${isEager ? '' : 'lazy-image'}"
                                  onerror="this.src='/static/img/no-logo.svg'" />
                         </div>
-
-                        <!-- Channel Info -->
-                        <div class="livetv-channel-info">
-                            <h3 class="livetv-channel-name">\${displayName}</h3>
+                        <div class="livetv-channel-meta">
+                            <div class="livetv-channel-name">${displayName}</div>
                             <div class="livetv-channel-epg">
-                                <span class="livetv-now-label">Now:</span>
-                                <span class="livetv-now-title epg-now" data-tvg-id="\${channel.tvg_id || ''}">Loading...</span>
+                                <span class="livetv-now-label">Now</span>
+                                <span class="livetv-now-title epg-now" data-tvg-id="${channel.tvg_id || ''}">Loading...</span>
                             </div>
-                            <div class="livetv-epg-progress" data-tvg-id-progress="\${channel.tvg_id || ''}">
+                            <div class="livetv-epg-progress" data-tvg-id-progress="${channel.tvg_id || ''}">
                                 <div class="livetv-epg-progress-bar" style="width: 0%"></div>
                             </div>
                         </div>
-
-                        <!-- Hover Actions -->
                         <div class="livetv-channel-actions">
-                            <button class="livetv-action-btn livetv-preview-btn" onclick="event.stopPropagation(); previewChannel(\${channelJson})" title="Preview in Browser">
+                            <button class="livetv-row-action" onclick="event.stopPropagation(); previewChannel(${channelJson})" title="Preview in Browser">
                                 <svg fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                                 </svg>
-                                <span class="livetv-action-label">Preview</span>
                             </button>
-                            <button class="livetv-action-btn" onclick="event.stopPropagation(); openChannelInBrowser(\${channelJson})" title="Open in Browser">
+                            <button class="livetv-row-action" onclick="event.stopPropagation(); openChannelInBrowser(${channelJson})" title="Open in Browser">
                                 <svg fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M4 5a2 2 0 012-2h12a2 2 0 012 2v3H4V5zm0 5h16v9a2 2 0 01-2 2H6a2 2 0 01-2-2v-9zm3 3v2h2v-2H7zm4 0v2h2v-2h-2z"/>
                                 </svg>
-                                <span class="livetv-action-label">Browser</span>
                             </button>
-                            <button class="livetv-action-btn livetv-record-btn" onclick="event.stopPropagation(); openRecordModal(\${channelJson})" title="Record Channel">
+                            <button class="livetv-row-action" onclick="event.stopPropagation(); openRecordModal(${channelJson})" title="Record Channel">
                                 <svg fill="currentColor" viewBox="0 0 24 24">
                                     <circle cx="12" cy="12" r="8"/>
                                 </svg>
-                                <span class="livetv-action-label">Record</span>
                             </button>
                         </div>
                     </div>
-                \`;
+                `;
             });
 
             initLazyLoad();
@@ -581,13 +640,15 @@
             if (tvgIds.length > 0) {
                 fetchEpgForChannels(tvgIds);
             } else {
-                // No tvg_ids available - show "No program info" instead of "Loading..."
                 document.querySelectorAll('.epg-now').forEach(el => {
                     if (el.textContent === 'Loading...') el.textContent = 'No EPG data';
                 });
             }
 
-            document.getElementById('results-count').textContent = (currentOffset + channels.length).toLocaleString();
+            const totalLoaded = currentOffset + channels.length;
+            document.getElementById('channels-count').textContent = totalLoaded.toLocaleString();
+            updateResultCount();
+
             document.getElementById('load-more').classList.toggle('hidden', channels.length < limit);
             if (channels.length === limit) currentOffset += limit;
         } catch (err) {
@@ -625,9 +686,9 @@
 
                     // Update progress bar
                     const progressEl = document.querySelector(\`[data-tvg-id-progress="\${tvgId}"] .livetv-epg-progress-bar\`);
-                    if (progressEl && program.start && program.end) {
-                        const start = new Date(program.start).getTime();
-                        const end = new Date(program.end).getTime();
+                    if (progressEl && program.start_time && program.end_time) {
+                        const start = new Date(program.start_time).getTime();
+                        const end = new Date(program.end_time).getTime();
                         const now = Date.now();
                         const progress = Math.min(100, Math.max(0, ((now - start) / (end - start)) * 100));
                         progressEl.style.width = progress + '%';
@@ -668,11 +729,10 @@
 
     document.getElementById('country-filter').addEventListener('change', (e) => {
         currentCountry = e.target.value;
-        if (currentCategory) showCategories();
-        else applyFilters();
+        if (currentCategory) resetChannelsPanel();
+        applyFilters();
     });
 
-    document.getElementById('back-btn').addEventListener('click', showCategories);
     document.getElementById('load-more').addEventListener('click', () => loadChannels(false));
 
     // Context menu
@@ -835,278 +895,192 @@
 </script>
 
 <style>
-    /* =====================================================
-       LIVE TV - CATEGORY STYLES
-       ===================================================== */
+    .livetv-layout {
+        display: grid;
+        grid-template-columns: 260px minmax(0, 1fr) 340px;
+        gap: 1.5rem;
+        align-items: start;
+    }
 
-    .livetv-categories {
+    .livetv-column {
+        background: #121212;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 16px;
+        padding: 1rem;
         display: flex;
         flex-direction: column;
-        gap: 2rem;
+        min-height: 520px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
     }
 
-    .livetv-country-section {
-        margin-bottom: 1rem;
-    }
-
-    .livetv-country-header {
+    .livetv-column-header {
         display: flex;
         align-items: center;
         justify-content: space-between;
-        margin-bottom: 1rem;
-        padding: 0 0.5rem;
+        gap: 0.75rem;
+        padding-bottom: 0.75rem;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        margin-bottom: 0.75rem;
     }
 
-    .livetv-country-title {
+    .livetv-column-header h2 {
+        font-size: 1rem;
+        font-weight: 700;
+        color: #ffffff;
+        margin: 0;
+    }
+
+    .livetv-column-count {
+        font-size: 0.75rem;
+        color: #b0b0b0;
+        background: rgba(255, 255, 255, 0.08);
+        padding: 0.25rem 0.6rem;
+        border-radius: 999px;
+        white-space: nowrap;
+    }
+
+    .livetv-category-list,
+    .livetv-channels-list,
+    .livetv-epg-view {
+        flex: 1;
+        overflow-y: auto;
+        padding-right: 0.25rem;
+    }
+
+    .livetv-category-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .livetv-category-item {
+        position: relative;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #1a1a1a;
+        border-radius: 12px;
+        padding: 0.75rem 0.75rem 0.75rem 0.9rem;
         display: flex;
         align-items: center;
         gap: 0.75rem;
-    }
-
-    .livetv-country-flag {
-        font-size: 2rem;
-        line-height: 1;
-    }
-
-    .livetv-country-title h2 {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: white;
-        margin: 0;
-    }
-
-    .livetv-country-total {
-        font-size: 0.875rem;
-        color: #808080;
-        background: rgba(255,255,255,0.05);
-        padding: 0.375rem 0.75rem;
-        border-radius: 999px;
-    }
-
-    /* Category Grid */
-    .livetv-category-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-        gap: 1rem;
-        padding: 0.5rem 0;
-    }
-
-    @media (min-width: 640px) {
-        .livetv-category-grid {
-            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-        }
-    }
-
-    @media (min-width: 1024px) {
-        .livetv-category-grid {
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-            gap: 1.25rem;
-        }
-    }
-
-    /* Category Card */
-    .livetv-category-card {
-        position: relative;
-        background: #1a1a1a;
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 12px;
+        color: #ffffff;
+        text-align: left;
+        transition: border 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
         overflow: hidden;
         cursor: pointer;
-        transition: all 0.3s ease;
     }
 
-    .livetv-category-card:hover {
-        transform: translateY(-4px);
+    .livetv-category-item:hover {
         border-color: rgba(229, 9, 20, 0.5);
-        box-shadow: 0 12px 40px rgba(0,0,0,0.4), 0 0 0 1px rgba(229, 9, 20, 0.2);
+        transform: translateY(-2px);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     }
 
-    .livetv-category-bg {
-        position: absolute;
-        inset: 0;
-        opacity: 0.5;
-        transition: opacity 0.3s;
+    .livetv-category-item.active {
+        border-color: rgba(229, 9, 20, 0.9);
+        box-shadow: 0 0 0 1px rgba(229, 9, 20, 0.3);
     }
 
-    .livetv-category-card:hover .livetv-category-bg {
-        opacity: 0.8;
-    }
-
-    .livetv-category-content {
-        position: relative;
-        display: flex;
-        align-items: center;
-        gap: 0.875rem;
-        padding: 1rem;
-    }
-
-    .livetv-category-icon {
-        font-size: 2rem;
+    .livetv-category-flag {
+        font-size: 1.5rem;
         line-height: 1;
         flex-shrink: 0;
     }
 
-    .livetv-category-info {
-        flex: 1;
-        min-width: 0;
+    .livetv-category-label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+        z-index: 1;
     }
 
     .livetv-category-name {
-        font-size: 0.9375rem;
+        font-size: 0.9rem;
         font-weight: 600;
-        color: white;
-        margin: 0;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        color: #ffffff;
     }
 
-    .livetv-category-count {
-        font-size: 0.75rem;
-        color: #808080;
-        display: block;
-        margin-top: 0.25rem;
+    .livetv-category-meta {
+        font-size: 0.7rem;
+        color: #9a9a9a;
     }
 
-    .livetv-category-arrow {
-        flex-shrink: 0;
-        width: 20px;
-        height: 20px;
-        color: #606060;
-        opacity: 0;
-        transform: translateX(-8px);
-        transition: all 0.3s;
-    }
-
-    .livetv-category-card:hover .livetv-category-arrow {
-        opacity: 1;
-        transform: translateX(0);
-        color: #E50914;
-    }
-
-    .livetv-category-arrow svg {
-        width: 100%;
-        height: 100%;
-    }
-
-    /* =====================================================
-       LIVE TV - CHANNEL GRID STYLES
-       ===================================================== */
-
-    .livetv-channels-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-        gap: 1.25rem;
-    }
-
-    @media (min-width: 1400px) {
-        .livetv-channels-grid {
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-        }
-    }
-
-    /* Channel Card */
-    .livetv-channel-card {
-        position: relative;
-        background: linear-gradient(180deg, #1e1e1e 0%, #141414 100%);
-        border: 1px solid rgba(255,255,255,0.06);
-        border-radius: 16px;
-        overflow: hidden;
-        cursor: pointer;
-        transition: all 0.3s ease;
-    }
-
-    .livetv-channel-card:hover {
-        transform: translateY(-6px) scale(1.02);
-        border-color: rgba(229, 9, 20, 0.4);
-        box-shadow: 0 20px 50px rgba(0,0,0,0.5), 0 0 0 1px rgba(229, 9, 20, 0.15);
-    }
-
-    /* Live Badge */
-    .livetv-live-badge {
+    .livetv-category-accent {
         position: absolute;
-        top: 12px;
-        left: 12px;
-        z-index: 5;
+        inset: 0;
+        opacity: 0.2;
+    }
+
+    .livetv-channels-list {
         display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+    }
+
+    .livetv-channel-row {
+        display: grid;
+        grid-template-columns: 56px minmax(0, 1fr) auto;
+        gap: 0.75rem;
         align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        background: rgba(229, 9, 20, 0.95);
-        border-radius: 4px;
-        font-size: 0.625rem;
-        font-weight: 700;
-        color: white;
-        letter-spacing: 0.05em;
-        text-transform: uppercase;
+        padding: 0.6rem 0.75rem;
+        border-radius: 12px;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: #151515;
+        cursor: pointer;
+        transition: border 0.2s ease, background 0.2s ease, transform 0.2s ease;
     }
 
-    .livetv-live-dot {
-        width: 6px;
-        height: 6px;
-        background: white;
-        border-radius: 50%;
-        animation: pulse-live 1.5s ease-in-out infinite;
+    .livetv-channel-row:hover {
+        border-color: rgba(229, 9, 20, 0.4);
+        background: #1b1b1b;
+        transform: translateY(-1px);
     }
 
-    @keyframes pulse-live {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.5; transform: scale(0.8); }
+    .livetv-channel-row.active {
+        border-color: rgba(229, 9, 20, 0.8);
+        background: rgba(229, 9, 20, 0.12);
     }
 
-    /* Channel Logo */
     .livetv-channel-logo {
-        position: relative;
-        height: 140px;
+        width: 56px;
+        height: 40px;
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.05);
         display: flex;
         align-items: center;
         justify-content: center;
-        background: linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(255,255,255,0) 100%);
-        padding: 1.5rem;
+        overflow: hidden;
     }
 
     .livetv-channel-logo img {
-        max-width: 100px;
-        max-height: 80px;
-        width: auto;
-        height: auto;
+        max-width: 48px;
+        max-height: 32px;
         object-fit: contain;
-        filter: drop-shadow(0 4px 12px rgba(0,0,0,0.3));
-        transition: transform 0.3s;
     }
 
-    .livetv-channel-card:hover .livetv-channel-logo img {
-        transform: scale(1.1);
-    }
-
-    /* Channel Info */
-    .livetv-channel-info {
-        padding: 1rem 1.25rem 1.25rem;
-        border-top: 1px solid rgba(255,255,255,0.04);
+    .livetv-channel-meta {
+        min-width: 0;
     }
 
     .livetv-channel-name {
-        font-size: 1rem;
+        font-size: 0.95rem;
         font-weight: 600;
-        color: white;
-        margin: 0 0 0.5rem 0;
+        color: #ffffff;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        margin-bottom: 0.3rem;
     }
 
     .livetv-channel-epg {
         display: flex;
         align-items: center;
         gap: 0.5rem;
-        font-size: 0.8125rem;
-        margin-bottom: 0.75rem;
+        font-size: 0.75rem;
     }
 
     .livetv-now-label {
         color: #E50914;
         font-weight: 600;
-        flex-shrink: 0;
     }
 
     .livetv-now-title {
@@ -1116,10 +1090,10 @@
         text-overflow: ellipsis;
     }
 
-    /* EPG Progress Bar */
     .livetv-epg-progress {
+        margin-top: 0.35rem;
         height: 3px;
-        background: rgba(255,255,255,0.08);
+        background: rgba(255, 255, 255, 0.08);
         border-radius: 2px;
         overflow: hidden;
     }
@@ -1131,133 +1105,129 @@
         transition: width 0.5s ease;
     }
 
-    /* Hover Actions */
     .livetv-channel-actions {
-        position: absolute;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        left: 0;
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .livetv-row-action {
+        width: 32px;
+        height: 32px;
+        border-radius: 8px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.08);
+        color: #ffffff;
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 0.75rem;
-        background: rgba(0, 0, 0, 0.85);
-        backdrop-filter: blur(4px);
-        opacity: 0;
-        visibility: hidden;
-        transition: all 0.25s ease;
+        transition: all 0.2s ease;
     }
 
-    .livetv-channel-card:hover .livetv-channel-actions {
-        opacity: 1;
-        visibility: visible;
+    .livetv-row-action:hover {
+        background: rgba(229, 9, 20, 0.15);
+        border-color: rgba(229, 9, 20, 0.5);
     }
 
-    .livetv-action-btn {
+    .livetv-row-action svg {
+        width: 16px;
+        height: 16px;
+    }
+
+    .livetv-epg-view {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 6px;
-        padding: 12px 16px;
-        border: none;
+        gap: 1rem;
+    }
+
+    .livetv-epg-block {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.08);
         border-radius: 12px;
-        cursor: pointer;
-        transition: all 0.2s;
-        color: white;
-        min-width: 70px;
+        padding: 0.75rem;
     }
 
-    .livetv-action-btn svg {
-        width: 24px;
-        height: 24px;
-        flex-shrink: 0;
-    }
-
-    .livetv-action-label {
-        font-size: 11px;
-        font-weight: 600;
+    .livetv-epg-label {
+        font-size: 0.7rem;
         text-transform: uppercase;
-        letter-spacing: 0.5px;
-        white-space: nowrap;
+        letter-spacing: 0.08em;
+        color: #E50914;
+        font-weight: 700;
+        margin-bottom: 0.4rem;
     }
 
-    .livetv-preview-btn {
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
+    .livetv-epg-title {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: #ffffff;
+        margin-bottom: 0.35rem;
     }
 
-    .livetv-preview-btn:hover {
-        background: rgba(255,255,255,0.2);
-        transform: scale(1.05);
+    .livetv-epg-time {
+        font-size: 0.75rem;
+        color: #b0b0b0;
+        margin-bottom: 0.5rem;
     }
 
-    .livetv-play-btn {
-        background: #E50914;
-        padding: 16px 20px;
+    .livetv-epg-desc {
+        font-size: 0.8rem;
+        color: #9a9a9a;
+        line-height: 1.4;
     }
 
-    .livetv-play-btn:hover {
-        background: #ff1a27;
-        transform: scale(1.08);
-        box-shadow: 0 0 30px rgba(229, 9, 20, 0.5);
+    .livetv-epg-list {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
     }
 
-    .livetv-play-btn svg {
-        width: 28px;
-        height: 28px;
+    .livetv-epg-item {
+        padding: 0.5rem;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.05);
     }
 
-    .livetv-record-btn {
-        background: rgba(255,255,255,0.1);
-        border: 1px solid rgba(255,255,255,0.2);
+    .livetv-epg-item-time {
+        font-size: 0.7rem;
+        color: #a0a0a0;
+        margin-bottom: 0.2rem;
     }
 
-    .livetv-record-btn:hover {
-        background: rgba(220, 38, 38, 0.9);
-        border-color: #dc2626;
-        transform: scale(1.05);
+    .livetv-epg-item-title {
+        font-size: 0.82rem;
+        color: #ffffff;
+        font-weight: 500;
     }
 
-    .livetv-record-btn svg {
-        width: 20px;
-        height: 20px;
-        color: #dc2626;
+    .livetv-placeholder,
+    .livetv-empty,
+    .livetv-epg-loading,
+    .livetv-epg-empty {
+        color: #8a8a8a;
+        font-size: 0.85rem;
+        text-align: center;
+        padding: 1.25rem 0.5rem;
     }
 
-    .livetv-record-btn:hover svg {
-        color: white;
+    .livetv-load-more {
+        display: flex;
+        justify-content: center;
+        margin-top: 0.75rem;
     }
 
-    /* =====================================================
-       RESPONSIVE ADJUSTMENTS
-       ===================================================== */
+    @media (max-width: 1280px) {
+        .livetv-layout {
+            grid-template-columns: 220px minmax(0, 1fr) 300px;
+        }
+    }
 
-    @media (max-width: 768px) {
-        .livetv-category-card {
-            width: 180px;
+    @media (max-width: 1024px) {
+        .livetv-layout {
+            grid-template-columns: 1fr;
         }
 
-        .livetv-channels-grid {
-            grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-            gap: 1rem;
-        }
-
-        .livetv-channel-logo {
-            height: 120px;
-        }
-
-        .livetv-country-flag {
-            font-size: 1.5rem;
-        }
-
-        .livetv-country-title h2 {
-            font-size: 1.25rem;
-        }
-
-        .livetv-scroll-btn {
-            display: none;
+        .livetv-column {
+            min-height: unset;
         }
     }
 </style>
