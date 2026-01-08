@@ -15,10 +15,7 @@
             <div id="sources-list" class="divide-y divide-dark-700">
                 <p class="text-dark-400 text-center py-8">No sources configured</p>
             </div>
-        </div>
-
-        <!-- Folder Settings -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Folders</h2>
             </div>
@@ -46,10 +43,7 @@
                     <p class="text-xs text-dark-500 mt-2">Supports SMB paths (smb://server/share) and local paths</p>
                 </div>
             </div>
-        </div>
-
-        <!-- TMDB Settings -->
-        <div class="card">
+        </div><div class="card lg:col-span-2">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">TMDB</h2>
             </div>
@@ -106,10 +100,7 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Overseerr Settings -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Overseerr</h2>
             </div>
@@ -146,10 +137,52 @@
                     </div>
                 </div>
             </div>
-        </div>
+        </div><div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Plex</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Server URL</label>
+                    <input type="text" id="setting-plexUrl" class="input" placeholder="http://192.168.1.100:32400" />
+                </div>
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Token</label>
+                    <input type="password" id="setting-plexToken" class="input" placeholder="Your Plex token" />
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Movie Library ID</label>
+                        <input type="text" id="setting-plexMovieLibraryId" class="input" placeholder="1" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">TV Library ID</label>
+                        <input type="text" id="setting-plexTvLibraryId" class="input" placeholder="2" />
+                    </div>
+                </div>
+                <button onclick="testPlex()" class="btn btn-secondary w-full">Test Connection</button>
+            </div>
+        </div><div class="card">
+            <div class="p-4 border-b border-dark-700">
+                <h2 class="text-lg font-semibold text-white">Language Preferences</h2>
+            </div>
+            <div class="p-4 space-y-4">
+                <p class="text-sm text-dark-400">Select languages for filtering movies, series, and live TV</p>
 
-        <!-- Webhooks -->
-        <div class="card">
+                <!-- Selected Languages (Badges) -->
+                <div id="selected-languages" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
+                    <!-- Badges populated by JS -->
+                    <span class="text-dark-500 text-sm" id="no-languages-msg">No languages selected</span>
+                </div>
+
+                <!-- Add Language Dropdown -->
+                <div class="relative">
+                    <select id="language-selector" class="select" onchange="addLanguage(this.value)">
+                        <option value="">+ Add language...</option>
+                    </select>
+                </div>
+            </div>
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Webhooks</h2>
             </div>
@@ -160,10 +193,7 @@
                     <p class="text-xs text-dark-500 mt-1">Sent on download complete and recording finished.</p>
                 </div>
             </div>
-        </div>
-
-        <!-- Telegram Notifications -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Telegram Notifications</h2>
             </div>
@@ -190,10 +220,7 @@
                     <button onclick="testTelegram()" class="btn btn-secondary btn-sm">Send Test Message</button>
                 </div>
             </div>
-        </div>
-
-        <!-- Download Settings -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Download Settings</h2>
             </div>
@@ -227,10 +254,7 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Video Transcoding Settings -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Video Transcoding</h2>
             </div>
@@ -329,61 +353,7 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Plex Settings -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">Plex</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Server URL</label>
-                    <input type="text" id="setting-plexUrl" class="input" placeholder="http://192.168.1.100:32400" />
-                </div>
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Token</label>
-                    <input type="password" id="setting-plexToken" class="input" placeholder="Your Plex token" />
-                </div>
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">Movie Library ID</label>
-                        <input type="text" id="setting-plexMovieLibraryId" class="input" placeholder="1" />
-                    </div>
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">TV Library ID</label>
-                        <input type="text" id="setting-plexTvLibraryId" class="input" placeholder="2" />
-                    </div>
-                </div>
-                <button onclick="testPlex()" class="btn btn-secondary w-full">Test Connection</button>
-            </div>
-        </div>
-
-        <!-- Language Preferences -->
-        <div class="card">
-            <div class="p-4 border-b border-dark-700">
-                <h2 class="text-lg font-semibold text-white">Language Preferences</h2>
-            </div>
-            <div class="p-4 space-y-4">
-                <p class="text-sm text-dark-400">Select languages for filtering movies, series, and live TV</p>
-
-                <!-- Selected Languages (Badges) -->
-                <div id="selected-languages" class="flex flex-wrap gap-2 min-h-[40px] p-3 bg-dark-800 rounded-lg border border-dark-600">
-                    <!-- Badges populated by JS -->
-                    <span class="text-dark-500 text-sm" id="no-languages-msg">No languages selected</span>
-                </div>
-
-                <!-- Add Language Dropdown -->
-                <div class="relative">
-                    <select id="language-selector" class="select" onchange="addLanguage(this.value)">
-                        <option value="">+ Add language...</option>
-                    </select>
-                </div>
-            </div>
-        </div>
-
-        <!-- AI / LLM Configuration -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">AI / LLM Configuration</h2>
             </div>
@@ -457,10 +427,7 @@
                     </div>
                 </div>
             </div>
-        </div>
-
-        <!-- Security -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Security</h2>
             </div>
@@ -538,10 +505,7 @@
                     <button onclick="changePassword()" class="btn btn-secondary btn-sm">Update Password</button>
                 </div>
             </div>
-        </div>
-
-        <!-- HDHomeRun Emulator Settings -->
-        <div class="card">
+        </div><div class="card">
             <div class="p-4 border-b border-dark-700 flex items-center justify-between">
                 <div>
                     <h2 class="text-lg font-semibold text-white">HDHomeRun Emulator</h2>
@@ -553,18 +517,84 @@
                 </label>
             </div>
             <div class="p-4 space-y-4" id="hdhr-settings">
-                <!-- Scheduler Status -->
-        <div class="card">
+                <!-- Status -->
+                <div class="bg-dark-700 rounded-lg p-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-dark-400 mb-1">Status</p>
+                            <p class="text-white font-medium" id="hdhr-status">Checking...</p>
+                        </div>
+                        <div id="hdhr-status-indicator" class="w-3 h-3 rounded-full bg-dark-500"></div>
+                    </div>
+                </div>
+
+                <!-- Device Settings -->
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Device Name</label>
+                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="RecoStream HDHR" />
+                    </div>
+                    <div>
+                        <label class="block text-sm text-dark-400 mb-1">Tuner Count</label>
+                        <input type="number" id="setting-hdhrTunerCount" class="input" min="1" max="8" value="2" />
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">Base URL (leave blank to auto-detect)</label>
+                    <input type="text" id="setting-hdhrBaseUrl" class="input" placeholder="http://192.168.1.XXX:5004" />
+                    <p class="text-xs text-dark-500 mt-1">Override if RecoStream is behind NAT or in Docker</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm text-dark-400 mb-1">IPTV Source</label>
+                    <select id="setting-hdhrSourceId" class="input">
+                        <option value="">All sources (no filter)</option>
+                    </select>
+                    <p class="text-xs text-dark-500 mt-1">Filter channels and EPG to a specific source</p>
+                </div>
+
+                <!-- Channel Count -->
+                <div class="bg-dark-700 rounded-lg p-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-sm text-dark-400">Channels in Lineup</p>
+                            <p class="text-white font-medium" id="hdhr-channel-count">0 channels</p>
+                        </div>
+                        <button onclick="openHdhrChannels()" class="btn btn-secondary btn-sm">Manage Channels</button>
+                    </div>
+                </div>
+
+                <!-- Plex Setup Instructions -->
+                <div class="bg-primary-500/10 rounded-lg p-3 border border-primary-500/20">
+                    <p class="text-sm text-primary-400 font-medium mb-2">Plex Setup Instructions</p>
+                    <ol class="text-xs text-dark-300 space-y-1 list-decimal list-inside">
+                        <li>Enable HDHomeRun emulator above</li>
+                        <li>Add channels using "Manage Channels"</li>
+                        <li>In Plex: Settings > Live TV & DVR > Set Up Plex DVR</li>
+                        <li>Plex should auto-discover "RecoStream HDHR"</li>
+                        <li>Add the EPG URL below for guide data</li>
+                    </ol>
+                    <div class="mt-3 pt-2 border-t border-primary-500/20 space-y-2">
+                        <div>
+                            <p class="text-xs text-dark-400">EPG URL (for Plex guide data):</p>
+                            <code class="text-xs text-primary-400 break-all" id="hdhr-epg-url">Loading...</code>
+                        </div>
+                        <div>
+                            <p class="text-xs text-dark-400">Lineup URL (auto-discovered):</p>
+                            <code class="text-xs text-primary-400 break-all" id="hdhr-lineup-url">Loading...</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div><div class="card lg:col-span-2">
             <div class="p-4 border-b border-dark-700">
                 <h2 class="text-lg font-semibold text-white">Scheduler</h2>
             </div>
             <div class="p-4 space-y-4">
                 <div id="scheduler-status">Loading scheduler status...</div>
             </div>
-        </div>
-
-        <!-- Database Maintenance -->
-        <div class="card border-red-900/50">
+        </div><div class="card border-red-900/50 lg:col-span-2">
             <div class="p-4 border-b border-red-900/50 bg-red-900/10">
                 <h2 class="text-lg font-semibold text-red-400">Database Maintenance</h2>
             </div>
@@ -3815,112 +3845,3 @@
     loadAuthStatus();
 </script>
 ` }) %>
-<!-- Status -->
-                <div class="bg-dark-700 rounded-lg p-3">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm text-dark-400 mb-1">Status</p>
-                            <p class="text-white font-medium" id="hdhr-status">Checking...</p>
-                        </div>
-                        <div id="hdhr-status-indicator" class="w-3 h-3 rounded-full bg-dark-500"></div>
-                    </div>
-                </div>
-
-                <!-- Device Settings -->
-                <div class="grid grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">Device Name</label>
-                        <input type="text" id="setting-hdhrFriendlyName" class="input" placeholder="RecoStream HDHR" />
-                    </div>
-                    <div>
-                        <label class="block text-sm text-dark-400 mb-1">Tuner Count</label>
-                        <input type="number" id="setting-hdhrTunerCount" class="input" min="1" max="8" value="2" />
-                    </div>
-                </div>
-
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">Base URL (leave blank to auto-detect)</label>
-                    <input type="text" id="setting-hdhrBaseUrl" class="input" placeholder="http://192.168.1.XXX:5004" />
-                    <p class="text-xs text-dark-500 mt-1">Override if RecoStream is behind NAT or in Docker</p>
-                </div>
-
-                <div>
-                    <label class="block text-sm text-dark-400 mb-1">IPTV Source</label>
-                    <select id="setting-hdhrSourceId" class="input">
-                        <option value="">All sources (no filter)</option>
-                    </select>
-                    <p class="text-xs text-dark-500 mt-1">Filter channels and EPG to a specific source</p>
-                </div>
-
-                <!-- Channel Count -->
-                <div class="bg-dark-700 rounded-lg p-3">
-                    <div class="flex items-center justify-between">
-                        <div>
-                            <p class="text-sm text-dark-400">Channels in Lineup</p>
-                            <p class="text-white font-medium" id="hdhr-channel-count">0 channels</p>
-                        </div>
-                        <button onclick="openHdhrChannels()" class="btn btn-secondary btn-sm">Manage Channels</button>
-                    </div>
-                </div>
-
-                <!-- Plex Setup Instructions -->
-                <div class="bg-primary-500/10 rounded-lg p-3 border border-primary-500/20">
-                    <p class="text-sm text-primary-400 font-medium mb-2">Plex Setup Instructions</p>
-                    <ol class="text-xs text-dark-300 space-y-1 list-decimal list-inside">
-                        <li>Enable HDHomeRun emulator above</li>
-                        <li>Add channels using "Manage Channels"</li>
-                        <li>In Plex: Settings > Live TV & DVR > Set Up Plex DVR</li>
-                        <li>Plex should auto-discover "RecoStream HDHR"</li>
-                        <li>Add the EPG URL below for guide data</li>
-                    </ol>
-                    <div class="mt-3 pt-2 border-t border-primary-500/20 space-y-2">
-                        <div>
-                            <p class="text-xs text-dark-400">EPG URL (for Plex guide data):</p>
-                            <code class="text-xs text-primary-400 break-all" id="hdhr-epg-url">Loading...</code>
-                        </div>
-                        <div>
-                            <p class="text-xs text-dark-400">Lineup URL (auto-discovered):</p>
-                            <code class="text-xs text-primary-400 break-all" id="hdhr-lineup-url">Loading...</code>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- HDHR Channel Selection Modal -->
-        <div id="hdhr-channels-modal" class="modal-overlay hidden">
-            <div class="modal-content max-w-4xl">
-                <div class="p-4 border-b border-dark-700 flex items-center justify-between">
-                    <h3 class="text-lg font-semibold text-white">HDHomeRun Channel Lineup</h3>
-                    <button onclick="closeHdhrChannels()" class="text-dark-400 hover:text-white">
-                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                        </svg>
-                    </button>
-                </div>
-                <div class="p-4 overflow-y-auto max-h-[calc(90vh-140px)]">
-                    <!-- Quick Actions -->
-                    <div class="flex gap-2 mb-4">
-                        <select id="hdhr-category-select" class="input flex-1">
-                            <option value="">Select a category to add...</option>
-                        </select>
-                        <button onclick="addHdhrCategory()" class="btn btn-primary">Add Category</button>
-                        <button onclick="clearHdhrChannels()" class="btn btn-secondary">Clear All</button>
-                    </div>
-
-                    <!-- Current Lineup -->
-                    <div class="mb-4">
-                        <h4 class="text-sm font-medium text-white mb-2">Current Lineup (<span id="hdhr-lineup-count">0</span> channels)</h4>
-                        <div id="hdhr-lineup" class="space-y-1 max-h-96 overflow-y-auto">
-                            <p class="text-sm text-dark-400">No channels in lineup</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="p-4 border-t border-dark-700 flex justify-end gap-2">
-                    <button onclick="rebuildHdhrLineup()" class="btn btn-secondary">Renumber Channels</button>
-                    <button onclick="closeHdhrChannels()" class="btn btn-primary">Done</button>
-                </div>
-            </div>
-        </div>
-
-        
