@@ -9,6 +9,46 @@
     </div>
 </section>
 
+<style>
+    .language-dropdown { position: relative; min-width: 180px; }
+    .language-dropdown-toggle { width: 100%; text-align: left; display: flex; align-items: center; gap: 0.5rem; }
+    .language-dropdown-label { display: inline-flex; align-items: center; gap: 0.5rem; color: #b3b3b3; }
+    .language-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        min-width: 220px;
+        max-height: 260px;
+        overflow: auto;
+        background: #141414;
+        border: 1px solid #2d2d2d;
+        border-radius: 8px;
+        z-index: 50;
+        padding: 0.25rem;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+    .language-dropdown-item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        border-radius: 6px;
+        color: #e5e5e5;
+        font-size: 0.875rem;
+    }
+    .language-dropdown-item:hover { background: #2a2a2a; }
+    .language-dropdown-item.active { background: rgba(229, 9, 20, 0.2); color: #fff; }
+    .language-flag-img {
+        width: 20px;
+        height: 14px;
+        border-radius: 3px;
+        object-fit: cover;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+        flex-shrink: 0;
+    }
+</style>
+
 <div class="content-container">
     <!-- Floating Filter Bar -->
     <div class="filter-bar">
@@ -40,9 +80,13 @@
                 </div>
 
                 <div class="filter-chip-group hidden lg:block">
-                    <select id="filter-language" class="filter-select">
-                        <option value="">Language</option>
-                    </select>
+                    <div class="language-dropdown" id="language-dropdown">
+                        <button type="button" class="filter-select language-dropdown-toggle" id="language-toggle">
+                            <span class="language-dropdown-label">Language</span>
+                        </button>
+                        <div class="language-dropdown-menu hidden" id="language-menu"></div>
+                    </div>
+                    <input type="hidden" id="filter-language" value="" />
                 </div>
 
                 <div class="filter-chip-group hidden lg:block">
@@ -151,18 +195,70 @@
         'JA': 'JP', 'KO': 'KR', 'ZH': 'CN', 'LU': 'LU'
     };
 
+    let languageOptions = [];
+
     function getLanguageLabel(code) {
         if (!code) return '';
         const normalized = code.toUpperCase();
         return languageNames[normalized] || countryNames[normalized] || normalized;
     }
 
-    function getFlagEmoji(code) {
+    function getFlagCode(code) {
         if (!code) return '';
         const normalized = code.toUpperCase();
         const country = languageFlagAliases[normalized] || normalized;
         if (!/^[A-Z]{2}$/.test(country)) return '';
-        return String.fromCodePoint(country.charCodeAt(0) + 127397, country.charCodeAt(1) + 127397);
+        return country.toLowerCase();
+    }
+
+    function getFlagHtml(code) {
+        const flagCode = getFlagCode(code);
+        if (!flagCode) return '';
+        return `<img src="/static/images/flags/${flagCode}.png" alt="" class="language-flag-img">`;
+    }
+
+    function syncLanguageDropdown() {
+        const value = document.getElementById('filter-language').value || '';
+        setLanguageValue(value, false);
+    }
+
+    function setLanguageValue(value, trigger = true) {
+        const input = document.getElementById('filter-language');
+        const label = document.querySelector('#language-toggle .language-dropdown-label');
+        input.value = value;
+        if (!value) {
+            label.textContent = 'Language';
+        } else {
+            const flagHtml = getFlagHtml(value);
+            const text = getLanguageLabel(value);
+            label.innerHTML = `${flagHtml}<span>${text}</span>`;
+        }
+        const menu = document.getElementById('language-menu');
+        menu.querySelectorAll('.language-dropdown-item').forEach(item => {
+            item.classList.toggle('active', item.dataset.value === value);
+        });
+        if (trigger) {
+            input.dispatchEvent(new Event('change'));
+        }
+    }
+
+    function buildLanguageMenu(languages) {
+        const menu = document.getElementById('language-menu');
+        const unique = Array.from(new Set(languages.filter(Boolean)));
+        languageOptions = unique;
+        menu.innerHTML = '';
+        menu.innerHTML += `<button type="button" class="language-dropdown-item" data-value="">All Languages</button>`;
+        languageOptions.forEach(lang => {
+            const flagHtml = getFlagHtml(lang);
+            const label = getLanguageLabel(lang);
+            menu.innerHTML += `<button type="button" class="language-dropdown-item" data-value="${lang}">${flagHtml}<span>${label}</span></button>`;
+        });
+        menu.querySelectorAll('.language-dropdown-item').forEach(item => {
+            item.addEventListener('click', () => {
+                setLanguageValue(item.dataset.value || '');
+                menu.classList.add('hidden');
+            });
+        });
     }
 
     // Enrichment tracking
@@ -438,14 +534,7 @@
                 yearSelect.innerHTML += \`<option value="\${year}">\${year}</option>\`;
             });
 
-            const langSelect = document.getElementById('filter-language');
-            filters.languages.forEach(lang => {
-                if (!lang) return;
-                const label = getLanguageLabel(lang);
-                const flag = getFlagEmoji(lang);
-                const text = flag ? \`\${flag} \${label}\` : label;
-                langSelect.innerHTML += \`<option value="\${lang}">\${text}</option>\`;
-            });
+            buildLanguageMenu(filters.languages || []);
 
             const sourceSelect = document.getElementById('filter-source');
             if (filters.sources) {
@@ -473,6 +562,20 @@
     ['filter-quality', 'filter-year', 'filter-language', 'filter-source', 'filter-platform', 'filter-genre', 'filter-recently', 'sort-by'].forEach(id => {
         document.getElementById(id).addEventListener('change', () => { saveFilters(); loadShows(true); });
     });
+    const languageDropdown = document.getElementById('language-dropdown');
+    const languageToggle = document.getElementById('language-toggle');
+    const languageMenu = document.getElementById('language-menu');
+    if (languageDropdown && languageToggle && languageMenu) {
+        languageToggle.addEventListener('click', (event) => {
+            event.stopPropagation();
+            languageMenu.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (event) => {
+            if (!languageDropdown.contains(event.target)) {
+                languageMenu.classList.add('hidden');
+            }
+        });
+    }
     document.getElementById('parse-btn').addEventListener('click', parseSeries);
 
     // Infinite scroll
@@ -488,6 +591,7 @@
     checkParseStatus();
     loadFilters().then(() => {
         restoreFilters();
+        syncLanguageDropdown();
         loadShows(true);
     });
 
