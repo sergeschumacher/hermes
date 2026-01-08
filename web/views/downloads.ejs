@@ -115,6 +115,33 @@
         </div>
     </div>
 
+    <!-- Live Download Speed -->
+    <div class="card mb-6">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8 4-16 3 8h5" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Live Download Speed</h2>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gray-400">
+                <span>Now: <span class="text-white font-medium" id="download-speed-current">0 B/s</span></span>
+                <span>Peak: <span class="text-white font-medium" id="download-speed-peak">0 B/s</span></span>
+            </div>
+        </div>
+        <div class="p-5">
+            <div class="w-full h-28">
+                <svg id="download-speed-chart" class="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <path id="download-speed-path" d="" fill="none" stroke="#e50914" stroke-width="2"></path>
+                    <path id="download-speed-fill" d="" fill="rgba(229,9,20,0.15)"></path>
+                </svg>
+            </div>
+            <div id="download-speed-empty" class="text-xs text-gray-500 mt-2">Waiting for download activity...</div>
+        </div>
+    </div>
+
     <!-- Transcoding Queue -->
     <div class="card mb-6" id="transcoding-section">
         <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
@@ -245,6 +272,8 @@
 <script>
     let downloads = [];
     let transcodeJobs = [];
+    const speedHistory = [];
+    const speedHistoryLimit = 60;
 
     function formatBytes(bytes, decimals = 1) {
         if (!bytes || bytes === 0) return '0 B';
@@ -256,6 +285,51 @@
 
     function formatSpeed(bytesPerSecond) {
         return formatBytes(bytesPerSecond) + '/s';
+    }
+
+    function updateSpeedHistory(activeItems) {
+        const totalSpeed = activeItems.reduce((sum, item) => sum + (item.speed_bps || 0), 0);
+        speedHistory.push(totalSpeed);
+        if (speedHistory.length > speedHistoryLimit) speedHistory.shift();
+        renderSpeedChart();
+    }
+
+    function renderSpeedChart() {
+        const path = document.getElementById('download-speed-path');
+        const fill = document.getElementById('download-speed-fill');
+        const empty = document.getElementById('download-speed-empty');
+        const currentEl = document.getElementById('download-speed-current');
+        const peakEl = document.getElementById('download-speed-peak');
+        if (!path || !fill || !empty || !currentEl || !peakEl) return;
+
+        const current = speedHistory.length ? speedHistory[speedHistory.length - 1] : 0;
+        const peak = speedHistory.length ? Math.max(...speedHistory) : 0;
+        currentEl.textContent = formatSpeed(current);
+        peakEl.textContent = formatSpeed(peak);
+
+        if (speedHistory.length < 2 || peak === 0) {
+            path.setAttribute('d', '');
+            fill.setAttribute('d', '');
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        empty.classList.add('hidden');
+        const width = 100;
+        const height = 40;
+        const max = peak || 1;
+        const step = width / (speedHistory.length - 1);
+
+        let d = '';
+        speedHistory.forEach((value, index) => {
+            const x = index * step;
+            const y = height - (value / max) * (height - 4) - 2;
+            d += (index === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
+        });
+
+        const fillPath = d + 'L ' + width + ' ' + height + ' L 0 ' + height + ' Z';
+        path.setAttribute('d', d.trim());
+        fill.setAttribute('d', fillPath.trim());
     }
 
     function getDisplayTitle(d) {
@@ -481,6 +555,7 @@
 
         // Render sections
         renderActiveDownloads(active);
+        updateSpeedHistory(active.filter(d => d.status === 'downloading'));
         renderQueuedDownloads(queued);
         renderCompletedDownloads(completed);
         renderFailedDownloads(failed);
