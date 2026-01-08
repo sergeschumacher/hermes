@@ -85,6 +85,33 @@
         </div>
     </div>
 
+    <!-- Live Download Speed -->
+    <div class="card mb-6">
+        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8 4-16 3 8h5" />
+                    </svg>
+                </div>
+                <h2 class="text-lg font-semibold text-white">Live Download Speed</h2>
+            </div>
+            <div class="flex items-center gap-4 text-xs text-gray-400">
+                <span>Now: <span class="text-white font-medium" id="download-speed-current">0 B/s</span></span>
+                <span>Peak: <span class="text-white font-medium" id="download-speed-peak">0 B/s</span></span>
+            </div>
+        </div>
+        <div class="p-5">
+            <div class="w-full h-28">
+                <svg id="download-speed-chart" class="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <path id="download-speed-path" d="" fill="none" stroke="#e50914" stroke-width="2"></path>
+                    <path id="download-speed-fill" d="" fill="rgba(229,9,20,0.15)"></path>
+                </svg>
+            </div>
+            <div id="download-speed-empty" class="text-xs text-gray-500 mt-2">Waiting for download activity...</div>
+        </div>
+    </div>
+
     <!-- Active Downloads -->
     <div class="card mb-6">
         <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
@@ -112,33 +139,6 @@
                 <p class="empty-state-title">No active downloads</p>
                 <p class="empty-state-text">Downloads will appear here when they start</p>
             </div>
-        </div>
-    </div>
-
-    <!-- Live Download Speed -->
-    <div class="card mb-6">
-        <div class="flex items-center justify-between p-5 border-b border-gray-800/50">
-            <div class="flex items-center gap-3">
-                <div class="w-8 h-8 rounded-lg bg-primary-500/10 flex items-center justify-center">
-                    <svg class="w-4 h-4 text-primary-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12h3l3 8 4-16 3 8h5" />
-                    </svg>
-                </div>
-                <h2 class="text-lg font-semibold text-white">Live Download Speed</h2>
-            </div>
-            <div class="flex items-center gap-4 text-xs text-gray-400">
-                <span>Now: <span class="text-white font-medium" id="download-speed-current">0 B/s</span></span>
-                <span>Peak: <span class="text-white font-medium" id="download-speed-peak">0 B/s</span></span>
-            </div>
-        </div>
-        <div class="p-5">
-            <div class="w-full h-28">
-                <svg id="download-speed-chart" class="w-full h-full" viewBox="0 0 100 40" preserveAspectRatio="none">
-                    <path id="download-speed-path" d="" fill="none" stroke="#e50914" stroke-width="2"></path>
-                    <path id="download-speed-fill" d="" fill="rgba(229,9,20,0.15)"></path>
-                </svg>
-            </div>
-            <div id="download-speed-empty" class="text-xs text-gray-500 mt-2">Waiting for download activity...</div>
         </div>
     </div>
 
