@@ -224,10 +224,11 @@
                 const country = getCategoryCountry(cat);
                 const flag = countryFlags[country] || 'TV';
                 const colors = getCountryColors(country);
+                const encodedCategory = encodeURIComponent(cat);
 
                 container.innerHTML += `
                     <button class="livetv-category-item ${isActive ? 'active' : ''}"
-                        onclick="selectCategory('${cat.replace(/'/g, \"\\'\")}')">
+                        data-category="${encodedCategory}">
                         <span class="livetv-category-flag">${flag}</span>
                         <span class="livetv-category-label">
                             <span class="livetv-category-name">${displayName}</span>
@@ -241,6 +242,13 @@
 
         document.getElementById('categories-count').textContent = categories.length;
         updateResultCount();
+
+        container.querySelectorAll('.livetv-category-item').forEach(button => {
+            button.addEventListener('click', () => {
+                const value = button.dataset.category ? decodeURIComponent(button.dataset.category) : '';
+                if (value) selectCategory(value);
+            });
+        });
     }
 
     function selectCategory(category) {
