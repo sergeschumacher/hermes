@@ -335,8 +335,8 @@ async function getSourceSettings(mediaId) {
     const spoofedDeviceKey = media?.spoofed_device_key || settings.get('spoofedDeviceKey') || '006453';
 
     return {
-        simulatePlayback: media?.simulate_playback ?? 1,
-        speedMultiplier: media?.playback_speed_multiplier ?? 1.5,
+        simulatePlayback: Number(media?.simulate_playback ?? 1) === 1,
+        speedMultiplier: Number(media?.playback_speed_multiplier ?? 1.5),
         sourceName: media?.source_name || 'Unknown',
         spoofedMac,
         spoofedDeviceKey
