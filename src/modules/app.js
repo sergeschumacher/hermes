@@ -20,6 +20,7 @@ let modules = null;
 let activeStreamSessions = new Map(); // sessionId -> { title, startedAt }
 const STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes - sessions older than this are auto-cleaned
 let streamSessionCleanupInterval = null;
+const apiCache = new Map();
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
@@ -275,6 +276,20 @@ function hashToken(token) {
 
 function normalizeTotpToken(token) {
     return String(token || '').replace(/[^0-9]/g, '');
+}
+
+function getCachedResponse(key) {
+    const entry = apiCache.get(key);
+    if (!entry) return null;
+    if (entry.expiresAt <= Date.now()) {
+        apiCache.delete(key);
+        return null;
+    }
+    return entry.value;
+}
+
+function setCachedResponse(key, value, ttlMs) {
+    apiCache.set(key, { value, expiresAt: Date.now() + ttlMs });
 }
 
 async function getUserCount() {
@@ -1125,6 +1140,9 @@ function setupApiRoutes() {
         try {
             const db = modules.db;
             const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
+            const cacheKey = `stats:${preferredLangs.join(',')}`;
+            const cached = getCachedResponse(cacheKey);
+            if (cached) return res.json(cached);
 
             let stats;
             if (preferredLangs.length > 0) {
@@ -1132,40 +1150,58 @@ function setupApiRoutes() {
                 const langPlaceholders = preferredLangs.map(() => '?').join(',');
                 const langParamsUpper = preferredLangs.map(l => l.toUpperCase());
 
-                stats = {
-                    totalMovies: (await db.get(`
+                const [totalMovies, totalSeries, totalLiveTV, totalDownloads, activeDownloads, totalSources] = await Promise.all([
+                    db.get(`
                         SELECT COUNT(*) as c FROM media m
                         JOIN sources s ON m.source_id = s.id
                         WHERE m.media_type = 'movie' AND m.is_active = 1 AND s.active = 1
                         AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
-                    `, langParamsUpper))?.c || 0,
-                    totalSeries: (await db.get(`
+                    `, langParamsUpper),
+                    db.get(`
                         SELECT COUNT(*) as c FROM media m
                         JOIN sources s ON m.source_id = s.id
                         WHERE m.media_type = 'series' AND m.is_active = 1 AND s.active = 1
                         AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
-                    `, langParamsUpper))?.c || 0,
-                    totalLiveTV: (await db.get(`
+                    `, langParamsUpper),
+                    db.get(`
                         SELECT COUNT(*) as c FROM media m
                         JOIN sources s ON m.source_id = s.id
                         WHERE m.media_type = 'live' AND m.is_active = 1 AND s.active = 1
                         AND (UPPER(m.language) IN (${langPlaceholders}) OR m.language IS NULL)
-                    `, langParamsUpper))?.c || 0,
-                    totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
-                    activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
-                    totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
+                    `, langParamsUpper),
+                    db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']),
+                    db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']),
+                    db.get('SELECT COUNT(*) as c FROM sources')
+                ]);
+
+                stats = {
+                    totalMovies: totalMovies?.c || 0,
+                    totalSeries: totalSeries?.c || 0,
+                    totalLiveTV: totalLiveTV?.c || 0,
+                    totalDownloads: totalDownloads?.c || 0,
+                    activeDownloads: activeDownloads?.c || 0,
+                    totalSources: totalSources?.c || 0
                 };
             } else {
                 // No language filter - show all active from active sources
+                const [totalMovies, totalSeries, totalLiveTV, totalDownloads, activeDownloads, totalSources] = await Promise.all([
+                    db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['movie']),
+                    db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['series']),
+                    db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['live']),
+                    db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']),
+                    db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']),
+                    db.get('SELECT COUNT(*) as c FROM sources')
+                ]);
                 stats = {
-                    totalMovies: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['movie']))?.c || 0,
-                    totalSeries: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['series']))?.c || 0,
-                    totalLiveTV: (await db.get('SELECT COUNT(*) as c FROM media m JOIN sources s ON m.source_id = s.id WHERE m.media_type = ? AND m.is_active = 1 AND s.active = 1', ['live']))?.c || 0,
-                    totalDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status = ?', ['completed']))?.c || 0,
-                    activeDownloads: (await db.get('SELECT COUNT(*) as c FROM downloads WHERE status IN (?, ?)', ['queued', 'downloading']))?.c || 0,
-                    totalSources: (await db.get('SELECT COUNT(*) as c FROM sources'))?.c || 0
+                    totalMovies: totalMovies?.c || 0,
+                    totalSeries: totalSeries?.c || 0,
+                    totalLiveTV: totalLiveTV?.c || 0,
+                    totalDownloads: totalDownloads?.c || 0,
+                    activeDownloads: activeDownloads?.c || 0,
+                    totalSources: totalSources?.c || 0
                 };
             }
+            setCachedResponse(cacheKey, stats, 30000);
             res.json(stats);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -1241,6 +1277,9 @@ function setupApiRoutes() {
             const db = modules.db;
             const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             const mediaType = req.query.type; // 'movie' or 'series' or undefined for both
+            const cacheKey = `contentRows:${mediaType || 'all'}:${preferredLangs.join(',')}`;
+            const cached = getCachedResponse(cacheKey);
+            if (cached) return res.json(cached);
 
             let langFilter = '';
             let langParams = [];
@@ -1308,6 +1347,7 @@ function setupApiRoutes() {
                 }
             }
 
+            setCachedResponse(cacheKey, rows, 60000);
             res.json(rows);
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -3753,6 +3793,11 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     router.get('/filters', async (req, res) => {
         try {
             const { type } = req.query;
+            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
+            const cacheKey = `filters:${type || 'all'}:${preferredLangs.join(',')}`;
+            const cached = getCachedResponse(cacheKey);
+            if (cached) return res.json(cached);
+
             const typeFilter = type ? 'AND media_type = ?' : '';
             const typeParam = type ? [type] : [];
 
@@ -3786,7 +3831,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             });
 
             // Filter languages by preferred settings if configured
-            const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
             let filteredLanguages = languages.map(l => l.language);
             if (preferredLangs.length > 0) {
                 const preferredUpper = preferredLangs.map(l => l.toUpperCase());
@@ -3804,14 +3848,16 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 }))
                 .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
 
-            res.json({
+            const payload = {
                 years: years.map(y => y.year),
                 qualities: qualities.map(q => q.quality),
                 languages: filteredLanguages,
                 categories: cleanedCategories,
                 genres: Array.from(genreSet).sort(),
                 sources
-            });
+            };
+            setCachedResponse(cacheKey, payload, 60000);
+            res.json(payload);
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
@@ -4484,6 +4530,9 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         try {
             const db = modules.db;
             const { type } = req.query;
+            const cacheKey = `platforms:${type || 'all'}`;
+            const cached = getCachedResponse(cacheKey);
+            if (cached) return res.json(cached);
 
             let sql = `
                 SELECT category, COUNT(*) as count
@@ -4509,6 +4558,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             }))
             .sort((a, b) => a.display_name.localeCompare(b.display_name, undefined, { sensitivity: 'base' }));
 
+            setCachedResponse(cacheKey, cleanedCategories, 60000);
             res.json(cleanedCategories);
         } catch (err) {
             res.status(500).json({ error: err.message });
