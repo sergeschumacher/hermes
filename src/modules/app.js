@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const axios = require('axios');
+const compression = require('compression');
 const { spawn } = require('child_process');
 const bcrypt = require('bcryptjs');
 const speakeasy = require('speakeasy');
@@ -488,8 +489,12 @@ async function enrichSourceMedia(sourceId, modules) {
 }
 
 function setupRoutes() {
+    app.use(compression());
     // Static files
-    app.use('/static', express.static(PATHS.static));
+    app.use('/static', express.static(PATHS.static, {
+        maxAge: '7d',
+        immutable: true
+    }));
 
     // Image cache - serve cached images with long cache headers
     app.use('/cache/images', express.static(IMAGE_CACHE_DIR, {
