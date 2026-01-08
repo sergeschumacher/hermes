@@ -72,15 +72,19 @@
             // Build category -> language map from API response
             categoryLanguageMap = {};
             filters.categories.filter(cat => cat).forEach(cat => {
-                if (typeof cat === 'object' && cat.language) {
-                    categoryLanguageMap[cat.value] = cat.language;
+                if (typeof cat === 'object') {
+                    const key = cat.value || cat.category;
+                    if (key && cat.language) {
+                        categoryLanguageMap[key] = cat.language;
+                    }
                 }
             });
 
             // Handle both old (string) and new (object) category formats
-            allCategories = filters.categories.filter(cat => cat).map(cat =>
-                typeof cat === 'object' ? cat.value : cat
-            );
+            allCategories = filters.categories.filter(cat => cat).map(cat => {
+                if (typeof cat === 'object') return cat.value || cat.category;
+                return cat;
+            }).filter(Boolean);
 
             if (preferredLanguages.length > 0) {
                 const filtered = allCategories.filter(cat => {
