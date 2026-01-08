@@ -1040,7 +1040,6 @@ function setupRoutes() {
     app.get('/series/:name/season/:season', (req, res) => res.render('season-detail', { page: 'series', showName: decodeURIComponent(req.params.name), seasonNumber: parseInt(req.params.season) }));
     app.get('/requests', (req, res) => res.render('requests', { page: 'requests' }));
     app.get('/logs', (req, res) => res.render('logs', { page: 'logs' }));
-    app.get('/epg', (req, res) => res.render('epg', { page: 'epg' }));
     app.get('/player', (req, res) => res.render('player', { page: 'player', streamUrl: req.query.url || '' }));
 
     // API Routes
