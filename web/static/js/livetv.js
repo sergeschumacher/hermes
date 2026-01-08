@@ -51,7 +51,7 @@
             return categoryLanguageMap[category].toUpperCase();
         }
         // Fall back to parsing from category name prefix like |DE| or DE|
-        const match = category.match(/\\|?([A-Z]{2})\\|/i) || category.match(/^([A-Z]{2})\\s/i);
+        const match = category.match(/\|?([A-Z]{2})\|/i) || category.match(/^([A-Z]{2})\s/i);
         return match ? match[1].toUpperCase() : null;
     }
 
