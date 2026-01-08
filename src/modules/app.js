@@ -17,6 +17,8 @@ let logger = null;
 let settings = null;
 let modules = null;
 let activeStreamSessions = new Map(); // sessionId -> { title, startedAt }
+const STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes - sessions older than this are auto-cleaned
+let streamSessionCleanupInterval = null;
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
@@ -95,6 +97,28 @@ function getActivePreviewTitle() {
     const sessions = Array.from(activeStreamSessions.values());
     sessions.sort((a, b) => b.startedAt - a.startedAt);
     return sessions[0]?.title || 'another stream';
+}
+
+function cleanupStaleSessions() {
+    const now = Date.now();
+    let cleaned = 0;
+    const wasActive = isStreamActive();
+
+    for (const [sessionId, session] of activeStreamSessions.entries()) {
+        if (now - session.startedAt > STREAM_SESSION_TIMEOUT_MS) {
+            activeStreamSessions.delete(sessionId);
+            logger?.info('stream', `Cleaned up stale session: ${sessionId} - "${session.title}" (was ${Math.round((now - session.startedAt) / 60000)} minutes old)`);
+            cleaned++;
+        }
+    }
+
+    if (cleaned > 0) {
+        logger?.info('stream', `Cleaned up ${cleaned} stale stream session(s), active: ${getActiveStreamCount()}`);
+        // Emit stream:inactive if we went from active to inactive
+        if (wasActive && !isStreamActive()) {
+            app?.emit('stream:inactive', { active: 0, reason: 'session_cleanup' });
+        }
+    }
 }
 
 function getTelegramConfig() {
@@ -881,6 +905,31 @@ function setupRoutes() {
             return res.json({ success: true, active: getActiveStreamCount() });
         }
         return res.status(400).json({ error: 'Invalid action' });
+    });
+
+    // Clear all stream sessions (useful if sessions get stuck)
+    app.post('/api/stream/sessions/clear', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const wasActive = isStreamActive();
+        const count = activeStreamSessions.size;
+        activeStreamSessions.clear();
+        logger?.info('stream', `Manually cleared ${count} stream session(s)`);
+        if (wasActive) {
+            app?.emit('stream:inactive', { active: 0, reason: 'manual_clear' });
+        }
+        res.json({ success: true, cleared: count });
+    });
+
+    // Get current stream session status
+    app.get('/api/stream/sessions', async (req, res) => {
+        if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+        const sessions = Array.from(activeStreamSessions.entries()).map(([id, s]) => ({
+            id,
+            title: s.title,
+            startedAt: s.startedAt,
+            ageMinutes: Math.round((Date.now() - s.startedAt) / 60000)
+        }));
+        res.json({ active: isStreamActive(), count: sessions.length, sessions });
     });
 
     app.post('/api/telegram/test', async (req, res) => {
@@ -6114,6 +6163,9 @@ module.exports = {
         setupSyncEventRelay();
         setupWebhookDispatch();
 
+        // Start stream session cleanup interval (every 2 minutes)
+        streamSessionCleanupInterval = setInterval(cleanupStaleSessions, 2 * 60 * 1000);
+
         const port = settings.get('port');
         return new Promise((resolve) => {
             server.listen(port, '0.0.0.0', () => {
@@ -6124,6 +6176,11 @@ module.exports = {
     },
 
     shutdown: async () => {
+        // Clear stream session cleanup interval
+        if (streamSessionCleanupInterval) {
+            clearInterval(streamSessionCleanupInterval);
+            streamSessionCleanupInterval = null;
+        }
         return new Promise((resolve) => {
             // Close Socket.IO connections first
             if (io) {
