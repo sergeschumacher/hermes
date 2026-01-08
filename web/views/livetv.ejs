@@ -299,9 +299,26 @@
     }
 
     .livetv-category-flag {
-        font-size: 1.5rem;
-        line-height: 1;
+        width: 28px;
+        height: 20px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
         flex-shrink: 0;
+    }
+
+    .livetv-category-flag .livetv-flag-img {
+        width: 28px;
+        height: 20px;
+        object-fit: cover;
+        border-radius: 4px;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
+    }
+
+    .livetv-category-flag-text {
+        font-size: 0.7rem;
+        color: #c7c7c7;
+        letter-spacing: 0.02em;
     }
 
     .livetv-category-label {

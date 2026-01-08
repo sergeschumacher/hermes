@@ -24,15 +24,25 @@
         'IE': 'Ireland', 'LU': 'Luxembourg', 'OTHER': 'Other'
     };
 
-    const countryFlags = {
-        'DE': '\u{1F1E9}\u{1F1EA}', 'US': '\u{1F1FA}\u{1F1F8}', 'UK': '\u{1F1EC}\u{1F1E7}', 'FR': '\u{1F1EB}\u{1F1F7}',
-        'ES': '\u{1F1EA}\u{1F1F8}', 'IT': '\u{1F1EE}\u{1F1F9}', 'NL': '\u{1F1F3}\u{1F1F1}', 'PL': '\u{1F1F5}\u{1F1F1}',
-        'TR': '\u{1F1F9}\u{1F1F7}', 'PT': '\u{1F1F5}\u{1F1F9}', 'GR': '\u{1F1EC}\u{1F1F7}', 'RU': '\u{1F1F7}\u{1F1FA}',
-        'AT': '\u{1F1E6}\u{1F1F9}', 'CH': '\u{1F1E8}\u{1F1ED}', 'BE': '\u{1F1E7}\u{1F1EA}', 'CA': '\u{1F1E8}\u{1F1E6}',
-        'AU': '\u{1F1E6}\u{1F1FA}', 'BR': '\u{1F1E7}\u{1F1F7}', 'MX': '\u{1F1F2}\u{1F1FD}', 'AR': '\u{1F1E6}\u{1F1F7}',
-        'IN': '\u{1F1EE}\u{1F1F3}', 'JP': '\u{1F1EF}\u{1F1F5}', 'KR': '\u{1F1F0}\u{1F1F7}', 'CN': '\u{1F1E8}\u{1F1F3}',
-        'SE': '\u{1F1F8}\u{1F1EA}', 'NO': '\u{1F1F3}\u{1F1F4}', 'DK': '\u{1F1E9}\u{1F1F0}', 'FI': '\u{1F1EB}\u{1F1EE}',
-        'LU': '\u{1F1F1}\u{1F1FA}'
+    const countryFlagAliases = {
+        'UK': 'gb',
+        'ENG': 'gb',
+        'EN': 'gb',
+        'GER': 'de',
+        'SPA': 'es',
+        'FRA': 'fr',
+        'ITA': 'it',
+        'POR': 'pt',
+        'DUT': 'nl',
+        'POL': 'pl',
+        'TUR': 'tr',
+        'ARA': 'sa',
+        'RUS': 'ru',
+        'HIN': 'in',
+        'JPN': 'jp',
+        'KOR': 'kr',
+        'CHN': 'cn',
+        'EU': 'eu'
     };
 
     function getCategoryDisplayName(category) {
@@ -56,9 +66,20 @@
         return match ? match[1].toUpperCase() : null;
     }
 
-    function getCategoryIcon(category) {
-        const country = getCategoryCountry(category);
-        return countryFlags[country] || '\u{1F4FA}';
+    function getFlagCode(country) {
+        if (!country) return null;
+        const normalized = country.toUpperCase();
+        if (countryFlagAliases[normalized]) return countryFlagAliases[normalized];
+        if (/^[A-Z]{2}$/.test(normalized)) return normalized.toLowerCase();
+        return null;
+    }
+
+    function renderFlag(country) {
+        const code = getFlagCode(country);
+        if (!code) {
+            return '<span class="livetv-category-flag-text">TV</span>';
+        }
+        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-flag-img">`;
     }
 
     async function loadCategories() {
@@ -136,13 +157,12 @@
 
         select.innerHTML = '<option value="">All Countries</option>';
         sortedCountries.forEach(code => {
-            const flag = countryFlags[code] || '';
             const name = countryNames[code] || code;
-            select.innerHTML += `<option value="${code}">${flag} ${name}</option>`;
+            select.innerHTML += `<option value="${code}">${name}</option>`;
         });
         // Add "Other" option if there are categories without a recognized country
         if (hasOther) {
-            select.innerHTML += '<option value="OTHER">\u{1F4FA} Other</option>';
+            select.innerHTML += '<option value="OTHER">Other</option>';
         }
     }
 
@@ -230,7 +250,7 @@
                 const count = channelCounts[cat] || 0;
                 const isActive = currentCategory === cat;
                 const country = getCategoryCountry(cat);
-                const flag = countryFlags[country] || 'TV';
+                const flag = renderFlag(country);
                 const colors = getCountryColors(country);
                 const encodedCategory = encodeURIComponent(cat);
 
