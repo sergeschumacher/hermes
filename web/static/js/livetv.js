@@ -335,6 +335,9 @@
         const epgView = document.getElementById('epg-view');
         const current = data?.current;
         const upcoming = data?.upcoming || [];
+        const recordButton = currentChannel
+            ? '<div class="livetv-epg-actions"><button class="btn btn-danger btn-sm" onclick="openRecordModal(currentChannel)">Record</button></div>'
+            : '';
 
         const currentBlock = current ? `
             <div class="livetv-epg-block">
@@ -359,6 +362,7 @@
 
         epgView.innerHTML = `
             ${currentBlock}
+            ${recordButton}
             <div class="livetv-epg-block">
                 <div class="livetv-epg-label">Up Next</div>
                 <div class="livetv-epg-list">${upcomingItems}</div>
