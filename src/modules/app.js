@@ -490,6 +490,17 @@ async function enrichSourceMedia(sourceId, modules) {
 
 function setupRoutes() {
     app.use(compression());
+    app.use((req, res, next) => {
+        const start = process.hrtime.bigint();
+        res.on('finish', () => {
+            const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+            res.setHeader('Server-Timing', `app;dur=${durationMs.toFixed(2)}`);
+            if (durationMs >= 750) {
+                logger?.warn('app', `Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+            }
+        });
+        next();
+    });
     // Static files
     app.use('/static', express.static(PATHS.static, {
         maxAge: '7d',
