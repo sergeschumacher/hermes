@@ -159,7 +159,7 @@
     </div>
 </div>
 
-<script src="/static/js/livetv.js?v=9" defer></script>
+<script src="/static/js/livetv.js?v=10" defer></script>
 
 <style>
     .livetv-layout {
@@ -515,9 +515,17 @@
     }
 
     .livetv-epg-item {
-        padding: 0.5rem;
+        padding: 0.5rem 0.6rem;
         border-radius: 10px;
         background: rgba(255, 255, 255, 0.05);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+
+    .livetv-epg-item-main {
+        min-width: 0;
     }
 
     .livetv-epg-item-time {
@@ -530,6 +538,26 @@
         font-size: 0.82rem;
         color: #ffffff;
         font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .livetv-epg-record-btn {
+        border: 1px solid rgba(229, 9, 20, 0.6);
+        background: rgba(229, 9, 20, 0.12);
+        color: #ffffff;
+        font-size: 0.7rem;
+        font-weight: 600;
+        padding: 0.35rem 0.6rem;
+        border-radius: 999px;
+        white-space: nowrap;
+        transition: all 0.2s ease;
+    }
+
+    .livetv-epg-record-btn:hover {
+        background: rgba(229, 9, 20, 0.35);
+        border-color: rgba(229, 9, 20, 0.9);
     }
 
     .livetv-placeholder,

@@ -353,12 +353,25 @@
             </div>
         `;
 
-        const upcomingItems = upcoming.length ? upcoming.map(item => `
+        const upcomingItems = upcoming.length ? upcoming.map(item => {
+            const title = item.title || 'Unknown';
+            const start = item.start_time || '';
+            const end = item.end_time || '';
+            const recordable = currentChannel && item.id && start && end;
+            const recordBtn = recordable
+                ? `<button class="livetv-epg-record-btn" data-program-id="${item.id}" data-start-time="${start}" data-end-time="${end}" data-title="${encodeURIComponent(title)}">Record</button>`
+                : '';
+
+            return `
             <div class="livetv-epg-item">
-                <div class="livetv-epg-item-time">${formatEpgTime(item.start_time)} - ${formatEpgTime(item.end_time)}</div>
-                <div class="livetv-epg-item-title">${item.title || 'Unknown'}</div>
+                <div class="livetv-epg-item-main">
+                    <div class="livetv-epg-item-time">${formatEpgTime(start)} - ${formatEpgTime(end)}</div>
+                    <div class="livetv-epg-item-title">${title}</div>
+                </div>
+                ${recordBtn}
             </div>
-        `).join('') : '<div class="livetv-epg-empty">No upcoming programs.</div>';
+        `;
+        }).join('') : '<div class="livetv-epg-empty">No upcoming programs.</div>';
 
         epgView.innerHTML = `
             ${currentBlock}
@@ -368,6 +381,42 @@
                 <div class="livetv-epg-list">${upcomingItems}</div>
             </div>
         `;
+
+        epgView.querySelectorAll('.livetv-epg-record-btn').forEach(button => {
+            button.addEventListener('click', async (event) => {
+                event.stopPropagation();
+                if (!currentChannel) return;
+
+                const programId = parseInt(button.dataset.programId, 10);
+                const startTime = button.dataset.startTime;
+                const endTime = button.dataset.endTime;
+                const title = button.dataset.title ? decodeURIComponent(button.dataset.title) : 'Recording';
+
+                try {
+                    const resp = await fetch('/api/recordings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            mediaId: currentChannel.id,
+                            title,
+                            startTime,
+                            endTime,
+                            epgProgramId: programId
+                        })
+                    });
+
+                    const result = await resp.json();
+                    if (resp.ok) {
+                        if (window.showToast) showToast('Recording scheduled!', 'success');
+                    } else {
+                        throw new Error(result.error || 'Unknown error');
+                    }
+                } catch (err) {
+                    console.error('Failed to schedule recording:', err);
+                    if (window.showToast) showToast('Failed to schedule recording: ' + err.message, 'error');
+                }
+            });
+        });
     }
 
     // Smart title cleaning - detects and removes country/language prefixes
