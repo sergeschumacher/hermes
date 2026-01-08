@@ -9,6 +9,7 @@
 
     const countryNames = {
         'DE': 'Germany', 'US': 'United States', 'UK': 'United Kingdom', 'FR': 'France',
+        'EN': 'English',
         'ES': 'Spain', 'IT': 'Italy', 'NL': 'Netherlands', 'PL': 'Poland',
         'TR': 'Turkey', 'PT': 'Portugal', 'GR': 'Greece', 'RU': 'Russia',
         'AT': 'Austria', 'CH': 'Switzerland', 'BE': 'Belgium', 'CA': 'Canada',
