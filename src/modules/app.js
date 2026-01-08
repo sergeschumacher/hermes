@@ -494,9 +494,12 @@ function setupRoutes() {
         const start = process.hrtime.bigint();
         res.on('finish', () => {
             const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
-            res.setHeader('Server-Timing', `app;dur=${durationMs.toFixed(2)}`);
-            if (durationMs >= 750) {
-                logger?.warn('app', `Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+            if (durationMs >= 250) {
+                if (logger?.warn) {
+                    logger.warn('app', `Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+                } else {
+                    console.warn(`[app] Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+                }
             }
         });
         next();
