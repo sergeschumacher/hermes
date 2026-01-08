@@ -748,13 +748,23 @@
 
     scrollContainers.forEach(container => {
         container.addEventListener('wheel', (event) => {
-            const hasScrollableContent = container.scrollHeight > container.clientHeight;
-            if (hasScrollableContent) {
-                event.preventDefault();
-                container.scrollTop += event.deltaY;
-            }
+            event.preventDefault();
+            event.stopPropagation();
+            container.scrollTop += event.deltaY;
         }, { passive: false });
     });
+
+    function updatePanelHeight() {
+        const layout = document.querySelector('.livetv-layout');
+        if (!layout) return;
+        const rect = layout.getBoundingClientRect();
+        const padding = 24;
+        const height = Math.max(360, window.innerHeight - rect.top - padding);
+        layout.style.maxHeight = height + 'px';
+    }
+
+    updatePanelHeight();
+    window.addEventListener('resize', updatePanelHeight);
 
     function debounce(func, wait) {
         let timeout;

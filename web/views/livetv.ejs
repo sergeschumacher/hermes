@@ -159,7 +159,7 @@
     </div>
 </div>
 
-<script src="/static/js/livetv.js?v=5" defer></script>
+<script src="/static/js/livetv.js?v=6" defer></script>
 
 <style>
     .livetv-layout {
@@ -168,6 +168,7 @@
         grid-template-areas: "cats chans epg";
         gap: 1.5rem;
         align-items: start;
+        overflow: hidden;
     }
 
     .livetv-column-categories {
@@ -190,6 +191,7 @@
         display: flex;
         flex-direction: column;
         min-height: 520px;
+        height: 100%;
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
     }
 
@@ -227,14 +229,28 @@
     .livetv-channels-list,
     .livetv-epg-view {
         flex: 1;
-        overflow-y: hidden;
+        overflow-y: auto;
         padding-right: 0.25rem;
+        scrollbar-width: none;
     }
 
     .livetv-category-list:hover,
     .livetv-channels-list:hover,
     .livetv-epg-view:hover {
-        overflow-y: auto;
+        scrollbar-width: thin;
+    }
+
+    .livetv-category-list::-webkit-scrollbar,
+    .livetv-channels-list::-webkit-scrollbar,
+    .livetv-epg-view::-webkit-scrollbar {
+        width: 0;
+        height: 0;
+    }
+
+    .livetv-category-list:hover::-webkit-scrollbar,
+    .livetv-channels-list:hover::-webkit-scrollbar,
+    .livetv-epg-view:hover::-webkit-scrollbar {
+        width: 8px;
     }
 
     .livetv-category-list {
