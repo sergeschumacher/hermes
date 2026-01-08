@@ -1315,7 +1315,10 @@ function setupApiRoutes() {
                 });
 
                 let playlist = response.data;
-                const baseUrl = url.substring(0, url.lastIndexOf('/') + 1);
+                // Use the final URL after any redirects for calculating base URL
+                // This is critical for streams that redirect to different servers
+                const finalUrl = response.request.res?.responseUrl || url;
+                const baseUrl = finalUrl.substring(0, finalUrl.lastIndexOf('/') + 1);
 
                 // Rewrite all URLs in the playlist to go through our proxy
                 // Handle both relative and absolute URLs
