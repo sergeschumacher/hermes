@@ -748,23 +748,9 @@
 
     scrollContainers.forEach(container => {
         container.addEventListener('wheel', (event) => {
-            event.preventDefault();
             event.stopPropagation();
-            container.scrollTop += event.deltaY;
-        }, { passive: false });
+        }, { passive: true });
     });
-
-    function updatePanelHeight() {
-        const layout = document.querySelector('.livetv-layout');
-        if (!layout) return;
-        const rect = layout.getBoundingClientRect();
-        const padding = 24;
-        const height = Math.max(360, window.innerHeight - rect.top - padding);
-        layout.style.maxHeight = height + 'px';
-    }
-
-    updatePanelHeight();
-    window.addEventListener('resize', updatePanelHeight);
 
     function debounce(func, wait) {
         let timeout;
