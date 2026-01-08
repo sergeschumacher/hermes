@@ -165,8 +165,21 @@
     .livetv-layout {
         display: grid;
         grid-template-columns: 260px minmax(0, 1fr) 340px;
+        grid-template-areas: "cats chans epg";
         gap: 1.5rem;
         align-items: start;
+    }
+
+    .livetv-column-categories {
+        grid-area: cats;
+    }
+
+    .livetv-column-channels {
+        grid-area: chans;
+    }
+
+    .livetv-column-epg {
+        grid-area: epg;
     }
 
     .livetv-column {
@@ -229,6 +242,7 @@
         display: flex;
         align-items: center;
         gap: 0.75rem;
+        min-height: 72px;
         color: #ffffff;
         text-align: left;
         transition: border 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -292,6 +306,7 @@
         border-radius: 12px;
         border: 1px solid rgba(255, 255, 255, 0.08);
         background: #151515;
+        min-height: 72px;
         cursor: pointer;
         transition: border 0.2s ease, background 0.2s ease, transform 0.2s ease;
     }
@@ -491,6 +506,10 @@
     @media (max-width: 1024px) {
         .livetv-layout {
             grid-template-columns: 1fr;
+            grid-template-areas:
+                "cats"
+                "chans"
+                "epg";
         }
 
         .livetv-column {
