@@ -44,6 +44,7 @@ const defaults = {
     downloadDelayMax: 5000,
     pauseDownloadsOnStream: true,
     downloadSpeedLogs: false,
+    slowRequestLogging: false,
 
     // Language preferences (ISO 639-1 codes)
     // These filter movies, series, and live TV by language

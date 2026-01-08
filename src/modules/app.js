@@ -505,7 +505,21 @@ async function enrichSourceMedia(sourceId, modules) {
 
 function setupRoutes() {
     app.use(compression());
-    app.use((req, res, next) => next());
+    app.use((req, res, next) => {
+        if (!settings?.get?.('slowRequestLogging')) return next();
+        const start = process.hrtime.bigint();
+        res.on('finish', () => {
+            const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
+            if (durationMs >= 750) {
+                if (logger?.warn) {
+                    logger.warn('app', `Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+                } else {
+                    console.warn(`[app] Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
+                }
+            }
+        });
+        next();
+    });
     // Static files
     app.use('/static', express.static(PATHS.static, {
         maxAge: '7d',
