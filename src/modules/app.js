@@ -510,7 +510,7 @@ function setupRoutes() {
         const start = process.hrtime.bigint();
         res.on('finish', () => {
             const durationMs = Number(process.hrtime.bigint() - start) / 1e6;
-            if (durationMs >= 750) {
+            if (durationMs >= 1500) {
                 if (logger?.warn) {
                     logger.warn('app', `Slow request ${req.method} ${req.originalUrl} ${durationMs.toFixed(0)}ms`);
                 } else {
