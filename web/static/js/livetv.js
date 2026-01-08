@@ -82,6 +82,43 @@
         return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-flag-img">`;
     }
 
+    function renderCountryFlag(country) {
+        const code = getFlagCode(country);
+        if (!code) return '';
+        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-country-flag-img">`;
+    }
+
+    function handleCountryChange(value) {
+        currentCountry = value;
+        if (currentCategory) resetChannelsPanel();
+        applyFilters();
+    }
+
+    function setCountryValue(value, trigger = true) {
+        const input = document.getElementById('country-filter');
+        const label = document.querySelector('#country-toggle .livetv-country-label');
+        const menu = document.getElementById('country-menu');
+        input.value = value || '';
+
+        if (!value) {
+            label.textContent = 'All Countries';
+        } else if (value === 'OTHER') {
+            label.textContent = 'Other';
+        } else {
+            const flagHtml = renderCountryFlag(value);
+            const name = countryNames[value] || value;
+            label.innerHTML = flagHtml + '<span>' + name + '</span>';
+        }
+
+        if (menu) {
+            menu.querySelectorAll('.livetv-country-item').forEach(item => {
+                item.classList.toggle('active', item.dataset.value === (value || ''));
+            });
+        }
+
+        if (trigger) handleCountryChange(value || '');
+    }
+
     async function loadCategories() {
         try {
             const settingsResp = await fetch('/api/settings');
@@ -133,7 +170,6 @@
     }
 
     function populateCountryFilter() {
-        const select = document.getElementById('country-filter');
         const countries = new Set();
         let hasOther = false;
         allCategories.forEach(cat => {
@@ -155,15 +191,28 @@
             return a.localeCompare(b);
         });
 
-        select.innerHTML = '<option value="">All Countries</option>';
+        const menu = document.getElementById('country-menu');
+        if (!menu) return;
+
+        menu.innerHTML = '';
+        menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="">All Countries</button>';
         sortedCountries.forEach(code => {
+            const flagHtml = renderCountryFlag(code);
             const name = countryNames[code] || code;
-            select.innerHTML += `<option value="${code}">${name}</option>`;
+            menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="' + code + '">' + flagHtml + '<span>' + name + '</span></button>';
         });
-        // Add "Other" option if there are categories without a recognized country
         if (hasOther) {
-            select.innerHTML += '<option value="OTHER">Other</option>';
+            menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="OTHER">Other</button>';
         }
+
+        menu.querySelectorAll('.livetv-country-item').forEach(item => {
+            item.addEventListener('click', () => {
+                setCountryValue(item.dataset.value || '');
+                menu.classList.add('hidden');
+            });
+        });
+
+        setCountryValue(currentCountry || '', false);
     }
 
     function applyFilters() {
@@ -668,10 +717,24 @@
         else applyFilters();
     }, 300));
 
+    const countryDropdown = document.getElementById('country-dropdown');
+    const countryToggle = document.getElementById('country-toggle');
+    const countryMenu = document.getElementById('country-menu');
+    if (countryDropdown && countryToggle && countryMenu) {
+        countryToggle.addEventListener('click', (event) => {
+            event.stopPropagation();
+            countryMenu.classList.toggle('hidden');
+        });
+        document.addEventListener('click', (event) => {
+            if (!countryDropdown.contains(event.target)) {
+                countryMenu.classList.add('hidden');
+            }
+        });
+    }
+
     document.getElementById('country-filter').addEventListener('change', (e) => {
-        currentCountry = e.target.value;
-        if (currentCategory) resetChannelsPanel();
-        applyFilters();
+        setCountryValue(e.target.value, false);
+        handleCountryChange(e.target.value);
     });
 
     document.getElementById('load-more').addEventListener('click', () => loadChannels(false));

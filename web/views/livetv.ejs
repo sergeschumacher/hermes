@@ -22,9 +22,13 @@
             </div>
 
             <!-- Country Filter -->
-            <select id="country-filter" class="filter-select" style="min-width: 160px;">
-                <option value="">All Countries</option>
-            </select>
+            <div class="livetv-country-dropdown" id="country-dropdown">
+                <button type="button" class="filter-select livetv-country-toggle" id="country-toggle">
+                    <span class="livetv-country-label">All Countries</span>
+                </button>
+                <div class="livetv-country-menu hidden" id="country-menu"></div>
+            </div>
+            <input type="hidden" id="country-filter" value="" />
 
             <!-- Count -->
             <div class="filter-actions">
@@ -215,6 +219,64 @@
         font-weight: 700;
         color: #ffffff;
         margin: 0;
+    }
+
+    .livetv-country-dropdown {
+        position: relative;
+        min-width: 180px;
+    }
+
+    .livetv-country-toggle {
+        width: 100%;
+        text-align: left;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .livetv-country-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        color: #b3b3b3;
+    }
+
+    .livetv-country-menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        left: 0;
+        min-width: 220px;
+        max-height: 260px;
+        overflow: auto;
+        background: #141414;
+        border: 1px solid #2d2d2d;
+        border-radius: 8px;
+        z-index: 50;
+        padding: 0.25rem;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+    }
+
+    .livetv-country-item {
+        width: 100%;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 0.5rem;
+        border-radius: 6px;
+        color: #e5e5e5;
+        font-size: 0.875rem;
+    }
+
+    .livetv-country-item:hover { background: #2a2a2a; }
+    .livetv-country-item.active { background: rgba(229, 9, 20, 0.2); color: #fff; }
+
+    .livetv-country-flag-img {
+        width: 20px;
+        height: 14px;
+        border-radius: 3px;
+        object-fit: cover;
+        box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
+        flex-shrink: 0;
     }
 
     .livetv-column-count {
