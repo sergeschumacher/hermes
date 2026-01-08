@@ -164,7 +164,10 @@
 <style>
     .livetv-layout {
         display: grid;
-        grid-template-columns: 260px 520px minmax(0, 1fr);
+        --livetv-category-width: 280px;
+        --livetv-channel-width: 560px;
+        --livetv-card-height: 72px;
+        grid-template-columns: var(--livetv-category-width) var(--livetv-channel-width) minmax(0, 1fr);
         grid-template-areas: "cats chans epg";
         gap: 1.5rem;
         align-items: start;
@@ -195,10 +198,6 @@
         min-height: 520px;
         height: 100%;
         box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-    }
-
-    .livetv-layout {
-        --livetv-card-height: 72px;
     }
 
     .livetv-column-header {
@@ -534,7 +533,8 @@
 
     @media (max-width: 1280px) {
         .livetv-layout {
-            grid-template-columns: 220px 440px minmax(0, 1fr);
+            --livetv-category-width: 240px;
+            --livetv-channel-width: 480px;
         }
     }
 
@@ -549,6 +549,14 @@
 
         .livetv-column {
             min-height: unset;
+        }
+    }
+
+    @media (min-width: 1600px) {
+        .livetv-layout {
+            --livetv-category-width: 320px;
+            --livetv-channel-width: 640px;
+            --livetv-card-height: 84px;
         }
     }
 </style>
