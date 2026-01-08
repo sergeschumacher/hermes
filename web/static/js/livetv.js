@@ -740,6 +740,22 @@
     // Initialize
     loadCategories();
 
+    const scrollContainers = [
+        document.getElementById('categories-view'),
+        document.getElementById('channels-view'),
+        document.getElementById('epg-view')
+    ].filter(Boolean);
+
+    scrollContainers.forEach(container => {
+        container.addEventListener('wheel', (event) => {
+            const hasScrollableContent = container.scrollHeight > container.clientHeight;
+            if (hasScrollableContent) {
+                event.preventDefault();
+                container.scrollTop += event.deltaY;
+            }
+        }, { passive: false });
+    });
+
     function debounce(func, wait) {
         let timeout;
         return function(e) { clearTimeout(timeout); timeout = setTimeout(() => func(e), wait); };
