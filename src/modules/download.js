@@ -753,6 +753,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
     return new Promise((resolve, reject) => {
         let settled = false;
         let stallTimeout = null;
+        let skipStream = null;
         const makePausedError = () => {
             const err = new Error('paused');
             err.isPaused = true;
@@ -767,6 +768,18 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 stallTimeout = null;
             }
             reject(err);
+        };
+        const cleanupStreams = () => {
+            try {
+                if (skipStream) response.data.unpipe(skipStream);
+                else response.data.unpipe(throttle);
+            } catch (err) {}
+            try { if (skipStream) skipStream.unpipe(throttle); } catch (err) {}
+            try { throttle.unpipe(writer); } catch (err) {}
+            try { if (skipStream) skipStream.destroy(); } catch (err) {}
+            try { throttle.destroy(); } catch (err) {}
+            try { response.data.destroy(); } catch (err) {}
+            try { writer.destroy(); } catch (err) {}
         };
         const resolveOnce = () => {
             if (settled) return;
@@ -805,12 +818,8 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 clearInterval(stallTimeout);
                 stallTimeout = null;
             }
-            // Unpipe first to stop data flow
-            try { response.data.unpipe(throttle); } catch (err) {}
-            try { throttle.unpipe(writer); } catch (err) {}
-            // Destroy source and throttle
-            try { response.data.destroy(new Error('Paused')); } catch (err) {}
-            try { throttle.destroy(); } catch (err) {}
+            // Unpipe and destroy streams
+            cleanupStreams();
             // End writer gracefully to flush buffered data to disk
             try {
                 writer.end(() => {
@@ -937,7 +946,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 clearInterval(stallTimeout);
                 stallTimeout = null;
             }
-            throttle.destroy();
+            cleanupStreams();
             if (pauseState.paused) {
                 rejectOnce(makePausedError());
                 return;
@@ -951,8 +960,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
                 clearInterval(stallTimeout);
                 stallTimeout = null;
             }
-            writer.destroy();
-            throttle.destroy();
+            cleanupStreams();
             if (pauseState.paused) {
                 rejectOnce(makePausedError());
                 return;
@@ -978,7 +986,7 @@ async function downloadFile(downloadId, url, destPath, userAgent, sourceSettings
         });
 
         // Pipe through optional skip and throttle to writer
-        const skipStream = discardBytes > 0 ? new SkipBytesStream(discardBytes) : null;
+        skipStream = discardBytes > 0 ? new SkipBytesStream(discardBytes) : null;
         if (skipStream) {
             response.data.pipe(skipStream).pipe(throttle).pipe(writer);
         } else {
