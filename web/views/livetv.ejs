@@ -227,8 +227,14 @@
     .livetv-channels-list,
     .livetv-epg-view {
         flex: 1;
-        overflow-y: auto;
+        overflow-y: hidden;
         padding-right: 0.25rem;
+    }
+
+    .livetv-category-list:hover,
+    .livetv-channels-list:hover,
+    .livetv-epg-view:hover {
+        overflow-y: auto;
     }
 
     .livetv-category-list {
