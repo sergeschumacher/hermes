@@ -36,7 +36,7 @@
 
     function getCategoryDisplayName(category) {
         if (!category) return 'Uncategorized';
-        let name = category.replace(/^\\|?[A-Z]{2}\\|\\s*/i, '');
+        let name = category.replace(/^\|?[A-Z]{2}\|\s*/i, '');
         name = name.replace(/[|#]+/g, ' ').trim();
         return name || category;
     }
