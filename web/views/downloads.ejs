@@ -107,6 +107,30 @@
                 <div id="download-speed-empty" class="text-xs text-gray-500 mt-1">Waiting for activity...</div>
             </div>
         </div>
+        <div class="stat-card">
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-gray-400 text-sm font-medium">Transcoding Rate / ETA</p>
+                    <p class="text-base font-semibold text-white">
+                        <span id="transcode-rate-current">0%/s</span>
+                        <span class="text-gray-500 text-xs">ETA</span>
+                        <span class="text-gray-300 text-xs" id="transcode-eta-current">--</span>
+                    </p>
+                </div>
+                <div class="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center">
+                    <svg class="w-5 h-5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4V2M17 4V2M7 20v2M17 20v2M4 7H2M4 17H2M20 7h2M20 17h2M7 11h10M7 15h6" />
+                    </svg>
+                </div>
+            </div>
+            <div class="mt-3">
+                <svg id="transcode-rate-chart" class="w-full h-10" viewBox="0 0 100 40" preserveAspectRatio="none">
+                    <path id="transcode-rate-path" d="" fill="none" stroke="#a855f7" stroke-width="2"></path>
+                    <path id="transcode-rate-fill" d="" fill="rgba(168,85,247,0.2)"></path>
+                </svg>
+                <div id="transcode-rate-empty" class="text-xs text-gray-500 mt-1">Waiting for transcoding...</div>
+            </div>
+        </div>
     </div>
 
     <!-- Active Downloads -->
@@ -271,6 +295,9 @@
     let transcodeJobs = [];
     const speedHistory = [];
     const speedHistoryLimit = 60;
+    const transcodeRateHistory = [];
+    const transcodeRateLimit = 60;
+    let transcodeLastSample = null;
 
     function formatBytes(bytes, decimals = 1) {
         if (!bytes || bytes === 0) return '0 B';
@@ -329,6 +356,87 @@
         fill.setAttribute('d', fillPath.trim());
     }
 
+    function formatEta(seconds) {
+        if (!isFinite(seconds) || seconds <= 0) return '--';
+        const total = Math.round(seconds);
+        const hrs = Math.floor(total / 3600);
+        const mins = Math.floor((total % 3600) / 60);
+        const secs = total % 60;
+        if (hrs > 0) return hrs + 'h ' + String(mins).padStart(2, '0') + 'm';
+        return mins + 'm ' + String(secs).padStart(2, '0') + 's';
+    }
+
+    function updateTranscodeRate(activeJob) {
+        const rateEl = document.getElementById('transcode-rate-current');
+        const etaEl = document.getElementById('transcode-eta-current');
+        const empty = document.getElementById('transcode-rate-empty');
+        if (!rateEl || !etaEl || !empty) return;
+
+        if (!activeJob || activeJob.status !== 'transcoding') {
+            transcodeRateHistory.length = 0;
+            transcodeLastSample = null;
+            rateEl.textContent = '0%/s';
+            etaEl.textContent = '--';
+            empty.classList.remove('hidden');
+            renderTranscodeChart();
+            return;
+        }
+
+        const now = Date.now();
+        const progress = Number(activeJob.progress || 0);
+        if (transcodeLastSample) {
+            const dt = (now - transcodeLastSample.t) / 1000;
+            const dp = progress - transcodeLastSample.p;
+            if (dt > 0) {
+                const rate = Math.max(0, dp / dt);
+                transcodeRateHistory.push(rate);
+                if (transcodeRateHistory.length > transcodeRateLimit) transcodeRateHistory.shift();
+                const eta = rate > 0 ? (100 - progress) / rate : 0;
+                rateEl.textContent = rate.toFixed(2) + '%/s';
+                etaEl.textContent = formatEta(eta);
+            }
+        }
+        transcodeLastSample = { t: now, p: progress };
+        empty.classList.add('hidden');
+        renderTranscodeChart();
+    }
+
+    function renderTranscodeChart() {
+        const path = document.getElementById('transcode-rate-path');
+        const fill = document.getElementById('transcode-rate-fill');
+        const empty = document.getElementById('transcode-rate-empty');
+        if (!path || !fill || !empty) return;
+
+        if (transcodeRateHistory.length < 2) {
+            path.setAttribute('d', '');
+            fill.setAttribute('d', '');
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        const peak = Math.max(...transcodeRateHistory);
+        if (peak <= 0) {
+            path.setAttribute('d', '');
+            fill.setAttribute('d', '');
+            empty.classList.remove('hidden');
+            return;
+        }
+
+        empty.classList.add('hidden');
+        const width = 100;
+        const height = 40;
+        const step = width / (transcodeRateHistory.length - 1);
+        let d = '';
+        transcodeRateHistory.forEach((value, index) => {
+            const x = index * step;
+            const y = height - (value / peak) * (height - 4) - 2;
+            d += (index === 0 ? 'M' : 'L') + x.toFixed(2) + ' ' + y.toFixed(2) + ' ';
+        });
+        const fillPath = d + 'L ' + width + ' ' + height + ' L 0 ' + height + ' Z';
+        path.setAttribute('d', d.trim());
+        fill.setAttribute('d', fillPath.trim());
+    }
+
     function getDisplayTitle(d) {
         if (d.episode_title) {
             return \`\${d.title} - S\${String(d.ep_season).padStart(2, '0')}E\${String(d.ep_episode).padStart(2, '0')}\`;
@@ -372,6 +480,9 @@
         // Update stats
         document.getElementById('stat-transcoding').textContent = activeJobs.length;
         document.getElementById('transcoding-count').textContent = transcodeJobs.length;
+
+        const activeTranscode = transcodeJobs.find(j => j.status === 'transcoding');
+        updateTranscodeRate(activeTranscode);
 
         // Show/hide section based on whether there are any jobs
         const section = document.getElementById('transcoding-section');
@@ -965,6 +1076,7 @@
             const job = transcodeJobs.find(j => j.id === data.id);
             if (job) {
                 job.progress = data.progress;
+                updateTranscodeRate(job);
                 // Targeted update for transcode progress
                 const jobEl = document.querySelector(\`[data-id="\${data.id}"]\`);
                 if (jobEl) {
