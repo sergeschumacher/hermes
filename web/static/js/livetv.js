@@ -314,7 +314,7 @@
 
     async function loadChannelEpg(channel) {
         const epgView = document.getElementById('epg-view');
-        if (!channel?.tvg_id) {
+        if (!channel?._epgEnabled || !channel?.tvg_id) {
             epgView.innerHTML = '<div class="livetv-placeholder">No EPG data for this channel.</div>';
             return;
         }
@@ -427,6 +427,12 @@
             const response = await fetch('/api/media?' + params);
             const data = await response.json();
             const channels = data.items || data;
+            const tvgIdCounts = channels.reduce((acc, channel) => {
+                const id = channel.tvg_id || '';
+                if (!id) return acc;
+                acc[id] = (acc[id] || 0) + 1;
+                return acc;
+            }, {});
 
             if (channels.length === 0 && currentOffset === 0) {
                 emptyState.classList.remove('hidden');
@@ -443,7 +449,9 @@
                 const imgSrc = channel.id ? `/logo/${channel.id}` : '/static/img/no-logo.svg';
                 const isEager = currentOffset === 0 && index < 16;
                 const displayName = cleanChannelTitle(channel.title);
+                channel._epgEnabled = Boolean(channel.tvg_id) && tvgIdCounts[channel.tvg_id] === 1;
                 const channelJson = JSON.stringify(channel).replace(/"/g, '&quot;');
+                const epgId = channel._epgEnabled ? channel.tvg_id : '';
 
                 list.innerHTML += `
                     <div class="livetv-channel-row" data-channel-id="${channel.id}" oncontextmenu="showContextMenu(event, ${channelJson})" onclick="selectChannel(${channelJson})">
@@ -458,9 +466,9 @@
                             <div class="livetv-channel-name">${displayName}</div>
                             <div class="livetv-channel-epg">
                                 <span class="livetv-now-label">Now</span>
-                                <span class="livetv-now-title epg-now" data-tvg-id="${channel.tvg_id || ''}">Loading...</span>
+                                <span class="livetv-now-title epg-now" data-tvg-id="${epgId}">${channel._epgEnabled ? 'Loading...' : 'No EPG data'}</span>
                             </div>
-                            <div class="livetv-epg-progress" data-tvg-id-progress="${channel.tvg_id || ''}">
+                            <div class="livetv-epg-progress" data-tvg-id-progress="${epgId}">
                                 <div class="livetv-epg-progress-bar" style="width: 0%"></div>
                             </div>
                         </div>
@@ -488,7 +496,7 @@
 
             initLazyLoad();
 
-            const tvgIds = channels.filter(c => c.tvg_id).map(c => c.tvg_id);
+            const tvgIds = channels.filter(c => c._epgEnabled && c.tvg_id).map(c => c.tvg_id);
             if (tvgIds.length > 0) {
                 fetchEpgForChannels(tvgIds);
             } else {
