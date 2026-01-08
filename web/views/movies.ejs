@@ -203,7 +203,7 @@
     function getFlagHtml(code) {
         const flagCode = getFlagCode(code);
         if (!flagCode) return '';
-        return `<img src="/static/images/flags/${flagCode}.png" alt="" class="language-flag-img">`;
+        return '<img src="/static/images/flags/' + flagCode + '.png" alt="" class="language-flag-img">';
     }
 
     function syncLanguageDropdown() {
@@ -220,7 +220,7 @@
         } else {
             const flagHtml = getFlagHtml(value);
             const text = getLanguageLabel(value);
-            label.innerHTML = `${flagHtml}<span>${text}</span>`;
+            label.innerHTML = flagHtml + '<span>' + text + '</span>';
         }
         const menu = document.getElementById('language-menu');
         menu.querySelectorAll('.language-dropdown-item').forEach(item => {
@@ -236,11 +236,11 @@
         const unique = Array.from(new Set(languages.filter(Boolean)));
         languageOptions = unique;
         menu.innerHTML = '';
-        menu.innerHTML += `<button type="button" class="language-dropdown-item" data-value="">All Languages</button>`;
+        menu.innerHTML += '<button type="button" class="language-dropdown-item" data-value="">All Languages</button>';
         languageOptions.forEach(lang => {
             const flagHtml = getFlagHtml(lang);
             const label = getLanguageLabel(lang);
-            menu.innerHTML += `<button type="button" class="language-dropdown-item" data-value="${lang}">${flagHtml}<span>${label}</span></button>`;
+            menu.innerHTML += '<button type="button" class="language-dropdown-item" data-value="' + lang + '">' + flagHtml + '<span>' + label + '</span></button>';
         });
         menu.querySelectorAll('.language-dropdown-item').forEach(item => {
             item.addEventListener('click', () => {
