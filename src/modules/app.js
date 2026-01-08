@@ -2904,7 +2904,7 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             if (!modules.epg) return res.status(500).json({ error: 'EPG module not loaded' });
 
             const current = await modules.epg.getCurrentProgram(req.params.channelId);
-            const upcoming = await modules.epg.getUpcomingPrograms(req.params.channelId, 5);
+            const upcoming = await modules.epg.getUpcomingPrograms(req.params.channelId, 50);
 
             res.json({ current, upcoming });
         } catch (err) {
