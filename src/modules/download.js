@@ -23,6 +23,7 @@ let activeDownloads = 0;
 let downloadInterval = null;
 let streamPauseLogged = false;
 const activeTransfers = new Map();
+let queueProcessing = false;
 
 function waitForStreamInactive() {
     const appRef = modulesRef?.app || app;
@@ -358,6 +359,8 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 }
 
 async function processQueue() {
+    if (queueProcessing) return;
+    queueProcessing = true;
     const slowDiskMode = settings.get('slowDiskMode');
     const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
     const streamActive = modulesRef?.app?.isStreamActive?.() === true;
@@ -370,6 +373,7 @@ async function processQueue() {
             streamPauseLogged = true;
         }
         pauseActiveDownloads();
+        queueProcessing = false;
         return;
     }
     if (streamPauseLogged) {
@@ -381,23 +385,35 @@ async function processQueue() {
     if (slowDiskMode) {
         // Slow disk mode: strictly sequential - one operation at a time
         // Don't start if ANY download is in progress
-        if (activeDownloads > 0) return;
+        if (activeDownloads > 0) {
+            queueProcessing = false;
+            return;
+        }
 
         // Don't start if transcoding is active
         if (transcoder) {
             const transcoderStatus = transcoder.getStatus();
-            if (transcoderStatus.isProcessing) return;
+            if (transcoderStatus.isProcessing) {
+                queueProcessing = false;
+                return;
+            }
         }
 
         // Don't start if there are items waiting for transcode to complete
         const pendingTranscode = await db.get(
             "SELECT COUNT(*) as count FROM downloads WHERE status = 'transcoding'"
         );
-        if (pendingTranscode?.count > 0) return;
+        if (pendingTranscode?.count > 0) {
+            queueProcessing = false;
+            return;
+        }
     } else {
         // Normal mode: respect maxConcurrentDownloads
         const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
-        if (activeDownloads >= maxConcurrent) return;
+        if (activeDownloads >= maxConcurrent) {
+            queueProcessing = false;
+            return;
+        }
     }
 
     const download = await db.get(`
@@ -415,17 +431,25 @@ async function processQueue() {
         LIMIT 1
     `);
 
-    if (!download) return;
+    if (!download) {
+        queueProcessing = false;
+        return;
+    }
 
     // Immediately mark as downloading to prevent race conditions
     // (processQueue runs on interval and could pick same download twice)
-    await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+    const updateResult = await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
         ['downloading', download.id, 'queued']);
+    if (!updateResult?.changes) {
+        queueProcessing = false;
+        return;
+    }
 
     activeDownloads++;
     processDownload(download).finally(() => {
         activeDownloads--;
     });
+    queueProcessing = false;
 }
 
 async function processDownload(download) {
