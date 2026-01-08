@@ -231,26 +231,33 @@
         flex: 1;
         overflow-y: auto;
         padding-right: 0.25rem;
-        scrollbar-width: none;
-    }
-
-    .livetv-category-list:hover,
-    .livetv-channels-list:hover,
-    .livetv-epg-view:hover {
         scrollbar-width: thin;
+        scrollbar-color: rgba(255, 255, 255, 0.18) transparent;
     }
 
     .livetv-category-list::-webkit-scrollbar,
     .livetv-channels-list::-webkit-scrollbar,
     .livetv-epg-view::-webkit-scrollbar {
-        width: 0;
-        height: 0;
+        width: 8px;
     }
 
-    .livetv-category-list:hover::-webkit-scrollbar,
-    .livetv-channels-list:hover::-webkit-scrollbar,
-    .livetv-epg-view:hover::-webkit-scrollbar {
-        width: 8px;
+    .livetv-category-list::-webkit-scrollbar-track,
+    .livetv-channels-list::-webkit-scrollbar-track,
+    .livetv-epg-view::-webkit-scrollbar-track {
+        background: transparent;
+    }
+
+    .livetv-category-list::-webkit-scrollbar-thumb,
+    .livetv-channels-list::-webkit-scrollbar-thumb,
+    .livetv-epg-view::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.18);
+        border-radius: 999px;
+    }
+
+    .livetv-category-list::-webkit-scrollbar-thumb:hover,
+    .livetv-channels-list::-webkit-scrollbar-thumb:hover,
+    .livetv-epg-view::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.32);
     }
 
     .livetv-category-list {
