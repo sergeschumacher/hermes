@@ -121,6 +121,39 @@
     let hasMore = true;
     const STORAGE_KEY = 'recostream_movies_filters';
 
+    const languageNames = {
+        'EN': 'English', 'DE': 'German', 'FR': 'French', 'IT': 'Italian',
+        'ES': 'Spanish', 'PT': 'Portuguese', 'NL': 'Dutch', 'PL': 'Polish',
+        'RU': 'Russian', 'TR': 'Turkish', 'AR': 'Arabic', 'HI': 'Hindi',
+        'JA': 'Japanese', 'KO': 'Korean', 'ZH': 'Chinese'
+    };
+
+    const countryNames = {
+        'US': 'United States', 'UK': 'United Kingdom', 'CA': 'Canada', 'AU': 'Australia',
+        'NZ': 'New Zealand', 'LU': 'Luxembourg'
+    };
+
+    const languageFlagAliases = {
+        'EN': 'GB', 'UK': 'GB', 'US': 'US', 'AU': 'AU', 'CA': 'CA', 'NZ': 'NZ',
+        'DE': 'DE', 'FR': 'FR', 'ES': 'ES', 'IT': 'IT', 'PT': 'PT', 'NL': 'NL',
+        'PL': 'PL', 'RU': 'RU', 'TR': 'TR', 'AR': 'SA', 'HI': 'IN',
+        'JA': 'JP', 'KO': 'KR', 'ZH': 'CN', 'LU': 'LU'
+    };
+
+    function getLanguageLabel(code) {
+        if (!code) return '';
+        const normalized = code.toUpperCase();
+        return languageNames[normalized] || countryNames[normalized] || normalized;
+    }
+
+    function getFlagEmoji(code) {
+        if (!code) return '';
+        const normalized = code.toUpperCase();
+        const country = languageFlagAliases[normalized] || normalized;
+        if (!/^[A-Z]{2}$/.test(country)) return '';
+        return String.fromCodePoint(country.charCodeAt(0) + 127397, country.charCodeAt(1) + 127397);
+    }
+
     // Enrichment tracking
     const enrichingIds = new Set();
     let pendingEnrichment = [];
@@ -371,7 +404,11 @@
 
             const langSelect = document.getElementById('filter-language');
             filters.languages.forEach(lang => {
-                if (lang) langSelect.innerHTML += \`<option value="\${lang}">\${lang}</option>\`;
+                if (!lang) return;
+                const label = getLanguageLabel(lang);
+                const flag = getFlagEmoji(lang);
+                const text = flag ? \`\${flag} \${label}\` : label;
+                langSelect.innerHTML += \`<option value="\${lang}">\${text}</option>\`;
             });
 
             const sourceSelect = document.getElementById('filter-source');
