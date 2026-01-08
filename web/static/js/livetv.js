@@ -86,6 +86,13 @@
                 return cat;
             }).filter(Boolean);
 
+            const seenCategories = new Set();
+            allCategories = allCategories.filter(cat => {
+                if (seenCategories.has(cat)) return false;
+                seenCategories.add(cat);
+                return true;
+            });
+
             if (preferredLanguages.length > 0) {
                 const filtered = allCategories.filter(cat => {
                     const country = getCategoryCountry(cat);
