@@ -381,7 +381,7 @@
                 const flag = countryFlags[country] || 'TV';
                 const colors = getCountryColors(country);
 
-                container.innerHTML += `
+                container.innerHTML += \`
                     <button class="livetv-category-item ${isActive ? 'active' : ''}"
                         onclick="selectCategory('${cat.replace(/'/g, \"\\'\")}')">
                         <span class="livetv-category-flag">${flag}</span>
@@ -391,7 +391,7 @@
                         </span>
                         <span class="livetv-category-accent" style="background: linear-gradient(135deg, ${colors.from}55 0%, ${colors.to}55 100%);"></span>
                     </button>
-                `;
+                \`;
             });
         }
 
@@ -484,34 +484,34 @@
         const current = data?.current;
         const upcoming = data?.upcoming || [];
 
-        const currentBlock = current ? `
+        const currentBlock = current ? \`
             <div class="livetv-epg-block">
                 <div class="livetv-epg-label">Now</div>
                 <div class="livetv-epg-title">${current.title || 'Unknown'}</div>
                 <div class="livetv-epg-time">${formatEpgTime(current.start_time)} - ${formatEpgTime(current.end_time)}</div>
                 <div class="livetv-epg-desc">${current.description || 'No description available.'}</div>
             </div>
-        ` : `
+        \` : \`
             <div class="livetv-epg-block">
                 <div class="livetv-epg-label">Now</div>
                 <div class="livetv-epg-title">No current program</div>
             </div>
-        `;
+        \`;
 
-        const upcomingItems = upcoming.length ? upcoming.map(item => `
+        const upcomingItems = upcoming.length ? upcoming.map(item => \`
             <div class="livetv-epg-item">
                 <div class="livetv-epg-item-time">${formatEpgTime(item.start_time)} - ${formatEpgTime(item.end_time)}</div>
                 <div class="livetv-epg-item-title">${item.title || 'Unknown'}</div>
             </div>
-        `).join('') : '<div class="livetv-epg-empty">No upcoming programs.</div>';
+        \`).join('') : '<div class="livetv-epg-empty">No upcoming programs.</div>';
 
-        epgView.innerHTML = `
+        epgView.innerHTML = \`
             ${currentBlock}
             <div class="livetv-epg-block">
                 <div class="livetv-epg-label">Up Next</div>
                 <div class="livetv-epg-list">${upcomingItems}</div>
             </div>
-        `;
+        \`;
     }
 
     // Smart title cleaning - detects and removes country/language prefixes
@@ -588,12 +588,12 @@
             document.getElementById('channels-placeholder').classList.add('hidden');
 
             channels.forEach((channel, index) => {
-                const imgSrc = channel.id ? `/logo/${channel.id}` : '/static/img/no-logo.svg';
+                const imgSrc = channel.id ? \`/logo/${channel.id}\` : '/static/img/no-logo.svg';
                 const isEager = currentOffset === 0 && index < 16;
                 const displayName = cleanChannelTitle(channel.title);
                 const channelJson = JSON.stringify(channel).replace(/"/g, '&quot;');
 
-                list.innerHTML += `
+                list.innerHTML += \`
                     <div class="livetv-channel-row" data-channel-id="${channel.id}" oncontextmenu="showContextMenu(event, ${channelJson})" onclick="selectChannel(${channelJson})">
                         <div class="livetv-channel-logo">
                             <img src="${isEager ? imgSrc : '/static/img/no-logo.svg'}"
@@ -631,7 +631,7 @@
                             </button>
                         </div>
                     </div>
-                `;
+                \`;
             });
 
             initLazyLoad();
