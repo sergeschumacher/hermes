@@ -83,11 +83,13 @@
             );
 
             if (preferredLanguages.length > 0) {
-                allCategories = allCategories.filter(cat => {
+                const filtered = allCategories.filter(cat => {
                     const country = getCategoryCountry(cat);
-                    // Include if country matches preferred, OR if no country (show as "Other")
                     return !country || preferredLanguages.includes(country);
                 });
+                if (filtered.length > 0) {
+                    allCategories = filtered;
+                }
             }
 
             populateCountryFilter();
@@ -124,7 +126,7 @@
         sortedCountries.forEach(code => {
             const flag = countryFlags[code] || '';
             const name = countryNames[code] || code;
-            select.innerHTML += `<option value="\${code}">\${flag} \${name}</option>`;
+            select.innerHTML += `<option value="${code}">${flag} ${name}</option>`;
         });
         // Add "Other" option if there are categories without a recognized country
         if (hasOther) {
@@ -364,18 +366,18 @@
         // Patterns to match and remove (order matters - more specific first)
         const patterns = [
             // [DE] Name or (DE) Name
-            new RegExp(`^\\\\[(\${codePattern})\\\\]\\\\s*`, 'i'),
-            new RegExp(`^\\\\((\${codePattern})\\\\)\\\\s*`, 'i'),
+            new RegExp(`^\\\\[(${codePattern})\\\\]\\\\s*`, 'i'),
+            new RegExp(`^\\\\((${codePattern})\\\\)\\\\s*`, 'i'),
             // DE ❖ Name or DE ✦ Name (special symbols)
-            new RegExp(`^(\${codePattern})\\\\s*[❖✦★●◆◇▶►▷■□☆✧✩✪✫✬✭✮✯✰]\\\\s*`, 'i'),
+            new RegExp(`^(${codePattern})\\\\s*[❖✦★●◆◇▶►▷■□☆✧✩✪✫✬✭✮✯✰]\\\\s*`, 'i'),
             // DE | Name or DE / Name
-            new RegExp(`^(\${codePattern})\\\\s*[|/]\\\\s*`, 'i'),
+            new RegExp(`^(${codePattern})\\\\s*[|/]\\\\s*`, 'i'),
             // DE - Name or DE : Name
-            new RegExp(`^(\${codePattern})\\\\s*[-:]\\\\s*`, 'i'),
+            new RegExp(`^(${codePattern})\\\\s*[-:]\\\\s*`, 'i'),
             // DE_ Name (underscore separator)
-            new RegExp(`^(\${codePattern})_\\\\s*`, 'i'),
+            new RegExp(`^(${codePattern})_\\\\s*`, 'i'),
             // DE Name (just space, but only if followed by uppercase)
-            new RegExp(`^(\${codePattern})\\\\s+(?=[A-Z])`, 'i'),
+            new RegExp(`^(${codePattern})\\\\s+(?=[A-Z])`, 'i'),
         ];
 
         let cleaned = title.trim();
@@ -523,7 +525,7 @@
                     el.title = program.title;
 
                     // Update progress bar
-                    const progressEl = document.querySelector(`[data-tvg-id-progress="\${tvgId}"] .livetv-epg-progress-bar`);
+                    const progressEl = document.querySelector(`[data-tvg-id-progress="${tvgId}"] .livetv-epg-progress-bar`);
                     if (progressEl && program.start_time && program.end_time) {
                         const start = new Date(program.start_time).getTime();
                         const end = new Date(program.end_time).getTime();
@@ -629,7 +631,7 @@
     function openRecordModal(channel) {
         recordChannel = channel;
         // Use cached logo endpoint for persistent logos
-        const imgSrc = channel.id ? `/logo/\${channel.id}` : '/static/img/no-logo.svg';
+        const imgSrc = channel.id ? `/logo/${channel.id}` : '/static/img/no-logo.svg';
         document.getElementById('record-channel-logo').src = imgSrc;
         document.getElementById('record-channel-name').textContent = channel.title;
         document.getElementById('record-channel-category').textContent = channel.category || '';
