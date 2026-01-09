@@ -631,49 +631,55 @@ async function syncXtreamSource(source) {
     warnIfSuspiciouslyEmpty(liveChannels, 'live channels', source);
 
     logger.info('iptv', `Found ${liveChannels.length} live channels`);
-    updateSyncStatus(source.id, { step: 'live', message: `Saving ${liveChannels.length} live channels...`, percent: 12, total: liveChannels.length });
-    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: `Saving ${liveChannels.length} live channels...`, total: liveChannels.length, percent: 12 });
+    updateSyncStatus(source.id, { step: 'live', message: `Processing ${liveChannels.length} live channels...`, percent: 12, total: liveChannels.length });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: `Processing ${liveChannels.length} live channels...`, total: liveChannels.length, percent: 12 });
 
     let liveCount = 0, movieCount = 0, seriesCount = 0;
-
-    // Use transaction for faster bulk inserts
-    await db.run('BEGIN TRANSACTION');
     let skippedHeaders = 0;
     let liveCountrySkipped = 0;
-    for (let i = 0; i < liveChannels.length; i++) {
-        const channel = liveChannels[i];
 
-        // Skip category headers (titles like ## SOMETHING ##, *** SOMETHING ***, etc.)
+    // Pre-process all channels into batch-ready rows
+    const liveRows = [];
+    for (const channel of liveChannels) {
+        // Skip category headers
         if (isCategoryHeader(channel.name)) {
             skippedHeaders++;
             continue;
         }
 
-        // Build stream URL using sanitized credentials
-        const streamUrl = `${baseUrl}/live/${cleanUsername}/${cleanPassword}/${channel.stream_id}.ts`;
-
-        // Get category name from map
         const categoryName = categoryMap[channel.category_id] || '';
-
-        // Detect 24/7 movie/series channels based on category name
         const mediaType = detectMediaTypeFromCategory(categoryName, channel.name);
 
         if (mediaType === 'movie') movieCount++;
         else if (mediaType === 'series') seriesCount++;
         else liveCount++;
 
-        // Parse title to extract metadata (title, year, quality, language, platform)
         const parsed = parseOriginalTitle(channel.name);
         const platform = parsed.platform || extractPlatform(categoryName);
         const detectedLanguage = parsed.language || channel.lang || extractLanguageFromText(categoryName, channel.name);
+
         if (!matchesCountryFilter(source, detectedLanguage, categoryName, channel.name, categoryName)) {
             liveCountrySkipped++;
             continue;
         }
 
-        const result = await db.run(`
+        const streamUrl = `${baseUrl}/live/${cleanUsername}/${cleanPassword}/${channel.stream_id}.ts`;
+        liveRows.push([
+            source.id, String(channel.stream_id), mediaType, parsed.title || channel.name,
+            channel.name, channel.stream_icon, categoryName, streamUrl,
+            detectedLanguage, platform, channel.epg_channel_id || null
+        ]);
+    }
+
+    // Batch insert in groups of 80 (SQLite 999 param limit / 11 columns = ~90 max)
+    const BATCH_SIZE = 80;
+    await db.run('BEGIN TRANSACTION');
+    for (let i = 0; i < liveRows.length; i += BATCH_SIZE) {
+        const batch = liveRows.slice(i, i + BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)').join(', ');
+        await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, language, platform, tvg_id, is_active, last_seen_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            VALUES ${placeholders}
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 media_type = excluded.media_type,
                 title = COALESCE(media.title, excluded.title),
@@ -686,27 +692,19 @@ async function syncXtreamSource(source) {
                 tvg_id = COALESCE(excluded.tvg_id, media.tvg_id),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, detectedLanguage, platform, channel.epg_channel_id || null]);
+        `, batch.flat());
 
-        // Track statistics (lastID > 0 means new insert, changes > 0 means update)
-        if (result.lastID && result.changes === 1) {
-            stats.added++;
-        } else if (result.changes === 1) {
-            stats.updated++;
-        } else {
-            stats.unchanged++;
-        }
-
-        // Emit progress every 100 items (12-40% = 28% range for live channels)
-        if ((i + 1) % 100 === 0 || i === liveChannels.length - 1) {
-            const livePercent = 12 + Math.round(((i + 1) / liveChannels.length) * 28);
-            const msg = `Channels: ${i + 1}/${liveChannels.length}`;
-            updateSyncStatus(source.id, { step: 'live', message: msg, percent: livePercent, current: i + 1, total: liveChannels.length });
-            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: msg, current: i + 1, total: liveChannels.length, percent: livePercent });
-        }
+        // Emit progress
+        const processed = Math.min(i + BATCH_SIZE, liveRows.length);
+        const livePercent = 12 + Math.round((processed / liveRows.length) * 28);
+        const msg = `Channels: ${processed}/${liveRows.length}`;
+        updateSyncStatus(source.id, { step: 'live', message: msg, percent: livePercent, current: processed, total: liveRows.length });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'live', message: msg, current: processed, total: liveRows.length, percent: livePercent });
     }
-
     await db.run('COMMIT');
+
+    // Update stats (batch insert doesn't give per-row info, so we estimate)
+    stats.updated = liveRows.length;
     logger.info('iptv', `Categorized: ${liveCount} live, ${movieCount} movies, ${seriesCount} series (skipped ${skippedHeaders} category headers, ${liveCountrySkipped} filtered by country)`);
 
     // Sync VOD (40-70%)
@@ -719,30 +717,24 @@ async function syncXtreamSource(source) {
     warnIfSuspiciouslyEmpty(vodItems, 'VOD items', source);
 
     logger.info('iptv', `Found ${vodItems.length} VOD items`);
-    updateSyncStatus(source.id, { step: 'vod', message: `Saving ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
-    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
+    updateSyncStatus(source.id, { step: 'vod', message: `Processing ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
+    allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: `Processing ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
-    let vodSaved = 0, vodSkipped = 0, vodCountrySkipped = 0;
-    const vodFilteredLanguages = {}; // Track what languages are being filtered
-    // Use transaction for faster bulk inserts
-    await db.run('BEGIN TRANSACTION');
-    for (let i = 0; i < vodItems.length; i++) {
-        const vod = vodItems[i];
+    let vodSkipped = 0, vodCountrySkipped = 0;
+    const vodFilteredLanguages = {};
 
-        // Get category name from map (API only provides category_id)
+    // Pre-process all VOD items into batch-ready rows
+    const vodRows = [];
+    for (const vod of vodItems) {
         const categoryName = categoryMap[vod.category_id] || '';
-
-        // Parse title to extract metadata (title, year, quality, language, platform)
         const parsed = parseOriginalTitle(vod.name);
-
-        // Extract language and check if allowed
         const language = extractLanguageFromText(categoryName, vod.name);
+
         if (!isLanguageAllowed(language)) {
             vodSkipped++;
-            // Track filtered languages for reporting
             const langKey = language || 'unknown';
             vodFilteredLanguages[langKey] = (vodFilteredLanguages[langKey] || 0) + 1;
-            continue; // Skip content not in preferred languages
+            continue;
         }
         if (!matchesCountryFilter(source, parsed.language || language, categoryName, vod.name, categoryName)) {
             vodCountrySkipped++;
@@ -755,9 +747,22 @@ async function syncXtreamSource(source) {
         const year = parsed.year || extractYear(vod.name);
         const platform = parsed.platform || extractPlatform(categoryName);
 
-        const result = await db.run(`
+        vodRows.push([
+            source.id, String(vod.stream_id), parsed.title || vod.name, vod.name, vod.stream_icon, categoryName,
+            streamUrl, ext, vod.rating || null, year, vod.plot || null,
+            vod.genre || null, quality, vod.tmdb || null, parsed.language || language, platform
+        ]);
+    }
+
+    // Batch insert in groups of 50 (SQLite 999 param limit / 16 columns = ~62 max)
+    const VOD_BATCH_SIZE = 50;
+    await db.run('BEGIN TRANSACTION');
+    for (let i = 0; i < vodRows.length; i += VOD_BATCH_SIZE) {
+        const batch = vodRows.slice(i, i + VOD_BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, \'movie\', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)').join(', ');
+        await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language, platform, is_active, last_seen_at)
-            VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            VALUES ${placeholders}
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = COALESCE(media.title, excluded.title),
                 original_title = excluded.original_title,
@@ -774,32 +779,19 @@ async function syncXtreamSource(source) {
                 platform = COALESCE(media.platform, excluded.platform),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [
-            source.id, String(vod.stream_id), parsed.title || vod.name, vod.name, vod.stream_icon, categoryName,
-            streamUrl, ext, vod.rating || null, year, vod.plot || null,
-            vod.genre || null, quality, vod.tmdb || null, parsed.language || language, platform
-        ]);
+        `, batch.flat());
 
-        // Track statistics (lastID > 0 means new insert)
-        if (result.lastID && result.changes === 1) {
-            stats.added++;
-        } else if (result.changes === 1) {
-            stats.updated++;
-        } else {
-            stats.unchanged++;
-        }
-        vodSaved++;
-
-        // Emit progress every 100 items (42-70% = 28% range for VOD)
-        if ((i + 1) % 100 === 0 || i === vodItems.length - 1) {
-            const vodPercent = 42 + Math.round(((i + 1) / vodItems.length) * 28);
-            const msg = `Movies: ${vodSaved} saved, ${vodSkipped} filtered, ${vodCountrySkipped} country`;
-            updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: i + 1, total: vodItems.length });
-            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
-        }
+        // Emit progress
+        const processed = Math.min(i + VOD_BATCH_SIZE, vodRows.length);
+        const vodPercent = 42 + Math.round((processed / vodRows.length) * 28);
+        const msg = `Movies: ${processed}/${vodRows.length} (${vodSkipped} filtered)`;
+        updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: processed, total: vodRows.length });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: msg, current: processed, total: vodRows.length, percent: vodPercent });
     }
     await db.run('COMMIT');
-    logger.info('iptv', `VOD: ${vodSaved} saved, ${vodSkipped} filtered by language, ${vodCountrySkipped} filtered by country`);
+
+    stats.updated += vodRows.length;
+    logger.info('iptv', `VOD: ${vodRows.length} saved, ${vodSkipped} filtered by language, ${vodCountrySkipped} filtered by country`);
 
     // Warn if significant content is being filtered
     if (vodSkipped > 0 && vodItems.length > 0) {
@@ -830,38 +822,45 @@ async function syncXtreamSource(source) {
     updateSyncStatus(source.id, { step: 'series', message: `Processing ${seriesList.length} series...`, percent: 72, total: seriesList.length });
     allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
-    let seriesSaved = 0, seriesSkipped = 0, seriesCountrySkipped = 0;
-    const filteredLanguages = {}; // Track what languages are being filtered
+    let seriesSkipped = 0, seriesCountrySkipped = 0;
+    const filteredLanguages = {};
 
-    // PHASE 1: Save all series metadata (fast - no API calls)
-    await db.run('BEGIN TRANSACTION');
-    for (let i = 0; i < seriesList.length; i++) {
-        const series = seriesList[i];
-
-        // Get category name from map (API only provides category_id)
+    // Pre-process all series into batch-ready rows
+    const seriesRows = [];
+    for (const series of seriesList) {
         const categoryName = categoryMap[series.category_id] || '';
-
-        // Parse title to extract metadata (title, year, quality, language, platform)
         const parsed = parseOriginalTitle(series.name);
         const language = parsed.language || extractLanguageFromText(categoryName, series.name);
         const year = parsed.year || extractYear(series.releaseDate || series.name);
         const platform = parsed.platform || extractPlatform(categoryName);
 
-        // Check if language is allowed
         if (!isLanguageAllowed(language)) {
             seriesSkipped++;
             const langKey = language || 'unknown';
             filteredLanguages[langKey] = (filteredLanguages[langKey] || 0) + 1;
-            continue; // Skip content not in preferred languages
+            continue;
         }
         if (!matchesCountryFilter(source, parsed.language || language, categoryName, series.name, categoryName)) {
             seriesCountrySkipped++;
             continue;
         }
 
-        const result = await db.run(`
+        seriesRows.push([
+            source.id, String(series.series_id), parsed.title || series.name, series.name, parsed.title || series.name, series.cover,
+            series.backdrop_path?.[0] || null, categoryName, series.rating || null,
+            year, series.plot || null, series.genre || null, series.tmdb || null, language, platform
+        ]);
+    }
+
+    // Batch insert in groups of 50 (SQLite 999 param limit / 15 columns = ~66 max)
+    const SERIES_BATCH_SIZE = 50;
+    await db.run('BEGIN TRANSACTION');
+    for (let i = 0; i < seriesRows.length; i += SERIES_BATCH_SIZE) {
+        const batch = seriesRows.slice(i, i + SERIES_BATCH_SIZE);
+        const placeholders = batch.map(() => '(?, ?, \'series\', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)').join(', ');
+        await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, show_name, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, platform, is_active, last_seen_at)
-            VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            VALUES ${placeholders}
             ON CONFLICT(source_id, external_id) DO UPDATE SET
                 title = COALESCE(media.title, excluded.title),
                 original_title = excluded.original_title,
@@ -877,35 +876,19 @@ async function syncXtreamSource(source) {
                 platform = COALESCE(media.platform, excluded.platform),
                 is_active = 1,
                 last_seen_at = CURRENT_TIMESTAMP
-        `, [
-            source.id, String(series.series_id), parsed.title || series.name, series.name, parsed.title || series.name, series.cover,
-            series.backdrop_path?.[0] || null, categoryName, series.rating || null,
-            year, series.plot || null, series.genre || null, series.tmdb || null, language, platform
-        ]);
+        `, batch.flat());
 
-        // Track statistics (lastID > 0 means new insert)
-        if (result.lastID && result.changes === 1) {
-            stats.added++;
-        } else if (result.changes === 1) {
-            stats.updated++;
-        } else {
-            stats.unchanged++;
-        }
-        seriesSaved++;
-
-        // Emit progress every 100 series during metadata phase
-        if ((i + 1) % 100 === 0 || i === seriesList.length - 1) {
-            const metaPercent = 72 + Math.round(((i + 1) / seriesList.length) * 14); // 72-86%
-            const msg = `Series metadata: ${seriesSaved} saved, ${seriesSkipped} filtered, ${seriesCountrySkipped} country`;
-            updateSyncStatus(source.id, { step: 'series', message: msg, percent: metaPercent, current: i + 1, total: seriesList.length });
-            allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: metaPercent });
-        }
+        // Emit progress
+        const processed = Math.min(i + SERIES_BATCH_SIZE, seriesRows.length);
+        const metaPercent = 72 + Math.round((processed / seriesRows.length) * 14);
+        const msg = `Series: ${processed}/${seriesRows.length} (${seriesSkipped} filtered)`;
+        updateSyncStatus(source.id, { step: 'series', message: msg, percent: metaPercent, current: processed, total: seriesRows.length });
+        allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: msg, current: processed, total: seriesRows.length, percent: metaPercent });
     }
     await db.run('COMMIT');
 
-    // Episodes are now lazy-loaded when user views a show (see /api/shows/:name/fetch-episodes)
-
-    logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language, ${seriesCountrySkipped} filtered by country`);
+    stats.updated += seriesRows.length;
+    logger.info('iptv', `Series: ${seriesRows.length} saved, ${seriesSkipped} filtered by language, ${seriesCountrySkipped} filtered by country`);
 
     // Warn if significant content is being filtered
     if (seriesSkipped > 0 && seriesList.length > 0) {
