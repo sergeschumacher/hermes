@@ -5,24 +5,47 @@
     let currentChannel = null;
     let allCategories = [];
     let currentCountry = '';
+    let currentSource = '';
     let preferredLanguages = [];
+    const fallbackFlagSrc = '/static/images/recostream-icon-small.png';
+    let sourcesList = [];
+    let sourceFilterReady = false;
 
-    const countryNames = {
-        'DE': 'Germany', 'US': 'United States', 'UK': 'United Kingdom', 'FR': 'France',
+    const countryNameOverrides = {
+        'UK': 'United Kingdom',
         'EN': 'English',
-        'ES': 'Spain', 'IT': 'Italy', 'NL': 'Netherlands', 'PL': 'Poland',
-        'TR': 'Turkey', 'PT': 'Portugal', 'GR': 'Greece', 'RU': 'Russia',
-        'AT': 'Austria', 'CH': 'Switzerland', 'BE': 'Belgium', 'CA': 'Canada',
-        'AU': 'Australia', 'BR': 'Brazil', 'MX': 'Mexico', 'AR': 'Argentina',
-        'IN': 'India', 'JP': 'Japan', 'KR': 'South Korea', 'CN': 'China',
-        'SE': 'Sweden', 'NO': 'Norway', 'DK': 'Denmark', 'FI': 'Finland',
-        'RO': 'Romania', 'HU': 'Hungary', 'CZ': 'Czech Republic', 'SK': 'Slovakia',
-        'HR': 'Croatia', 'RS': 'Serbia', 'BG': 'Bulgaria', 'UA': 'Ukraine',
-        'AL': 'Albania', 'IR': 'Iran', 'IL': 'Israel', 'SA': 'Saudi Arabia',
-        'AE': 'UAE', 'EG': 'Egypt', 'ZA': 'South Africa', 'NG': 'Nigeria',
-        'LA': 'Latin America', 'EU': 'Europe', 'AF': 'Africa', 'IA': 'India/Asia',
-        'IE': 'Ireland', 'LU': 'Luxembourg', 'OTHER': 'Other'
+        'ENG': 'English',
+        'EU': 'Europe',
+        'LA': 'Latin America',
+        'AF': 'Africa',
+        'IA': 'India/Asia',
+        'OTHER': 'Other'
     };
+
+    const regionNameFormatter = typeof Intl !== 'undefined' && Intl.DisplayNames
+        ? new Intl.DisplayNames(['en'], { type: 'region' })
+        : null;
+    const languageNameFormatter = typeof Intl !== 'undefined' && Intl.DisplayNames
+        ? new Intl.DisplayNames(['en'], { type: 'language' })
+        : null;
+
+    function getCountryName(code) {
+        if (!code) return '';
+        const normalized = code.toUpperCase();
+        if (countryNameOverrides[normalized]) return countryNameOverrides[normalized];
+
+        if (regionNameFormatter) {
+            const regionName = regionNameFormatter.of(normalized);
+            if (regionName && regionName !== normalized) return regionName;
+        }
+
+        if (languageNameFormatter) {
+            const langName = languageNameFormatter.of(normalized.toLowerCase());
+            if (langName) return langName;
+        }
+
+        return code;
+    }
 
     const countryFlagAliases = {
         'UK': 'gb',
@@ -77,21 +100,27 @@
     function renderFlag(country) {
         const code = getFlagCode(country);
         if (!code) {
-            return '<span class="livetv-category-flag-text">TV</span>';
+            return `<img src="${fallbackFlagSrc}" alt="" loading="lazy" class="livetv-flag-img">`;
         }
-        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-flag-img">`;
+        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-flag-img" onerror="this.onerror=null;this.removeAttribute('src');this.src='${fallbackFlagSrc}'">`;
     }
 
     function renderCountryFlag(country) {
         const code = getFlagCode(country);
-        if (!code) return '';
-        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-country-flag-img">`;
+        if (!code) return `<img src="${fallbackFlagSrc}" alt="" loading="lazy" class="livetv-country-flag-img">`;
+        return `<img src="/static/images/flags/${code}.png" alt="" loading="lazy" class="livetv-country-flag-img" onerror="this.onerror=null;this.removeAttribute('src');this.src='${fallbackFlagSrc}'">`;
     }
 
     function handleCountryChange(value) {
         currentCountry = value;
         if (currentCategory) resetChannelsPanel();
         applyFilters();
+    }
+
+    function handleSourceChange(value) {
+        currentSource = value;
+        resetChannelsPanel();
+        loadCategories();
     }
 
     function setCountryValue(value, trigger = true) {
@@ -102,11 +131,9 @@
 
         if (!value) {
             label.textContent = 'All Countries';
-        } else if (value === 'OTHER') {
-            label.textContent = 'Other';
         } else {
             const flagHtml = renderCountryFlag(value);
-            const name = countryNames[value] || value;
+            const name = getCountryName(value);
             label.innerHTML = flagHtml + '<span>' + name + '</span>';
         }
 
@@ -119,18 +146,50 @@
         if (trigger) handleCountryChange(value || '');
     }
 
-    async function loadCategories() {
-        try {
-            const settingsResp = await fetch('/api/settings');
-            const settings = await settingsResp.json();
-            preferredLanguages = (settings.preferredLanguages || []).map(l => l.toUpperCase());
+    function setSourceValue(value, trigger = true) {
+        const input = document.getElementById('source-filter');
+        if (!input) return;
+        input.value = value || '';
+        if (trigger) handleSourceChange(value || '');
+    }
 
-            const response = await fetch('/api/filters?type=live');
-            const filters = await response.json();
+    async function loadCategories() {
+        if (loadCategories.loading) return;
+        loadCategories.loading = true;
+        sourceFilterReady = false;
+        try {
+            try {
+                const settingsResp = await fetch('/api/settings');
+                const settings = await settingsResp.json();
+                preferredLanguages = (settings.preferredLanguages || []).map(l => l.toUpperCase());
+            } catch (err) {
+                console.error('Failed to load settings:', err);
+                preferredLanguages = [];
+            }
+
+            let filters = {};
+            try {
+                const filtersUrl = '/api/filters?type=live' + (currentSource ? '&source=' + encodeURIComponent(currentSource) : '');
+                const response = await fetch(filtersUrl);
+                filters = await response.json();
+            } catch (err) {
+                console.error('Failed to load filters:', err);
+            }
+
+            sourcesList = Array.isArray(filters.sources) ? filters.sources.filter(s => s && s.id) : [];
+            if (sourcesList.length === 0) {
+                try {
+                    const sourcesResp = await fetch('/api/sources');
+                    const sources = await sourcesResp.json();
+                    sourcesList = Array.isArray(sources) ? sources.filter(s => s && s.id) : [];
+                } catch (err) {
+                    console.error('Failed to load sources:', err);
+                }
+            }
 
             // Build category -> language map from API response
             categoryLanguageMap = {};
-            filters.categories.filter(cat => cat).forEach(cat => {
+            (filters.categories || []).filter(cat => cat).forEach(cat => {
                 if (typeof cat === 'object') {
                     const key = cat.value || cat.category;
                     if (key && cat.language) {
@@ -140,7 +199,7 @@
             });
 
             // Handle both old (string) and new (object) category formats
-            allCategories = filters.categories.filter(cat => cat).map(cat => {
+            allCategories = (filters.categories || []).filter(cat => cat).map(cat => {
                 if (typeof cat === 'object') return cat.value || cat.category;
                 return cat;
             }).filter(Boolean);
@@ -162,11 +221,33 @@
                 }
             }
 
+            populateSourceFilter();
             populateCountryFilter();
+            if (currentCategory && !allCategories.includes(currentCategory)) {
+                resetChannelsPanel();
+            }
             applyFilters();
         } catch (err) {
             console.error('Failed to load categories:', err);
+        } finally {
+            if (!sourceFilterReady) populateSourceFilter();
+            loadCategories.loading = false;
         }
+    }
+
+    function populateSourceFilter() {
+        const select = document.getElementById('source-filter');
+        if (!select) return;
+
+        select.innerHTML = '<option value="">All Sources</option>';
+        sourcesList.forEach(source => {
+            const value = String(source.id);
+            const name = source.name || `Source ${value}`;
+            select.innerHTML += '<option value="' + value + '">' + name + '</option>';
+        });
+
+        setSourceValue(currentSource || '', false);
+        sourceFilterReady = true;
     }
 
     function populateCountryFilter() {
@@ -198,11 +279,11 @@
         menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="">All Countries</button>';
         sortedCountries.forEach(code => {
             const flagHtml = renderCountryFlag(code);
-            const name = countryNames[code] || code;
+            const name = getCountryName(code);
             menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="' + code + '">' + flagHtml + '<span>' + name + '</span></button>';
         });
         if (hasOther) {
-            menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="OTHER">Other</button>';
+            menu.innerHTML += '<button type="button" class="livetv-country-item" data-value="OTHER">' + getCountryName('OTHER') + '</button>';
         }
 
         menu.querySelectorAll('.livetv-country-item').forEach(item => {
@@ -272,7 +353,8 @@
 
     async function fetchChannelCounts() {
         try {
-            const response = await fetch('/api/livetv/counts');
+            const url = '/api/livetv/counts' + (currentSource ? '?source=' + encodeURIComponent(currentSource) : '');
+            const response = await fetch(url);
             return await response.json();
         } catch (e) {
             return {};
@@ -552,6 +634,7 @@
             limit,
             offset: currentOffset
         });
+        if (currentSource) params.set('source', currentSource);
 
         try {
             const response = await fetch('/api/media?' + params);
@@ -737,6 +820,11 @@
         handleCountryChange(e.target.value);
     });
 
+    document.getElementById('source-filter').addEventListener('change', (e) => {
+        setSourceValue(e.target.value, false);
+        handleSourceChange(e.target.value);
+    });
+
     document.getElementById('load-more').addEventListener('click', () => loadChannels(false));
 
     // Context menu
@@ -891,6 +979,9 @@
 
     // Initialize
     loadCategories();
+    setInterval(() => {
+        if (!document.hidden) loadCategories();
+    }, 60000);
 
     const scrollContainers = [
         document.getElementById('categories-view'),

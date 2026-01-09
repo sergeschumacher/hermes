@@ -30,6 +30,11 @@
             </div>
             <input type="hidden" id="country-filter" value="" />
 
+            <!-- Source Filter -->
+            <select id="source-filter" class="filter-select">
+                <option value="">All Sources</option>
+            </select>
+
             <!-- Count -->
             <div class="filter-actions">
                 <span class="result-count">
@@ -163,7 +168,7 @@
     </div>
 </div>
 
-<script src="/static/js/livetv.js?v=12" defer></script>
+<script src="/static/js/livetv.js?v=14" defer></script>
 
 <style>
     .livetv-layout {
@@ -278,6 +283,7 @@
         box-shadow: 0 0 0 1px rgba(255,255,255,0.15);
         flex-shrink: 0;
     }
+
 
     .livetv-column-count {
         font-size: 0.75rem;

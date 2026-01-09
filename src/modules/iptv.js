@@ -30,6 +30,42 @@ function getAllSyncStatus() {
     return syncStatus;
 }
 
+function normalizeCountryCode(code) {
+    if (!code) return null;
+    const trimmed = String(code).trim().toUpperCase();
+    if (!/^[A-Z]{2}$/.test(trimmed)) return null;
+    return trimmed;
+}
+
+function parseCountryFilterList(filter) {
+    if (!filter) return [];
+    if (Array.isArray(filter)) {
+        return filter.map(normalizeCountryCode).filter(Boolean);
+    }
+    return String(filter)
+        .split(',')
+        .map(s => normalizeCountryCode(s))
+        .filter(Boolean);
+}
+
+function extractCountryFromGroup(group) {
+    if (!group) return null;
+    const match = group.match(/\|([A-Z]{2})\|/);
+    if (match && match[1]) return match[1];
+    const prefixMatch = group.match(/^([A-Z]{2})\s/);
+    if (prefixMatch && prefixMatch[1]) return prefixMatch[1];
+    return null;
+}
+
+function matchesCountryFilter(source, detectedCode, category, title, group) {
+    const filters = parseCountryFilterList(source?.country_filter);
+    if (!filters.length) return true;
+    let candidate = normalizeCountryCode(detectedCode);
+    if (!candidate) candidate = normalizeCountryCode(extractCountryFromGroup(group || category));
+    if (!candidate) candidate = normalizeCountryCode(extractLanguageFromText(category, title));
+    return candidate ? filters.includes(candidate) : false;
+}
+
 /**
  * Check if a channel title is actually a category header (not a real channel)
  * These are used by IPTV providers to organize their channel lists
@@ -599,6 +635,7 @@ async function syncXtreamSource(source) {
     // Use transaction for faster bulk inserts
     await db.run('BEGIN TRANSACTION');
     let skippedHeaders = 0;
+    let liveCountrySkipped = 0;
     for (let i = 0; i < liveChannels.length; i++) {
         const channel = liveChannels[i];
 
@@ -625,6 +662,10 @@ async function syncXtreamSource(source) {
         const parsed = parseOriginalTitle(channel.name);
         const platform = parsed.platform || extractPlatform(categoryName);
         const detectedLanguage = parsed.language || channel.lang || extractLanguageFromText(categoryName, channel.name);
+        if (!matchesCountryFilter(source, detectedLanguage, categoryName, channel.name, categoryName)) {
+            liveCountrySkipped++;
+            continue;
+        }
 
         // Check if item exists and track changes
         const existing = await db.get(
@@ -668,7 +709,7 @@ async function syncXtreamSource(source) {
     }
 
     await db.run('COMMIT');
-    logger.info('iptv', `Categorized: ${liveCount} live, ${movieCount} movies, ${seriesCount} series (skipped ${skippedHeaders} category headers)`);
+    logger.info('iptv', `Categorized: ${liveCount} live, ${movieCount} movies, ${seriesCount} series (skipped ${skippedHeaders} category headers, ${liveCountrySkipped} filtered by country)`);
 
     // Sync VOD (40-70%)
     updateSyncStatus(source.id, { step: 'vod', message: 'Fetching movies...', percent: 40 });
@@ -683,7 +724,7 @@ async function syncXtreamSource(source) {
     updateSyncStatus(source.id, { step: 'vod', message: `Saving ${vodItems.length} movies...`, percent: 42, total: vodItems.length });
     allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: `Saving ${vodItems.length} movies...`, total: vodItems.length, percent: 42 });
 
-    let vodSaved = 0, vodSkipped = 0;
+    let vodSaved = 0, vodSkipped = 0, vodCountrySkipped = 0;
     const vodFilteredLanguages = {}; // Track what languages are being filtered
     // Use transaction for faster bulk inserts
     await db.run('BEGIN TRANSACTION');
@@ -701,6 +742,10 @@ async function syncXtreamSource(source) {
             const langKey = language || 'unknown';
             vodFilteredLanguages[langKey] = (vodFilteredLanguages[langKey] || 0) + 1;
             continue; // Skip content not in preferred languages
+        }
+        if (!matchesCountryFilter(source, parsed.language || language, categoryName, vod.name, categoryName)) {
+            vodCountrySkipped++;
+            continue;
         }
 
         const ext = vod.container_extension || 'mp4';
@@ -756,13 +801,13 @@ async function syncXtreamSource(source) {
         // Emit progress every 100 items (42-70% = 28% range for VOD)
         if ((i + 1) % 100 === 0 || i === vodItems.length - 1) {
             const vodPercent = 42 + Math.round(((i + 1) / vodItems.length) * 28);
-            const msg = `Movies: ${vodSaved} saved, ${vodSkipped} filtered`;
+            const msg = `Movies: ${vodSaved} saved, ${vodSkipped} filtered, ${vodCountrySkipped} country`;
             updateSyncStatus(source.id, { step: 'vod', message: msg, percent: vodPercent, current: i + 1, total: vodItems.length });
             allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'vod', message: msg, current: i + 1, total: vodItems.length, percent: vodPercent });
         }
     }
     await db.run('COMMIT');
-    logger.info('iptv', `VOD: ${vodSaved} saved, ${vodSkipped} filtered by language`);
+    logger.info('iptv', `VOD: ${vodSaved} saved, ${vodSkipped} filtered by language, ${vodCountrySkipped} filtered by country`);
 
     // Warn if significant content is being filtered
     if (vodSkipped > 0 && vodItems.length > 0) {
@@ -793,7 +838,7 @@ async function syncXtreamSource(source) {
     updateSyncStatus(source.id, { step: 'series', message: `Processing ${seriesList.length} series...`, percent: 72, total: seriesList.length });
     allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: `Processing ${seriesList.length} series...`, total: seriesList.length, percent: 72 });
 
-    let seriesSaved = 0, seriesSkipped = 0;
+    let seriesSaved = 0, seriesSkipped = 0, seriesCountrySkipped = 0;
     const filteredLanguages = {}; // Track what languages are being filtered
 
     // PHASE 1: Save all series metadata (fast - no API calls)
@@ -816,6 +861,10 @@ async function syncXtreamSource(source) {
             const langKey = language || 'unknown';
             filteredLanguages[langKey] = (filteredLanguages[langKey] || 0) + 1;
             continue; // Skip content not in preferred languages
+        }
+        if (!matchesCountryFilter(source, parsed.language || language, categoryName, series.name, categoryName)) {
+            seriesCountrySkipped++;
+            continue;
         }
 
         // Check if item exists
@@ -865,7 +914,7 @@ async function syncXtreamSource(source) {
         // Emit progress every 100 series during metadata phase
         if ((i + 1) % 100 === 0 || i === seriesList.length - 1) {
             const metaPercent = 72 + Math.round(((i + 1) / seriesList.length) * 14); // 72-86%
-            const msg = `Series metadata: ${seriesSaved} saved, ${seriesSkipped} filtered`;
+            const msg = `Series metadata: ${seriesSaved} saved, ${seriesSkipped} filtered, ${seriesCountrySkipped} country`;
             updateSyncStatus(source.id, { step: 'series', message: msg, percent: metaPercent, current: i + 1, total: seriesList.length });
             allModules?.app?.emit('sync:source:progress', { sourceId: source.id, step: 'series', message: msg, current: i + 1, total: seriesList.length, percent: metaPercent });
         }
@@ -874,7 +923,7 @@ async function syncXtreamSource(source) {
 
     // Episodes are now lazy-loaded when user views a show (see /api/shows/:name/fetch-episodes)
 
-    logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language`);
+    logger.info('iptv', `Series: ${seriesSaved} saved, ${seriesSkipped} filtered by language, ${seriesCountrySkipped} filtered by country`);
 
     // Warn if significant content is being filtered
     if (seriesSkipped > 0 && seriesList.length > 0) {
@@ -1073,7 +1122,16 @@ async function syncM3USource(source) {
             logger.warn('iptv', `Invalid parser config for ${source.name}, using defaults`);
         }
     }
-    const channels = parseM3U(m3uContent, parserConfig);
+    let channels = parseM3U(m3uContent, parserConfig);
+
+    if (source.country_filter) {
+        const beforeCount = channels.length;
+        channels = channels.filter(channel => matchesCountryFilter(source, channel.language, channel.group, channel.name, channel.group));
+        const filteredCount = beforeCount - channels.length;
+        if (filteredCount > 0) {
+            logger.info('iptv', `Filtered ${filteredCount} M3U entries by country (${source.country_filter})`);
+        }
+    }
 
     logger.info('iptv', `Found ${channels.length} channels in M3U`);
 

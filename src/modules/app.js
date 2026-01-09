@@ -21,6 +21,7 @@ let activeStreamSessions = new Map(); // sessionId -> { title, startedAt }
 const STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes - sessions older than this are auto-cleaned
 let streamSessionCleanupInterval = null;
 const apiCache = new Map();
+const deletingSources = new Set();
 
 // Image cache directory
 const IMAGE_CACHE_DIR = path.join(PATHS.data, 'cache', 'images');
@@ -121,6 +122,67 @@ function cleanupStaleSessions() {
             app?.emit('stream:inactive', { active: 0, reason: 'session_cleanup' });
         }
     }
+}
+
+function extractCountryCodesFromEpgChannels(channels) {
+    const codes = new Set();
+    for (const ch of channels || []) {
+        const id = (ch.id || '').toString();
+        const name = (ch.name || '').toString();
+        const candidates = [id, name];
+        for (const text of candidates) {
+            const match = text.match(/\.([a-z]{2})(?:@|$)/i);
+            if (match && match[1]) {
+                codes.add(match[1].toUpperCase());
+                continue;
+            }
+            const pipeMatch = text.match(/\|([A-Z]{2})\|/);
+            if (pipeMatch && pipeMatch[1]) {
+                codes.add(pipeMatch[1].toUpperCase());
+                continue;
+            }
+            const prefixMatch = text.match(/^([A-Z]{2})\s/);
+            if (prefixMatch && prefixMatch[1]) {
+                codes.add(prefixMatch[1].toUpperCase());
+                continue;
+            }
+            const suffixMatch = text.match(/\s([A-Z]{2})$/);
+            if (suffixMatch && suffixMatch[1]) {
+                codes.add(suffixMatch[1].toUpperCase());
+            }
+        }
+    }
+    return Array.from(codes).sort();
+}
+
+function extractCountryCodesFromM3U(content) {
+    const codes = new Set();
+    const lines = (content || '').split('\n');
+    for (const line of lines) {
+        if (!line.startsWith('#EXTINF:')) continue;
+        const tvgMatch = line.match(/tvg-id="([^"]+)"/i);
+        if (tvgMatch && tvgMatch[1]) {
+            const id = tvgMatch[1];
+            const codeMatch = id.match(/\.([a-z]{2})(?:@|$)/i);
+            if (codeMatch && codeMatch[1]) {
+                codes.add(codeMatch[1].toUpperCase());
+            }
+        }
+        const groupMatch = line.match(/group-title="([^"]+)"/i);
+        if (groupMatch && groupMatch[1]) {
+            const group = groupMatch[1];
+            const pipeMatch = group.match(/\|([A-Z]{2})\|/);
+            if (pipeMatch && pipeMatch[1]) {
+                codes.add(pipeMatch[1].toUpperCase());
+            } else {
+                const prefixMatch = group.match(/^([A-Z]{2})\s/);
+                if (prefixMatch && prefixMatch[1]) {
+                    codes.add(prefixMatch[1].toUpperCase());
+                }
+            }
+        }
+    }
+    return Array.from(codes).sort();
 }
 
 function getTelegramConfig() {
@@ -1062,8 +1124,14 @@ function setupRoutes() {
 
     // View routes
     app.get('/', (req, res) => res.render('index', { page: 'dashboard' }));
-    app.get('/movies', (req, res) => res.render('movies', { page: 'movies' }));
-    app.get('/series', (req, res) => res.render('series', { page: 'series' }));
+    app.get('/movies', (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.render('movies', { page: 'movies' });
+    });
+    app.get('/series', (req, res) => {
+        res.set('Cache-Control', 'no-store');
+        res.render('series', { page: 'series' });
+    });
     app.get('/livetv', (req, res) => res.render('livetv', { page: 'livetv' }));
     app.get('/downloads', (req, res) => res.render('downloads', { page: 'downloads' }));
     app.get('/settings', (req, res) => res.render('settings', { page: 'settings' }));
@@ -1360,13 +1428,18 @@ function setupApiRoutes() {
     router.get('/livetv/counts', async (req, res) => {
         try {
             const db = modules.db;
+            const sourceId = req.query.source ? parseInt(req.query.source, 10) : null;
+            const params = [];
+            const sourceFilter = sourceId ? 'AND m.source_id = ?' : '';
+            if (sourceId) params.push(sourceId);
             const result = await db.all(`
                 SELECT m.category, COUNT(*) as count
                 FROM media m
                 JOIN sources s ON m.source_id = s.id
-                WHERE m.media_type = 'live' AND m.category IS NOT NULL AND m.category != '' AND s.active = 1
+                WHERE m.media_type = 'live' AND m.category IS NOT NULL AND m.category != '' AND m.is_active = 1 AND s.active = 1
+                ${sourceFilter}
                 GROUP BY m.category
-            `);
+            `, params);
 
             const counts = {};
             for (const row of result) {
@@ -1996,10 +2069,10 @@ function setupApiRoutes() {
 
     router.post('/sources', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url } = req.body;
+            const { name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url, country_filter } = req.body;
             const result = await modules.db.run(
-                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null]
+                'INSERT INTO sources (name, type, url, username, password, user_agent, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url, country_filter) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                [name, type || 'xtream', url, username, password, user_agent || 'IBOPlayer', spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null, country_filter || null]
             );
             res.json({ id: result.lastID, message: 'Source added' });
         } catch (err) {
@@ -2009,10 +2082,10 @@ function setupApiRoutes() {
 
     router.put('/sources/:id', async (req, res) => {
         try {
-            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url } = req.body;
+            const { name, type, url, username, password, user_agent, active, spoofed_mac, spoofed_device_key, simulate_playback, playback_speed_multiplier, m3u_parser_config, epg_url, country_filter } = req.body;
             await modules.db.run(
-                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=?, m3u_parser_config=?, epg_url=? WHERE id=?',
-                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null, req.params.id]
+                'UPDATE sources SET name=?, type=?, url=?, username=?, password=?, user_agent=?, active=?, spoofed_mac=?, spoofed_device_key=?, simulate_playback=?, playback_speed_multiplier=?, m3u_parser_config=?, epg_url=?, country_filter=? WHERE id=?',
+                [name, type, url, username, password, user_agent, active !== false ? 1 : 0, spoofed_mac || null, spoofed_device_key || null, simulate_playback !== undefined ? simulate_playback : 1, playback_speed_multiplier !== undefined ? playback_speed_multiplier : 1.5, m3u_parser_config || null, epg_url || null, country_filter || null, req.params.id]
             );
             res.json({ message: 'Source updated' });
         } catch (err) {
@@ -2020,9 +2093,49 @@ function setupApiRoutes() {
         }
     });
 
+    router.post('/sources/preview-countries', async (req, res) => {
+        try {
+            const { type, url, username, password, epg_url } = req.body || {};
+            if (!type || !url) return res.status(400).json({ error: 'type and url are required' });
+
+            const cleanUrl = String(url || '').replace(/\/$/, '');
+            let epgUrl = epg_url || null;
+            if (!epgUrl && type === 'xtream' && username && password) {
+                epgUrl = `${cleanUrl}/xmltv.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`;
+            }
+
+            if (epgUrl && modules.epg?.fetchEpgXml && modules.epg?.parseXmltvContent) {
+                const xmlContent = await modules.epg.fetchEpgXml(epgUrl);
+                const { channels } = modules.epg.parseXmltvContent(xmlContent);
+                const countries = extractCountryCodesFromEpgChannels(channels);
+                return res.json({ countries, source: 'epg' });
+            }
+
+            if (type === 'm3u') {
+                const response = await axios.get(cleanUrl, {
+                    timeout: 60000,
+                    responseType: 'text',
+                    maxContentLength: 20 * 1024 * 1024
+                });
+                const countries = extractCountryCodesFromM3U(response.data || '');
+                return res.json({ countries, source: 'm3u' });
+            }
+
+            res.json({ countries: [], source: 'unknown' });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     router.delete('/sources/:id', async (req, res) => {
         try {
-            const sourceId = req.params.id;
+            const sourceId = parseInt(req.params.id, 10);
+            if (!Number.isInteger(sourceId)) {
+                return res.status(400).json({ error: 'Invalid source id' });
+            }
+            if (deletingSources.has(sourceId)) {
+                return res.status(202).json({ message: 'Source deletion already in progress' });
+            }
 
             // Get count of media to be deleted
             const mediaCount = await modules.db.get(
@@ -2030,16 +2143,33 @@ function setupApiRoutes() {
                 [sourceId]
             );
 
-            // Explicitly delete all media from this source (cascade should handle related tables)
-            await modules.db.run('DELETE FROM media WHERE source_id = ?', [sourceId]);
-
-            // Delete the source itself
-            await modules.db.run('DELETE FROM sources WHERE id = ?', [sourceId]);
-
-            logger?.info('sources', `Deleted source ${sourceId} and ${mediaCount?.count || 0} media entries`);
             res.json({
-                message: 'Source deleted',
+                message: 'Source deletion started',
                 mediaDeleted: mediaCount?.count || 0
+            });
+
+            // Run deletion in background to avoid blocking the request thread.
+            setImmediate(async () => {
+                deletingSources.add(sourceId);
+                try {
+                    const batchSize = 5000;
+                    while (true) {
+                        const rows = await modules.db.all(
+                            'SELECT id FROM media WHERE source_id = ? LIMIT ?',
+                            [sourceId, batchSize]
+                        );
+                        if (!rows.length) break;
+                        const ids = rows.map(r => r.id);
+                        const placeholders = ids.map(() => '?').join(',');
+                        await modules.db.run(`DELETE FROM media WHERE id IN (${placeholders})`, ids);
+                    }
+                    await modules.db.run('DELETE FROM sources WHERE id = ?', [sourceId]);
+                    logger?.info('sources', `Deleted source ${sourceId} and ${mediaCount?.count || 0} media entries`);
+                } catch (err) {
+                    logger?.error('sources', `Failed to delete source ${sourceId}`, { error: err.message });
+                } finally {
+                    deletingSources.delete(sourceId);
+                }
             });
         } catch (err) {
             res.status(500).json({ error: err.message });
@@ -2123,7 +2253,7 @@ function setupApiRoutes() {
                     SUM(CASE WHEN media_type = 'live' THEN 1 ELSE 0 END) as live,
                     COUNT(*) as total
                 FROM media
-                WHERE source_id = ?
+                WHERE source_id = ? AND is_active = 1
             `, [sourceId]);
 
             // Get download stats for this source
@@ -2142,7 +2272,7 @@ function setupApiRoutes() {
                     COUNT(*) as total,
                     SUM(CASE WHEN tmdb_id IS NOT NULL THEN 1 ELSE 0 END) as enriched
                 FROM media
-                WHERE source_id = ? AND media_type IN ('movie', 'series')
+                WHERE source_id = ? AND media_type IN ('movie', 'series') AND is_active = 1
             `, [sourceId]);
 
             res.json({
@@ -3793,18 +3923,30 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     // Filters data
     router.get('/filters', async (req, res) => {
         try {
-            const { type } = req.query;
+            const { type, source } = req.query;
             const preferredLangs = expandPreferredLanguages(modules.settings?.get('preferredLanguages') || []);
-            const cacheKey = `filters:${type || 'all'}:${preferredLangs.join(',')}`;
+            const sourceId = source ? parseInt(source, 10) : null;
+            const cacheKey = `filters:${type || 'all'}:${preferredLangs.join(',')}:${sourceId || 'all'}`;
             const cached = getCachedResponse(cacheKey);
             if (cached) return res.json(cached);
 
             const typeFilter = type ? 'AND media_type = ?' : '';
             const typeParam = type ? [type] : [];
+            const sourceFilter = sourceId ? 'AND source_id = ?' : '';
+            const sourceParam = sourceId ? [sourceId] : [];
 
-            const years = await modules.db.all(`SELECT DISTINCT year FROM media WHERE year IS NOT NULL ${typeFilter} ORDER BY year DESC`, typeParam);
-            const qualities = await modules.db.all(`SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL ${typeFilter}`, typeParam);
-            const languages = await modules.db.all(`SELECT DISTINCT language FROM media WHERE language IS NOT NULL ${typeFilter}`, typeParam);
+            const years = await modules.db.all(
+                `SELECT DISTINCT year FROM media WHERE year IS NOT NULL ${typeFilter} ${sourceFilter} ORDER BY year DESC`,
+                [...typeParam, ...sourceParam]
+            );
+            const qualities = await modules.db.all(
+                `SELECT DISTINCT quality FROM media WHERE quality IS NOT NULL ${typeFilter} ${sourceFilter}`,
+                [...typeParam, ...sourceParam]
+            );
+            const languages = await modules.db.all(
+                `SELECT DISTINCT language FROM media WHERE language IS NOT NULL ${typeFilter} ${sourceFilter}`,
+                [...typeParam, ...sourceParam]
+            );
 
             // For live TV, get categories with their associated language for proper grouping
             let categories;
@@ -3813,15 +3955,22 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                     SELECT DISTINCT category, language
                     FROM media
                     WHERE category IS NOT NULL AND media_type = 'live' AND is_active = 1
+                    ${sourceFilter}
                     ORDER BY category
-                `);
+                `, sourceParam);
             } else {
-                categories = await modules.db.all(`SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ORDER BY category`, typeParam);
+                categories = await modules.db.all(
+                    `SELECT DISTINCT category FROM media WHERE category IS NOT NULL ${typeFilter} ${sourceFilter} ORDER BY category`,
+                    [...typeParam, ...sourceParam]
+                );
             }
             const sources = await modules.db.all('SELECT id, name FROM sources ORDER BY name');
 
             // Get genres - stored as comma or slash separated values, need to parse and dedupe
-            const genresRows = await modules.db.all(`SELECT DISTINCT genres FROM media WHERE genres IS NOT NULL AND genres != '' ${typeFilter}`, typeParam);
+            const genresRows = await modules.db.all(
+                `SELECT DISTINCT genres FROM media WHERE genres IS NOT NULL AND genres != '' ${typeFilter} ${sourceFilter}`,
+                [...typeParam, ...sourceParam]
+            );
             const genreSet = new Set();
             genresRows.forEach(row => {
                 // Split by comma or slash
@@ -6222,6 +6371,7 @@ module.exports = {
         app.set('trust proxy', true);
         app.set('view engine', 'ejs');
         app.set('views', PATHS.views);
+        app.set('view cache', false);
 
         server = createServer(app);
         io = new Server(server);

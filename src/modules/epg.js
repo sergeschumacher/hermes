@@ -221,6 +221,12 @@ async function syncSourceEpg(source) {
 
         if (programs.length === 0) {
             logger.warn('epg', `No programs found in EPG for ${source.name}`);
+            app?.emit('epg:complete', {
+                sourceId: source.id,
+                sourceName: source.name,
+                programCount: 0,
+                channelCount: 0
+            });
             return { success: true, programCount: 0, channelCount: 0 };
         }
 
@@ -231,6 +237,15 @@ async function syncSourceEpg(source) {
         const futurePrograms = programs.filter(p => !p.end_time || p.end_time > now);
 
         logger.info('epg', `${futurePrograms.length} future programs after filtering`);
+
+        app?.emit('epg:progress', {
+            sourceId: source.id,
+            sourceName: source.name,
+            message: `${source.name}: preparing EPG import...`,
+            current: 0,
+            total: futurePrograms.length,
+            percent: futurePrograms.length > 0 ? 5 : 0
+        });
 
         // Clear old EPG data for this source
         await db.run('DELETE FROM epg_programs WHERE source_id = ?', [source.id]);
@@ -262,12 +277,14 @@ async function syncSourceEpg(source) {
                 VALUES ${placeholders}
             `, values);
 
+            const currentCount = Math.min(i + batchSize, futurePrograms.length);
             app?.emit('epg:progress', {
                 sourceId: source.id,
                 sourceName: source.name,
-                message: `${source.name}: ${Math.min(i + batchSize, futurePrograms.length)}/${futurePrograms.length} programs`,
-                current: Math.min(i + batchSize, futurePrograms.length),
-                total: futurePrograms.length
+                message: `${source.name}: ${currentCount}/${futurePrograms.length} programs`,
+                current: currentCount,
+                total: futurePrograms.length,
+                percent: Math.round((currentCount / futurePrograms.length) * 100)
             });
         }
 
@@ -614,5 +631,6 @@ module.exports = {
 
     // Utilities
     parseXmltvContent,
-    parseXmltvDate
+    parseXmltvDate,
+    fetchEpgXml
 };
