@@ -559,6 +559,10 @@ async function fetchWithRetry(url, options = {}, retries = 3, source = null) {
 
 async function syncXtreamSource(source) {
     logger.info('iptv', `Syncing Xtream source: ${source.name}`);
+
+    // Safety: rollback any dangling transaction from previous failed sync
+    try { await db.run('ROLLBACK'); } catch (e) { /* ignore if no transaction */ }
+
     const baseUrl = source.url.replace(/\/$/, '');
     const headers = { 'User-Agent': source.user_agent || 'IBOPlayer' };
 
@@ -728,6 +732,9 @@ async function syncXtreamSource(source) {
         // Get category name from map (API only provides category_id)
         const categoryName = categoryMap[vod.category_id] || '';
 
+        // Parse title to extract metadata (title, year, quality, language, platform)
+        const parsed = parseOriginalTitle(vod.name);
+
         // Extract language and check if allowed
         const language = extractLanguageFromText(categoryName, vod.name);
         if (!isLanguageAllowed(language)) {
@@ -744,9 +751,6 @@ async function syncXtreamSource(source) {
 
         const ext = vod.container_extension || 'mp4';
         const streamUrl = `${baseUrl}/movie/${cleanUsername}/${cleanPassword}/${vod.stream_id}.${ext}`;
-
-        // Parse title to extract metadata (title, year, quality, language, platform)
-        const parsed = parseOriginalTitle(vod.name);
         const quality = parsed.quality || detectQuality(vod.name);
         const year = parsed.year || extractYear(vod.name);
         const platform = parsed.platform || extractPlatform(categoryName);
@@ -939,6 +943,10 @@ async function syncXtreamSource(source) {
 
 async function syncM3USource(source) {
     logger.info('iptv', `Syncing M3U source: ${source.name}`);
+
+    // Safety: rollback any dangling transaction from previous failed sync
+    try { await db.run('ROLLBACK'); } catch (e) { /* ignore if no transaction */ }
+
     const headers = getDefaultHeaders(source.user_agent || 'IBOPlayer', source);
 
     // Track sync start time for marking inactive items
