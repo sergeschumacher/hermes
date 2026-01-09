@@ -667,12 +667,6 @@ async function syncXtreamSource(source) {
             continue;
         }
 
-        // Check if item exists and track changes
-        const existing = await db.get(
-            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
-            [source.id, String(channel.stream_id)]
-        );
-
         const result = await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, language, platform, tvg_id, is_active, last_seen_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
@@ -690,10 +684,10 @@ async function syncXtreamSource(source) {
                 last_seen_at = CURRENT_TIMESTAMP
         `, [source.id, String(channel.stream_id), mediaType, parsed.title || channel.name, channel.name, channel.stream_icon, categoryName, streamUrl, detectedLanguage, platform, channel.epg_channel_id || null]);
 
-        // Track statistics
-        if (!existing) {
+        // Track statistics (lastID > 0 means new insert, changes > 0 means update)
+        if (result.lastID && result.changes === 1) {
             stats.added++;
-        } else if (existing.title !== channel.name || existing.stream_url !== streamUrl) {
+        } else if (result.changes === 1) {
             stats.updated++;
         } else {
             stats.unchanged++;
@@ -757,13 +751,7 @@ async function syncXtreamSource(source) {
         const year = parsed.year || extractYear(vod.name);
         const platform = parsed.platform || extractPlatform(categoryName);
 
-        // Check if item exists and track changes
-        const existing = await db.get(
-            'SELECT id, title, stream_url FROM media WHERE source_id = ? AND external_id = ?',
-            [source.id, String(vod.stream_id)]
-        );
-
-        await db.run(`
+        const result = await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, poster, category, stream_url, container, rating, year, plot, genres, quality, tmdb_id, language, platform, is_active, last_seen_at)
             VALUES (?, ?, 'movie', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
             ON CONFLICT(source_id, external_id) DO UPDATE SET
@@ -788,10 +776,10 @@ async function syncXtreamSource(source) {
             vod.genre || null, quality, vod.tmdb || null, parsed.language || language, platform
         ]);
 
-        // Track statistics
-        if (!existing) {
+        // Track statistics (lastID > 0 means new insert)
+        if (result.lastID && result.changes === 1) {
             stats.added++;
-        } else if (existing.title !== vod.name || existing.stream_url !== streamUrl) {
+        } else if (result.changes === 1) {
             stats.updated++;
         } else {
             stats.unchanged++;
@@ -867,12 +855,6 @@ async function syncXtreamSource(source) {
             continue;
         }
 
-        // Check if item exists
-        const existing = await db.get(
-            'SELECT id, title FROM media WHERE source_id = ? AND external_id = ?',
-            [source.id, String(series.series_id)]
-        );
-
         const result = await db.run(`
             INSERT INTO media (source_id, external_id, media_type, title, original_title, show_name, poster, backdrop, category, rating, year, plot, genres, tmdb_id, language, platform, is_active, last_seen_at)
             VALUES (?, ?, 'series', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
@@ -897,17 +879,13 @@ async function syncXtreamSource(source) {
             year, series.plot || null, series.genre || null, series.tmdb || null, language, platform
         ]);
 
-        // Track statistics
-        const isNew = !existing;
-        if (isNew) {
+        // Track statistics (lastID > 0 means new insert)
+        if (result.lastID && result.changes === 1) {
             stats.added++;
-            // Episodes are now lazy-loaded when user views the show
+        } else if (result.changes === 1) {
+            stats.updated++;
         } else {
-            if (existing.title !== series.name) {
-                stats.updated++;
-            } else {
-                stats.unchanged++;
-            }
+            stats.unchanged++;
         }
         seriesSaved++;
 

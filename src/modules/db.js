@@ -266,6 +266,24 @@ module.exports = {
     get: getAsync,
     all: allAsync,
 
+    // Transaction support for bulk operations
+    beginTransaction: () => runAsync('BEGIN TRANSACTION'),
+    commit: () => runAsync('COMMIT'),
+    rollback: () => runAsync('ROLLBACK'),
+
+    // Helper to run multiple operations in a transaction
+    transaction: async (fn) => {
+        await runAsync('BEGIN TRANSACTION');
+        try {
+            const result = await fn();
+            await runAsync('COMMIT');
+            return result;
+        } catch (err) {
+            await runAsync('ROLLBACK');
+            throw err;
+        }
+    },
+
     // Helper to get raw db for complex operations
     raw: () => db
 };
