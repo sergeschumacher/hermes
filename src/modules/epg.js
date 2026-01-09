@@ -317,21 +317,37 @@ async function syncSourceEpg(source) {
 }
 
 /**
- * Sync EPG for all sources that have EPG URLs configured
+ * Sync EPG for all sources that have EPG URLs configured or are Xtream sources
  * @returns {Object} - { sources: [{ sourceId, success, programCount, channelCount }] }
  */
 async function syncAllSourcesEpg() {
-    const sources = await db.all('SELECT * FROM sources WHERE epg_url IS NOT NULL AND active = 1');
+    // Get sources with explicit EPG URL OR Xtream sources (which can auto-generate EPG URL)
+    const sources = await db.all(`
+        SELECT * FROM sources
+        WHERE active = 1
+        AND (epg_url IS NOT NULL OR (type = 'xtream' AND username IS NOT NULL AND password IS NOT NULL))
+    `);
 
     if (sources.length === 0) {
         logger.info('epg', 'No sources with EPG URLs configured');
         return { sources: [] };
     }
 
-    logger.info('epg', `Syncing EPG for ${sources.length} sources`);
+    // For Xtream sources without explicit epg_url, auto-generate it
+    const sourcesWithEpg = sources.map(source => {
+        if (!source.epg_url && source.type === 'xtream' && source.username && source.password) {
+            const baseUrl = source.url.replace(/\/+$/, '');
+            const generatedUrl = `${baseUrl}/xmltv.php?username=${source.username}&password=${source.password}`;
+            logger.info('epg', `Auto-generated EPG URL for Xtream source: ${source.name}`);
+            return { ...source, epg_url: generatedUrl };
+        }
+        return source;
+    });
+
+    logger.info('epg', `Syncing EPG for ${sourcesWithEpg.length} sources`);
 
     const results = [];
-    for (const source of sources) {
+    for (const source of sourcesWithEpg) {
         const result = await syncSourceEpg(source);
         results.push({
             sourceId: source.id,
