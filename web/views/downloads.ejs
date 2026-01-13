@@ -1024,12 +1024,23 @@
         if (!confirm('Add all failed downloads back to the queue?')) return;
         try {
             const response = await fetch('/api/downloads/retry-all-failed', { method: 'POST' });
+
+            if (!response.ok) {
+                const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+                throw new Error(error.error || 'Server error');
+            }
+
             const result = await response.json();
-            loadDownloads();
-            if (window.showToast) showToast(\`Added \${result.retried || 0} downloads back to queue\`, 'success');
+
+            if (result.retried === 0) {
+                if (window.showToast) showToast('No failed downloads to retry', 'info');
+            } else {
+                loadDownloads();
+                if (window.showToast) showToast(\`Added \${result.retried} download\${result.retried === 1 ? '' : 's'} back to queue\`, 'success');
+            }
         } catch (err) {
             console.error('Failed to retry all failed:', err);
-            if (window.showToast) showToast('Failed to retry downloads', 'error');
+            if (window.showToast) showToast(\`Failed to retry downloads: \${err.message}\`, 'error');
         }
     }
 

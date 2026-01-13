@@ -3843,13 +3843,20 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
                 WHERE status IN ('failed', 'cancelled')
             `);
 
+            logger.info('downloads', `Retrying ${failedDownloads.length} failed downloads`);
+
             if (modules.download) {
                 // Use download module's retry function for proper event handling
                 for (const download of failedDownloads) {
-                    await modules.download.retry(download.id);
+                    try {
+                        await modules.download.retry(download.id);
+                    } catch (retryErr) {
+                        logger.warn('downloads', `Failed to retry download ${download.id}: ${retryErr.message}`);
+                    }
                 }
             } else {
                 // Fallback: direct database update
+                logger.warn('downloads', 'Download module not available, using direct database update');
                 await modules.db.run(`
                     UPDATE downloads
                     SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
@@ -3860,8 +3867,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             // Emit socket event for UI update
             io?.emit('download:queued', { count: failedDownloads.length });
 
+            logger.info('downloads', `Successfully requeued ${failedDownloads.length} failed downloads`);
             res.json({ success: true, retried: failedDownloads.length });
         } catch (err) {
+            logger.error('downloads', `Failed to retry all failed downloads: ${err.message}`);
             res.status(500).json({ error: err.message });
         }
     });
