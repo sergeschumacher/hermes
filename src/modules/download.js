@@ -385,6 +385,7 @@ async function processQueue() {
                 streamPauseLogged = true;
             }
             pauseActiveDownloads();
+            queueProcessing = false;
             return;
         }
         if (streamPauseLogged) {
@@ -397,6 +398,7 @@ async function processQueue() {
             // Slow disk mode: strictly sequential - one operation at a time
             // Don't start if ANY download is in progress
             if (activeDownloads > 0) {
+                queueProcessing = false;
                 return;
             }
 
@@ -404,6 +406,7 @@ async function processQueue() {
             if (transcoder) {
                 const transcoderStatus = transcoder.getStatus();
                 if (transcoderStatus.isProcessing) {
+                    queueProcessing = false;
                     return;
                 }
             }
@@ -413,12 +416,14 @@ async function processQueue() {
                 "SELECT COUNT(*) as count FROM downloads WHERE status = 'transcoding'"
             );
             if (pendingTranscode?.count > 0) {
+                queueProcessing = false;
                 return;
             }
         } else {
             // Normal mode: respect maxConcurrentDownloads
             const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
             if (activeDownloads >= maxConcurrent) {
+                queueProcessing = false;
                 return;
             }
         }
@@ -439,12 +444,14 @@ async function processQueue() {
         `);
 
         if (!download) {
+            queueProcessing = false;
             return;
         }
 
         // Check if this download is already being processed (prevent duplicates)
         if (processingDownloadIds.has(download.id)) {
             logger?.warn('download', `Download ${download.id} is already being processed, skipping`);
+            queueProcessing = false;
             return;
         }
 
@@ -453,6 +460,7 @@ async function processQueue() {
         const updateResult = await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
             ['downloading', download.id, 'queued']);
         if (!updateResult?.changes) {
+            queueProcessing = false;
             return;
         }
 
@@ -466,10 +474,13 @@ async function processQueue() {
             processingDownloadIds.delete(download.id);
             logger?.debug('download', `Removed download ${download.id} from processing set (size: ${processingDownloadIds.size})`);
         });
-    } catch (err) {
-        logger?.error('download', `processQueue error: ${err.message}`);
-    } finally {
+        
+        // Release the queue lock only after we've successfully started the download
+        // This prevents the next interval from picking another download too quickly
         queueProcessing = false;
+    } catch (err) {
+        queueProcessing = false;
+        logger?.error('download', `processQueue error: ${err.message}`);
     }
 }
 
