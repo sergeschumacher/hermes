@@ -23,6 +23,7 @@ let activeDownloads = 0;
 let downloadInterval = null;
 let streamPauseLogged = false;
 const activeTransfers = new Map();
+const processingDownloadIds = new Set();
 let queueProcessing = false;
 
 function waitForStreamInactive() {
@@ -363,95 +364,104 @@ function calculateTargetBytesPerSecond(fileSize, isEpisode, speedMultiplier) {
 async function processQueue() {
     if (queueProcessing) return;
     queueProcessing = true;
-    const slowDiskMode = settings.get('slowDiskMode');
-    const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
-    const streamActive = modulesRef?.app?.isStreamActive?.() === true;
 
-    await reconcileStuckDownloads();
+    try {
+        const slowDiskMode = settings.get('slowDiskMode');
+        const pauseOnStream = settings.get('pauseDownloadsOnStream') !== false;
+        const streamActive = modulesRef?.app?.isStreamActive?.() === true;
 
-    if (pauseOnStream && streamActive) {
-        if (!streamPauseLogged) {
-            logger?.info('download', 'Stream active, pausing new downloads');
-            streamPauseLogged = true;
-        }
-        pauseActiveDownloads();
-        queueProcessing = false;
-        return;
-    }
-    if (streamPauseLogged) {
-        logger?.info('download', 'Stream ended, resuming downloads');
-        streamPauseLogged = false;
-    }
-    resumeActiveDownloads();
+        await reconcileStuckDownloads();
 
-    if (slowDiskMode) {
-        // Slow disk mode: strictly sequential - one operation at a time
-        // Don't start if ANY download is in progress
-        if (activeDownloads > 0) {
-            queueProcessing = false;
+        if (pauseOnStream && streamActive) {
+            if (!streamPauseLogged) {
+                logger?.info('download', 'Stream active, pausing new downloads');
+                streamPauseLogged = true;
+            }
+            pauseActiveDownloads();
             return;
         }
+        if (streamPauseLogged) {
+            logger?.info('download', 'Stream ended, resuming downloads');
+            streamPauseLogged = false;
+        }
+        resumeActiveDownloads();
 
-        // Don't start if transcoding is active
-        if (transcoder) {
-            const transcoderStatus = transcoder.getStatus();
-            if (transcoderStatus.isProcessing) {
-                queueProcessing = false;
+        if (slowDiskMode) {
+            // Slow disk mode: strictly sequential - one operation at a time
+            // Don't start if ANY download is in progress
+            if (activeDownloads > 0) {
+                return;
+            }
+
+            // Don't start if transcoding is active
+            if (transcoder) {
+                const transcoderStatus = transcoder.getStatus();
+                if (transcoderStatus.isProcessing) {
+                    return;
+                }
+            }
+
+            // Don't start if there are items waiting for transcode to complete
+            const pendingTranscode = await db.get(
+                "SELECT COUNT(*) as count FROM downloads WHERE status = 'transcoding'"
+            );
+            if (pendingTranscode?.count > 0) {
+                return;
+            }
+        } else {
+            // Normal mode: respect maxConcurrentDownloads
+            const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
+            if (activeDownloads >= maxConcurrent) {
                 return;
             }
         }
 
-        // Don't start if there are items waiting for transcode to complete
-        const pendingTranscode = await db.get(
-            "SELECT COUNT(*) as count FROM downloads WHERE status = 'transcoding'"
-        );
-        if (pendingTranscode?.count > 0) {
-            queueProcessing = false;
+        const download = await db.get(`
+            SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id,
+                   m.poster,
+                   e.stream_url as episode_url, e.external_id as episode_external_id,
+                   e.container as episode_container, e.title as episode_title,
+                   s.type as source_type
+            FROM downloads d
+            LEFT JOIN media m ON d.media_id = m.id
+            LEFT JOIN episodes e ON d.episode_id = e.id
+            LEFT JOIN sources s ON m.source_id = s.id
+            WHERE d.status = 'queued'
+            ORDER BY d.priority DESC, d.created_at ASC
+            LIMIT 1
+        `);
+
+        if (!download) {
             return;
         }
-    } else {
-        // Normal mode: respect maxConcurrentDownloads
-        const maxConcurrent = settings.get('maxConcurrentDownloads') || 2;
-        if (activeDownloads >= maxConcurrent) {
-            queueProcessing = false;
+
+        // Check if this download is already being processed (prevent duplicates)
+        if (processingDownloadIds.has(download.id)) {
+            logger?.warn('download', `Download ${download.id} is already being processed, skipping`);
             return;
         }
-    }
 
-    const download = await db.get(`
-        SELECT d.*, m.stream_url, m.title, m.media_type, m.source_id,
-               m.poster,
-               e.stream_url as episode_url, e.external_id as episode_external_id,
-               e.container as episode_container, e.title as episode_title,
-               s.type as source_type
-        FROM downloads d
-        LEFT JOIN media m ON d.media_id = m.id
-        LEFT JOIN episodes e ON d.episode_id = e.id
-        LEFT JOIN sources s ON m.source_id = s.id
-        WHERE d.status = 'queued'
-        ORDER BY d.priority DESC, d.created_at ASC
-        LIMIT 1
-    `);
+        // Immediately mark as downloading to prevent race conditions
+        // (processQueue runs on interval and could pick same download twice)
+        const updateResult = await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
+            ['downloading', download.id, 'queued']);
+        if (!updateResult?.changes) {
+            return;
+        }
 
-    if (!download) {
+        // Track this download as being processed
+        processingDownloadIds.add(download.id);
+        activeDownloads++;
+
+        processDownload(download).finally(() => {
+            activeDownloads = Math.max(0, activeDownloads - 1);
+            processingDownloadIds.delete(download.id);
+        });
+    } catch (err) {
+        logger?.error('download', `processQueue error: ${err.message}`);
+    } finally {
         queueProcessing = false;
-        return;
     }
-
-    // Immediately mark as downloading to prevent race conditions
-    // (processQueue runs on interval and could pick same download twice)
-    const updateResult = await db.run('UPDATE downloads SET status = ? WHERE id = ? AND status = ?',
-        ['downloading', download.id, 'queued']);
-    if (!updateResult?.changes) {
-        queueProcessing = false;
-        return;
-    }
-
-    activeDownloads++;
-    processDownload(download).finally(() => {
-        activeDownloads = Math.max(0, activeDownloads - 1);
-    });
-    queueProcessing = false;
 }
 
 async function processDownload(download) {
@@ -1297,6 +1307,12 @@ module.exports = {
                     processQueue();
                 });
             });
+        }
+
+        // Clear any existing interval before starting a new one (prevent multiple intervals)
+        if (downloadInterval) {
+            clearInterval(downloadInterval);
+            logger.warn('download', 'Cleared existing download interval');
         }
 
         // Start processing queue
