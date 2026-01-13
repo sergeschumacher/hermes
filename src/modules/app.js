@@ -3836,12 +3836,17 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
 
     // Retry all failed downloads
     router.post('/downloads/retry-all-failed', async (req, res) => {
+        logger.info('downloads', 'Retry-all-failed endpoint hit');
         try {
+            if (!modules.db) {
+                throw new Error('Database module not available');
+            }
+
             // Get all failed downloads first
             const failedDownloads = await modules.db.all(`
                 SELECT id FROM downloads
                 WHERE status IN ('failed', 'cancelled')
-            `);
+            `) || [];
 
             logger.info('downloads', `Retrying ${failedDownloads.length} failed downloads`);
 
@@ -3870,8 +3875,10 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             logger.info('downloads', `Successfully requeued ${failedDownloads.length} failed downloads`);
             res.json({ success: true, retried: failedDownloads.length });
         } catch (err) {
-            logger.error('downloads', `Failed to retry all failed downloads: ${err.message}`);
-            res.status(500).json({ error: err.message });
+            logger.error('downloads', `Failed to retry all failed downloads: ${err.message}`, err.stack);
+            if (!res.headersSent) {
+                res.status(500).json({ error: err.message || 'Internal server error' });
+            }
         }
     });
 

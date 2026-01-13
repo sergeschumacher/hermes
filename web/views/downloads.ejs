@@ -1025,12 +1025,24 @@
         try {
             const response = await fetch('/api/downloads/retry-all-failed', { method: 'POST' });
 
+            console.log('Retry all response status:', response.status, response.statusText);
+
             if (!response.ok) {
-                const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-                throw new Error(error.error || 'Server error');
+                let errorMsg = \`HTTP \${response.status}\`;
+                try {
+                    const errorData = await response.json();
+                    console.error('Error response:', errorData);
+                    errorMsg = errorData.error || errorData.message || errorMsg;
+                } catch (parseErr) {
+                    const errorText = await response.text().catch(() => '');
+                    console.error('Failed to parse error response:', parseErr, 'Response text:', errorText);
+                    errorMsg = errorText || errorMsg;
+                }
+                throw new Error(errorMsg);
             }
 
             const result = await response.json();
+            console.log('Retry all result:', result);
 
             if (result.retried === 0) {
                 if (window.showToast) showToast('No failed downloads to retry', 'info');
@@ -1039,7 +1051,7 @@
                 if (window.showToast) showToast(\`Added \${result.retried} download\${result.retried === 1 ? '' : 's'} back to queue\`, 'success');
             }
         } catch (err) {
-            console.error('Failed to retry all failed:', err);
+            console.error('Failed to retry all failed downloads:', err);
             if (window.showToast) showToast(\`Failed to retry downloads: \${err.message}\`, 'error');
         }
     }
