@@ -3697,6 +3697,83 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
+    // IMPORTANT: Literal path routes must come BEFORE parameterized :id routes
+    // Otherwise /downloads/retry-all-failed would match /downloads/:id/retry
+
+    // Clear completed downloads
+    router.post('/downloads/clear-completed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM downloads
+                WHERE status = 'completed'
+            `);
+            res.json({ success: true, deleted: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Clear failed downloads
+    router.post('/downloads/clear-failed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                DELETE FROM downloads
+                WHERE status IN ('failed', 'cancelled')
+            `);
+            res.json({ success: true, deleted: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
+    // Retry all failed downloads
+    router.post('/downloads/retry-all-failed', async (req, res) => {
+        logger.info('downloads', 'Retry-all-failed endpoint hit');
+        try {
+            if (!modules.db) {
+                throw new Error('Database module not available');
+            }
+
+            // Get all failed downloads first
+            const failedDownloads = await modules.db.all(`
+                SELECT id FROM downloads
+                WHERE status IN ('failed', 'cancelled')
+            `) || [];
+
+            logger.info('downloads', `Retrying ${failedDownloads.length} failed downloads`);
+
+            if (modules.download) {
+                // Use download module's retry function for proper event handling
+                for (const download of failedDownloads) {
+                    try {
+                        await modules.download.retry(download.id);
+                    } catch (retryErr) {
+                        logger.warn('downloads', `Failed to retry download ${download.id}: ${retryErr.message}`);
+                    }
+                }
+            } else {
+                // Fallback: direct database update
+                logger.warn('downloads', 'Download module not available, using direct database update');
+                await modules.db.run(`
+                    UPDATE downloads
+                    SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
+                    WHERE status IN ('failed', 'cancelled')
+                `);
+            }
+
+            // Emit socket event for UI update
+            io?.emit('download:queued', { count: failedDownloads.length });
+
+            logger.info('downloads', `Successfully requeued ${failedDownloads.length} failed downloads`);
+            res.json({ success: true, retried: failedDownloads.length });
+        } catch (err) {
+            logger.error('downloads', `Failed to retry all failed downloads: ${err.message}`, err.stack);
+            if (!res.headersSent) {
+                res.status(500).json({ error: err.message || 'Internal server error' });
+            }
+        }
+    });
+
     router.delete('/downloads/:id', async (req, res) => {
         try {
             await modules.db.run('DELETE FROM downloads WHERE id = ?', [req.params.id]);
@@ -3805,80 +3882,6 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
             res.json({ success: true });
         } catch (err) {
             res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Clear completed downloads
-    router.post('/downloads/clear-completed', async (req, res) => {
-        try {
-            const result = await modules.db.run(`
-                DELETE FROM downloads
-                WHERE status = 'completed'
-            `);
-            res.json({ success: true, deleted: result.changes });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Clear failed downloads
-    router.post('/downloads/clear-failed', async (req, res) => {
-        try {
-            const result = await modules.db.run(`
-                DELETE FROM downloads
-                WHERE status IN ('failed', 'cancelled')
-            `);
-            res.json({ success: true, deleted: result.changes });
-        } catch (err) {
-            res.status(500).json({ error: err.message });
-        }
-    });
-
-    // Retry all failed downloads
-    router.post('/downloads/retry-all-failed', async (req, res) => {
-        logger.info('downloads', 'Retry-all-failed endpoint hit');
-        try {
-            if (!modules.db) {
-                throw new Error('Database module not available');
-            }
-
-            // Get all failed downloads first
-            const failedDownloads = await modules.db.all(`
-                SELECT id FROM downloads
-                WHERE status IN ('failed', 'cancelled')
-            `) || [];
-
-            logger.info('downloads', `Retrying ${failedDownloads.length} failed downloads`);
-
-            if (modules.download) {
-                // Use download module's retry function for proper event handling
-                for (const download of failedDownloads) {
-                    try {
-                        await modules.download.retry(download.id);
-                    } catch (retryErr) {
-                        logger.warn('downloads', `Failed to retry download ${download.id}: ${retryErr.message}`);
-                    }
-                }
-            } else {
-                // Fallback: direct database update
-                logger.warn('downloads', 'Download module not available, using direct database update');
-                await modules.db.run(`
-                    UPDATE downloads
-                    SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
-                    WHERE status IN ('failed', 'cancelled')
-                `);
-            }
-
-            // Emit socket event for UI update
-            io?.emit('download:queued', { count: failedDownloads.length });
-
-            logger.info('downloads', `Successfully requeued ${failedDownloads.length} failed downloads`);
-            res.json({ success: true, retried: failedDownloads.length });
-        } catch (err) {
-            logger.error('downloads', `Failed to retry all failed downloads: ${err.message}`, err.stack);
-            if (!res.headersSent) {
-                res.status(500).json({ error: err.message || 'Internal server error' });
-            }
         }
     });
 

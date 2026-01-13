@@ -47,6 +47,13 @@ async function reconcileStuckDownloads() {
         if (row?.count > 0) {
             await db.run("UPDATE downloads SET status = 'queued' WHERE status = 'downloading'");
             logger?.warn('download', `Requeued ${row.count} stuck downloads`);
+
+            // Clear the processing set since these downloads are no longer active
+            if (processingDownloadIds.size > 0) {
+                logger?.warn('download', `Clearing ${processingDownloadIds.size} IDs from processingDownloadIds set`);
+                processingDownloadIds.clear();
+            }
+
             // Only reset counter when we actually found and fixed stuck downloads
             if (activeDownloads > 0) {
                 logger?.warn('download', `Resetting activeDownloads counter from ${activeDownloads} to 0`);
@@ -452,10 +459,12 @@ async function processQueue() {
         // Track this download as being processed
         processingDownloadIds.add(download.id);
         activeDownloads++;
+        logger?.debug('download', `Added download ${download.id} to processing set (size: ${processingDownloadIds.size})`);
 
         processDownload(download).finally(() => {
             activeDownloads = Math.max(0, activeDownloads - 1);
             processingDownloadIds.delete(download.id);
+            logger?.debug('download', `Removed download ${download.id} from processing set (size: ${processingDownloadIds.size})`);
         });
     } catch (err) {
         logger?.error('download', `processQueue error: ${err.message}`);
