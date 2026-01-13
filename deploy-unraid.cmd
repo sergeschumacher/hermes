@@ -7,7 +7,7 @@ setlocal enabledelayedexpansion
 REM =============================================================================
 REM CONFIGURATION - EDIT THESE VALUES
 REM =============================================================================
-set UNRAID_HOST=192.168.178.xxx
+set UNRAID_HOST=192.168.10.100
 set UNRAID_USER=root
 set UNRAID_PASS=
 set CONTAINER_NAME=recostream

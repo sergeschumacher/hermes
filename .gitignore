@@ -12,3 +12,6 @@ __DEPLOYNPM/
 CONVERSATION_SUMMARY.md
 testins/
 deploy-unraid.sh
+tmpclaude-*
+*.tar
+docker-compose.override.yml
