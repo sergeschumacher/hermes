@@ -46,9 +46,11 @@ async function reconcileStuckDownloads() {
         if (row?.count > 0) {
             await db.run("UPDATE downloads SET status = 'queued' WHERE status = 'downloading'");
             logger?.warn('download', `Requeued ${row.count} stuck downloads`);
-        }
-        if (activeDownloads > 0) {
-            activeDownloads = 0;
+            // Only reset counter when we actually found and fixed stuck downloads
+            if (activeDownloads > 0) {
+                logger?.warn('download', `Resetting activeDownloads counter from ${activeDownloads} to 0`);
+                activeDownloads = 0;
+            }
         }
     } catch (err) {
         logger?.warn('download', `Failed to reconcile stuck downloads: ${err.message}`);
@@ -447,7 +449,7 @@ async function processQueue() {
 
     activeDownloads++;
     processDownload(download).finally(() => {
-        activeDownloads--;
+        activeDownloads = Math.max(0, activeDownloads - 1);
     });
     queueProcessing = false;
 }

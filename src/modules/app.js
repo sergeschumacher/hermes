@@ -3837,12 +3837,30 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
     // Retry all failed downloads
     router.post('/downloads/retry-all-failed', async (req, res) => {
         try {
-            const result = await modules.db.run(`
-                UPDATE downloads
-                SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
+            // Get all failed downloads first
+            const failedDownloads = await modules.db.all(`
+                SELECT id FROM downloads
                 WHERE status IN ('failed', 'cancelled')
             `);
-            res.json({ success: true, retried: result.changes });
+
+            if (modules.download) {
+                // Use download module's retry function for proper event handling
+                for (const download of failedDownloads) {
+                    await modules.download.retry(download.id);
+                }
+            } else {
+                // Fallback: direct database update
+                await modules.db.run(`
+                    UPDATE downloads
+                    SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
+                    WHERE status IN ('failed', 'cancelled')
+                `);
+            }
+
+            // Emit socket event for UI update
+            io?.emit('download:queued', { count: failedDownloads.length });
+
+            res.json({ success: true, retried: failedDownloads.length });
         } catch (err) {
             res.status(500).json({ error: err.message });
         }
