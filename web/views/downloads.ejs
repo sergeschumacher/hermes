@@ -269,12 +269,20 @@
                 <h2 class="text-lg font-semibold text-white">Failed</h2>
                 <span class="badge badge-danger" id="failed-count">0</span>
             </div>
-            <button onclick="clearFailedDownloads()" class="btn btn-sm bg-gray-700 hover:bg-gray-600 text-gray-300" title="Clear failed downloads">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                </svg>
-                Clear
-            </button>
+            <div class="flex items-center gap-2">
+                <button onclick="retryAllFailedDownloads()" class="btn btn-sm btn-primary" title="Add all failed downloads back to queue">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Add all to Queue
+                </button>
+                <button onclick="clearFailedDownloads()" class="btn btn-sm bg-gray-700 hover:bg-gray-600 text-gray-300" title="Clear failed downloads">
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                    Clear
+                </button>
+            </div>
         </div>
         <div id="failed-downloads" class="divide-y divide-gray-800/50">
             <div class="empty-state py-12">
@@ -1009,6 +1017,19 @@
         } catch (err) {
             console.error('Failed to clear failed:', err);
             if (window.showToast) showToast('Failed to clear failed downloads', 'error');
+        }
+    }
+
+    async function retryAllFailedDownloads() {
+        if (!confirm('Add all failed downloads back to the queue?')) return;
+        try {
+            const response = await fetch('/api/downloads/retry-all-failed', { method: 'POST' });
+            const result = await response.json();
+            loadDownloads();
+            if (window.showToast) showToast(\`Added \${result.retried || 0} downloads back to queue\`, 'success');
+        } catch (err) {
+            console.error('Failed to retry all failed:', err);
+            if (window.showToast) showToast('Failed to retry downloads', 'error');
         }
     }
 

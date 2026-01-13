@@ -3834,6 +3834,20 @@ Return ONLY valid JSON with this exact structure (no markdown, no explanation):
         }
     });
 
+    // Retry all failed downloads
+    router.post('/downloads/retry-all-failed', async (req, res) => {
+        try {
+            const result = await modules.db.run(`
+                UPDATE downloads
+                SET status = 'queued', error_message = NULL, retry_count = 0, priority = 75
+                WHERE status IN ('failed', 'cancelled')
+            `);
+            res.json({ success: true, retried: result.changes });
+        } catch (err) {
+            res.status(500).json({ error: err.message });
+        }
+    });
+
     // Settings endpoints
     router.get('/settings', (req, res) => {
         res.json(settings.getAll());
